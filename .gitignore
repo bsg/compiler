@@ -1,0 +1,5 @@
+/target
+.vscode
+flamegraph.svg
+.DS_Store
+.VSCodeCounter
