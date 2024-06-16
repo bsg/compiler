@@ -91,7 +91,14 @@ fn emit_stmt(node: NodeRef, fn_ctx: &mut FnCtx) -> String {
             let reg = fn_ctx.next_reg();
             if let NodeKind::Ident(ident) = &node.left.clone().unwrap().kind {
                 fn_ctx.env.insert(ident.to_string(), reg);
-                format!("%{reg} = alloca i32, align 4\nstore i32 0, ptr %{reg}, align 4\n")
+                match emit_expr(node.right.clone().unwrap(), fn_ctx) {
+                    EmitExprRes::Imm(code) => format!(
+                        "%{reg} = alloca i32, align 4\nstore i32 {code}, ptr %{reg}, align 4\n"
+                    ),
+                    EmitExprRes::Reg(code, res_reg) => format!(
+                        "%{reg} = alloca i32, align 4\n{code}\nstore i32 %{res_reg}, ptr %{reg}, align 4\n"
+                    ),
+                }
             } else {
                 panic!()
             }
@@ -110,8 +117,14 @@ fn emit_expr(node: NodeRef, fn_ctx: &mut FnCtx) -> EmitExprRes {
         NodeKind::Int(i) => EmitExprRes::Imm(format!("{}", i)),
         NodeKind::Ident(ident) => {
             let reg = fn_ctx.next_reg();
-            EmitExprRes::Reg(format!("%{reg} = load i32, ptr %{}\n", fn_ctx.env.get(ident.as_ref()).unwrap()), reg)
-        },
+            EmitExprRes::Reg(
+                format!(
+                    "%{reg} = load i32, ptr %{}\n",
+                    fn_ctx.env.get(ident.as_ref()).unwrap()
+                ),
+                reg,
+            )
+        }
         NodeKind::InfixOp(op) => {
             let lhs = emit_expr(node.left.clone().unwrap(), fn_ctx);
             let rhs = emit_expr(node.right.clone().unwrap(), fn_ctx);
