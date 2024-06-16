@@ -102,7 +102,7 @@ impl Parser {
 
     // caller must ensure current token is Fn
     fn parse_fn(&mut self) -> Option<NodeRef> {
-        let mut args: Vec<Rc<str>> = Vec::new();
+        let mut args: Vec<(Rc<str>, Rc<str>)> = Vec::new();
 
         assert_eq!(self.curr_token, Some(Token::Fn));
         self.next_token();
@@ -113,8 +113,18 @@ impl Parser {
             self.next_token();
 
             loop {
-                match &self.curr_token {
-                    Some(Token::Ident(arg_ident)) => args.push(arg_ident.clone()),
+                match &self.curr_token.clone() {
+                    Some(Token::Ident(arg_ident)) => {
+                        self.next_token();
+                        assert_eq!(self.curr_token, Some(Token::Colon));
+                        self.next_token();
+
+                        if let Some(Token::Ident(ty_ident)) = &self.curr_token {
+                            args.push((arg_ident.clone(), ty_ident.clone()))
+                        } else {
+                            todo!()
+                        }
+                    },
                     Some(Token::Comma) => (),
                     _ => break,
                 }
@@ -661,8 +671,8 @@ mod tests {
     #[test]
     fn fn_expression() {
         assert_parse!(
-            "fn test(a, b, c) -> u32 {return a * b - c;}",
-            "Fn test(a, b, c) -> u32\
+            "fn test(a: u32, b: u32, c: u32) -> u32 {return a * b - c;}",
+            "Fn test(a: u32, b: u32, c: u32) -> u32\
             -Block\
             --Return\
             ---Sub\

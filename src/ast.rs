@@ -54,7 +54,7 @@ pub struct IfStmt {
 #[derive(PartialEq, Clone)]
 pub struct FnStmt {
     pub ident: Rc<str>,
-    pub args: Rc<[Rc<str>]>,
+    pub args: Rc<[(Rc<str>, Rc<str>)]>,
     pub ret_ty: Rc<str>,
 }
 
@@ -79,7 +79,7 @@ pub struct PairStmt {
 #[derive(Clone, PartialEq)]
 pub struct LetStmt {
     pub ty: Rc<str>,
-} 
+}
 
 #[derive(Clone, PartialEq)]
 pub enum NodeKind {
@@ -131,7 +131,14 @@ impl fmt::Debug for NodeKind {
 
 impl fmt::Display for FnStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.args.join(", ").as_str())
+        f.write_str(
+            self.args
+                .iter()
+                .map(|arg| format!("{}: {}", arg.0, arg.1))
+                .collect::<Vec<String>>()
+                .join(", ")
+                .as_str(),
+        )
     }
 }
 

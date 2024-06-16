@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::format, fs, rc::Rc};
+use std::{collections::HashMap, fs};
 
 use ast::{NodeKind, NodeRef, Op};
 use clap::Parser;
@@ -53,15 +53,24 @@ impl FnCtx {
 
 fn emit_fn(node: NodeRef) -> String {
     let mut fn_ctx = FnCtx {
-        next_reg: 1usize,
+        next_reg: 0usize,
         env: HashMap::new(),
     };
     match (&node.kind, &node.right) {
         (NodeKind::Fn(fn_stmt), Some(body)) => {
             let ident = &fn_stmt.ident;
             let ret_type = &fn_stmt.ret_ty;
+            let mut args = String::new();
+            for arg in fn_stmt.args.iter() {
+                let reg = fn_ctx.next_reg();
+                args += &format!("i32 %{reg}, ");
+            }
+            // pop trailing comma and whitespace
+            args.pop();
+            args.pop();
+            fn_ctx.next_reg();
             let body = emit_block(body.clone(), &mut fn_ctx);
-            format!("define {ret_type} @{ident}() {{{body}\n}}")
+            format!("define {ret_type} @{ident}({args}) {{{body}\n}}")
         }
         _ => panic!(),
     }
@@ -96,7 +105,7 @@ fn emit_stmt(node: NodeRef, fn_ctx: &mut FnCtx) -> String {
                         "%{reg} = alloca i32, align 4\nstore i32 {code}, ptr %{reg}, align 4\n"
                     ),
                     EmitExprRes::Reg(code, res_reg) => format!(
-                        "%{reg} = alloca i32, align 4\n{code}\nstore i32 %{res_reg}, ptr %{reg}, align 4\n"
+                        "%{reg} = alloca i32, align 4\n{code}store i32 %{res_reg}, ptr %{reg}, align 4"
                     ),
                 }
             } else {
