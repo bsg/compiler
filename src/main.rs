@@ -24,23 +24,31 @@ fn main() {
     let code = fs::read_to_string(args.path.unwrap()).unwrap();
 
     let mut ir = String::new();
-    if let Some(node) = crate::parser::Parser::new(&code).parse_expression(0) {
+    let ast = crate::parser::Parser::new(&code).parse();
+    for node in ast {
         if args.ast {
-            println!("{}", node);
+            println!("{}\n", node);
         } else {
             match &node.kind {
                 NodeKind::Fn(_) => ir += &emit_fn(node),
                 _ => (),
             }
+            ir += "\n\n";
         }
     }
 
     println!("{}", ir);
 }
 
+#[derive(Clone)]
+struct Var {
+    is_arg: bool,
+    reg: usize,
+}
+
 struct FnCtx {
     next_reg: usize,
-    env: HashMap<String, usize>,
+    env: HashMap<String, Var>,
 }
 
 impl FnCtx {
@@ -64,6 +72,9 @@ fn emit_fn(node: NodeRef) -> String {
             for arg in fn_stmt.args.iter() {
                 let reg = fn_ctx.next_reg();
                 args += &format!("i32 %{reg}, ");
+                fn_ctx
+                    .env
+                    .insert(arg.0.to_string(), Var { is_arg: true, reg });
             }
             // pop trailing comma and whitespace
             args.pop();
@@ -99,7 +110,9 @@ fn emit_stmt(node: NodeRef, fn_ctx: &mut FnCtx) -> String {
         NodeKind::Let(let_stmt) => {
             let reg = fn_ctx.next_reg();
             if let NodeKind::Ident(ident) = &node.left.clone().unwrap().kind {
-                fn_ctx.env.insert(ident.to_string(), reg);
+                fn_ctx
+                    .env
+                    .insert(ident.to_string(), Var { is_arg: false, reg });
                 match emit_expr(node.right.clone().unwrap(), fn_ctx) {
                     EmitExprRes::Imm(code) => format!(
                         "%{reg} = alloca i32, align 4\nstore i32 {code}, ptr %{reg}, align 4\n"
@@ -125,14 +138,34 @@ fn emit_expr(node: NodeRef, fn_ctx: &mut FnCtx) -> EmitExprRes {
     match &node.kind {
         NodeKind::Int(i) => EmitExprRes::Imm(format!("{}", i)),
         NodeKind::Ident(ident) => {
+            let var = fn_ctx.env.get(ident.as_ref()).unwrap().clone();
+            if var.is_arg {
+                EmitExprRes::Imm(format!("%{}", var.reg))
+            } else {
+                let reg = fn_ctx.next_reg();
+                EmitExprRes::Reg(format!("%{reg} = load i32, ptr %{}\n", var.reg), reg)
+            }
+        },
+        NodeKind::Call(call) => {
+            let mut args = String::new();
+            let mut code = String::new();
+            for node in call.args.iter() {
+                match emit_expr(node.clone(), fn_ctx) {
+                    EmitExprRes::Imm(code) => 
+                    {args += &format!("i32 {}, ", code)
+                },
+                    EmitExprRes::Reg(c, res_reg) => {
+                        code += &c;
+                        args += &format!("i32 %{}, ", res_reg)
+                    },
+                }
+            }
+            // remove trailing comma and whitespace
+            args.pop();
+            args.pop();
+            
             let reg = fn_ctx.next_reg();
-            EmitExprRes::Reg(
-                format!(
-                    "%{reg} = load i32, ptr %{}\n",
-                    fn_ctx.env.get(ident.as_ref()).unwrap()
-                ),
-                reg,
-            )
+            EmitExprRes::Reg(format!("{code}%{reg} = call i32 @{}({})\n", call.ident, args), reg)
         }
         NodeKind::InfixOp(op) => {
             let lhs = emit_expr(node.left.clone().unwrap(), fn_ctx);

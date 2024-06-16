@@ -88,11 +88,7 @@ impl Parser {
                 };
 
                 match lhs {
-                    Some(_) => Some(node!(
-                        NodeKind::If(IfStmt { condition: cond }),
-                        lhs,
-                        rhs
-                    )),
+                    Some(_) => Some(node!(NodeKind::If(IfStmt { condition: cond }), lhs, rhs)),
                     None => todo!(),
                 }
             }
@@ -124,7 +120,7 @@ impl Parser {
                         } else {
                             todo!()
                         }
-                    },
+                    }
                     Some(Token::Comma) => (),
                     _ => break,
                 }
@@ -137,7 +133,7 @@ impl Parser {
 
             let return_type = match self.curr_token.clone() {
                 Some(Token::Ident(ret_ident)) => ret_ident,
-                _ => todo!()
+                _ => todo!(),
             };
             self.next_token();
 
@@ -242,11 +238,7 @@ impl Parser {
             self.next_token();
         }
 
-        Some(node!(
-            NodeKind::Pair(PairStmt { key, value }),
-            None,
-            None
-        ))
+        Some(node!(NodeKind::Pair(PairStmt { key, value }), None, None))
     }
 
     pub fn parse_statement(&mut self) -> Option<NodeRef> {
@@ -262,9 +254,11 @@ impl Parser {
                 if let Some(Token::Ident(ty)) = self.curr_token.clone() {
                     self.next_token();
                     match self.curr_token {
-                        Some(Token::Assign) => {
-                            Some(node!(NodeKind::Let(LetStmt { ty }), lhs, self.parse_expression(0)))
-                        }
+                        Some(Token::Assign) => Some(node!(
+                            NodeKind::Let(LetStmt { ty }),
+                            lhs,
+                            self.parse_expression(0)
+                        )),
                         _ => todo!(),
                     }
                 } else {
@@ -365,6 +359,14 @@ impl Parser {
             }
         }
         Some(lhs)
+    }
+
+    pub fn parse(&mut self) -> Vec<NodeRef> {
+        let mut ast = Vec::new();
+        while let Some(node) = self.parse_expression(0) {
+            ast.push(node)
+        }
+        ast
     }
 }
 
