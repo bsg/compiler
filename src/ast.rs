@@ -26,31 +26,6 @@ pub enum Op {
     Call,
     Index,
     Colon,
-    Range,
-}
-
-impl std::fmt::Display for Op {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Op::Assign => f.write_str("="),
-            Op::Eq => f.write_str("=="),
-            Op::NotEq => f.write_str("!="),
-            Op::Lt => f.write_str("<"),
-            Op::Gt => f.write_str(">"),
-            Op::Le => f.write_str("<="),
-            Op::Ge => f.write_str(">="),
-            Op::Add => f.write_str("+"),
-            Op::Sub => f.write_str("-"),
-            Op::Mul => f.write_str("*"),
-            Op::Div => f.write_str("/"),
-            Op::Mod => f.write_str("%"),
-            Op::Neg => f.write_str("-"),
-            Op::Not => f.write_str("!"),
-            Op::And => f.write_str("&&"),
-            Op::Or => f.write_str("||"),
-            _ => Ok(()),
-        }
-    }
 }
 
 impl Op {
@@ -67,42 +42,38 @@ impl Op {
 pub type NodeRef = Rc<Node>;
 
 #[derive(Clone, PartialEq)]
-pub struct BlockExpression {
+pub struct BlockStmt {
     pub statements: Rc<[NodeRef]>,
 }
 
 #[derive(Clone, PartialEq)]
-pub struct IfExpression {
+pub struct IfStmt {
     pub condition: NodeRef,
 }
 
 #[derive(PartialEq, Clone)]
-pub struct FnExpression {
+pub struct FnStmt {
+    pub ident: Rc<str>,
     pub args: Rc<[Rc<str>]>,
+    pub ret: Rc<str>,
 }
 
 #[derive(Clone, PartialEq)]
-pub struct CallExpression {
+pub struct CallStmt {
     pub ident: Rc<str>,
     pub args: Rc<[NodeRef]>,
 }
 
 #[derive(Clone, PartialEq)]
-pub struct IndexExpression {
+pub struct IndexStmt {
     pub ident: Rc<str>,
     pub index: NodeRef,
 }
 
 #[derive(Clone, PartialEq)]
-pub struct PairExpression {
+pub struct PairStmt {
     pub key: NodeRef,
     pub value: NodeRef,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct RangeExpression {
-    pub lower: NodeRef,
-    pub upper: NodeRef,
 }
 
 #[derive(Clone, PartialEq)]
@@ -115,15 +86,13 @@ pub enum NodeKind {
     PrefixOp(Op),
     Let,
     Return,
-    If(IfExpression),
-    Block(BlockExpression),
-    Fn(FnExpression),
-    Call(CallExpression),
+    If(IfStmt),
+    Block(BlockStmt),
+    Fn(FnStmt),
+    Call(CallStmt),
     Array(Vec<Rc<Node>>),
-    Index(IndexExpression),
-    Pair(PairExpression),
-    Range(RangeExpression),
-    RangeInclusive(RangeExpression),
+    Index(IndexStmt),
+    Pair(PairStmt),
 }
 
 #[derive(Clone, PartialEq)]
@@ -136,7 +105,7 @@ pub struct Node {
 impl fmt::Debug for NodeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Ident(arg0) => f.debug_tuple("Ident").field(arg0).finish(),
+            Self::Ident(arg0) => write!(f, "Ident({})", arg0),
             Self::Int(arg0) => f.debug_tuple("Int").field(arg0).finish(),
             Self::Bool(arg0) => f.debug_tuple("Bool").field(arg0).finish(),
             Self::Str(arg0) => f.debug_tuple("Str").field(arg0).finish(),
@@ -146,20 +115,16 @@ impl fmt::Debug for NodeKind {
             Self::Return => write!(f, "Return"),
             Self::If(arg0) => f.write_fmt(format_args!("If\n{:?}", arg0)),
             Self::Block(arg0) => f.debug_tuple("Block").field(arg0).finish(),
-            Self::Fn(arg0) => write!(f, "Fn({:?})", arg0),
+            Self::Fn(arg0) => write!(f, "Fn {:?}({:?}) -> {}", arg0.ident, arg0, arg0.ret),
             Self::Call(arg0) => write!(f, "Call(\n{:?})", arg0),
             Self::Array(arg0) => write!(f, "Array{:?}", arg0),
             Self::Index(arg0) => write!(f, "{:?}", arg0),
             Self::Pair(pair) => write!(f, "Pair({:?}, {:?})", pair.key, pair.value),
-            Self::Range(range) => write!(f, "Range({:?}, {:?})", range.lower, range.upper),
-            Self::RangeInclusive(range) => {
-                write!(f, "RangeInclusive({:?}, {:?})", range.lower, range.upper)
-            }
         }
     }
 }
 
-impl fmt::Display for FnExpression {
+impl fmt::Display for FnStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.args.join(", ").as_str())
     }
@@ -182,16 +147,12 @@ impl fmt::Display for Node {
                     NodeKind::Let => "Let\n".to_string(),
                     NodeKind::Return => "Return\n".to_string(),
                     NodeKind::If(_) => "If\n".to_string(),
-                    NodeKind::Fn(args) => format!("Fn({})\n", args),
+                    NodeKind::Fn(f) => format!("Fn {}({}) -> {}\n", f.ident, f, f.ret),
                     NodeKind::Block(_) => "Block\n".to_string(),
                     NodeKind::Call(call) => format!("Call {}\n", call.ident),
                     NodeKind::Array(a) => format!("Array{:?}\n", a),
                     NodeKind::Index(idx) => format!("{:?}\n", idx),
                     NodeKind::Pair(pair) => format!("Pair({:?}, {:?})\n", pair.key, pair.value),
-                    NodeKind::Range(range) =>
-                        format!("Range({:?}, {:?})", range.lower, range.upper),
-                    NodeKind::RangeInclusive(range) =>
-                        format!("RangeInclusive({:?}, {:?})", range.lower, range.upper),
                 }
             ))?;
             match &node.kind {
@@ -260,7 +221,7 @@ impl fmt::Debug for Node {
     }
 }
 
-impl fmt::Debug for BlockExpression {
+impl fmt::Debug for BlockStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for stmt in self.statements.iter() {
             f.write_fmt(format_args!("{:?}", stmt))?;
@@ -269,25 +230,25 @@ impl fmt::Debug for BlockExpression {
     }
 }
 
-impl fmt::Debug for IfExpression {
+impl fmt::Debug for IfStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!("{:?})", self.condition))
     }
 }
 
-impl fmt::Debug for FnExpression {
+impl fmt::Debug for FnStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!("{:?})", self.args))
     }
 }
 
-impl fmt::Debug for CallExpression {
+impl fmt::Debug for CallStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!("{:?})", self.args))
     }
 }
 
-impl fmt::Debug for IndexExpression {
+impl fmt::Debug for IndexStmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_fmt(format_args!("{}[{:?}]", self.ident, self.index))
     }

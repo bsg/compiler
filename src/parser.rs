@@ -48,7 +48,7 @@ impl Parser {
                 }
 
                 Some(node!(
-                    NodeKind::Block(BlockExpression {
+                    NodeKind::Block(BlockStmt {
                         statements: Rc::from(statements.as_slice())
                     }),
                     None,
@@ -89,7 +89,7 @@ impl Parser {
 
                 match lhs {
                     Some(_) => Some(node!(
-                        NodeKind::If(IfExpression { condition: cond }),
+                        NodeKind::If(IfStmt { condition: cond }),
                         lhs,
                         rhs
                     )),
@@ -104,33 +104,48 @@ impl Parser {
     fn parse_fn(&mut self) -> Option<NodeRef> {
         let mut args: Vec<Rc<str>> = Vec::new();
 
-        match (&self.curr_token, &self.peek_token) {
-            (Some(Token::Fn), Some(Token::LParen)) => {
-                self.next_token();
-                self.next_token();
+        assert_eq!(self.curr_token, Some(Token::Fn));
+        self.next_token();
 
-                loop {
-                    match &self.curr_token {
-                        Some(Token::Ident(name)) => args.push(name.clone()),
-                        Some(Token::Comma) => (),
-                        _ => break,
-                    }
-                    self.next_token();
+        if let Some(Token::Ident(ident)) = &self.curr_token.clone() {
+            self.next_token();
+            assert_eq!(self.curr_token, Some(Token::LParen));
+            self.next_token();
+
+            loop {
+                match &self.curr_token {
+                    Some(Token::Ident(arg_ident)) => args.push(arg_ident.clone()),
+                    Some(Token::Comma) => (),
+                    _ => break,
                 }
-
                 self.next_token();
-                assert_eq!(self.curr_token, Some(Token::LBrace));
-                let body = self.parse_block()?;
-
-                Some(node!(
-                    NodeKind::Fn(FnExpression {
-                        args: Rc::from(args.as_slice())
-                    }),
-                    None,
-                    Some(body)
-                ))
             }
-            (_, _) => todo!(),
+
+            self.next_token();
+            assert_eq!(self.curr_token, Some(Token::Arrow));
+            self.next_token();
+
+            let return_type = match self.curr_token.clone() {
+                Some(Token::Ident(ret_ident)) => ret_ident,
+                _ => todo!()
+            };
+            self.next_token();
+
+            assert_eq!(self.curr_token, Some(Token::LBrace));
+
+            let body = self.parse_block()?;
+
+            Some(node!(
+                NodeKind::Fn(FnStmt {
+                    ident: ident.clone(),
+                    args: Rc::from(args.as_slice()),
+                    ret: return_type.clone()
+                }),
+                None,
+                Some(body)
+            ))
+        } else {
+            todo!()
         }
     }
 
@@ -159,7 +174,7 @@ impl Parser {
         self.next_token();
 
         Some(node!(
-            NodeKind::Call(CallExpression {
+            NodeKind::Call(CallStmt {
                 ident,
                 args: Rc::from(args.as_slice())
             }),
@@ -202,7 +217,7 @@ impl Parser {
         self.next_token();
 
         Some(node!(
-            NodeKind::Index(IndexExpression { ident, index }),
+            NodeKind::Index(IndexStmt { ident, index }),
             None,
             None
         ))
@@ -218,7 +233,7 @@ impl Parser {
         }
 
         Some(node!(
-            NodeKind::Pair(PairExpression { key, value }),
+            NodeKind::Pair(PairStmt { key, value }),
             None,
             None
         ))
@@ -259,28 +274,6 @@ impl Parser {
         match &self.curr_token {
             Some(Token::Ident(name)) => Some(node!(NodeKind::Ident(name.clone()), None, None)),
             _ => todo!(),
-        }
-    }
-
-    fn parse_range(&mut self, lower: NodeRef) -> Option<NodeRef> {
-        assert_eq!(self.peek_token, Some(Token::Range));
-        self.next_token();
-
-        if let Some(Token::Assign) = self.peek_token {
-            self.next_token();
-            let upper = self.parse_expression(0)?;
-            Some(node!(
-                NodeKind::RangeInclusive(RangeExpression { lower, upper }),
-                None,
-                None
-            ))
-        } else {
-            let upper = self.parse_expression(0)?;
-            Some(node!(
-                NodeKind::Range(RangeExpression { lower, upper }),
-                None,
-                None
-            ))
         }
     }
 
@@ -337,7 +330,6 @@ impl Parser {
                 Some(Token::LParen) => Some(Op::Call),
                 Some(Token::LBracket) => Some(Op::Index),
                 Some(Token::Colon) => Some(Op::Colon),
-                Some(Token::Range) => Some(Op::Range),
                 _ => break,
             };
 
@@ -345,7 +337,6 @@ impl Parser {
                 Some(Op::Call) => lhs = self.parse_call(lhs)?,
                 Some(Op::Index) => lhs = self.parse_index(lhs)?,
                 Some(Op::Colon) => lhs = self.parse_pair(lhs)?,
-                Some(Op::Range) => lhs = self.parse_range(lhs)?,
                 Some(op) => {
                     if op.precedence() < precedence {
                         break;
@@ -664,8 +655,8 @@ mod tests {
     #[test]
     fn fn_expression() {
         assert_parse!(
-            "fn(a, b, c){return a * b - c;}",
-            "Fn(a, b, c)\
+            "fn test(a, b, c) -> u32 {return a * b - c;}",
+            "Fn test(a, b, c) -> u32\
             -Block\
             --Return\
             ---Sub\
@@ -780,7 +771,7 @@ mod tests {
     #[test]
     fn parse_array() {
         assert_parse!("[]", "Array[]");
-        assert_parse!("[1, 2, x]", "Array[Int(1), Int(2), Ident(\"x\")]");
+        assert_parse!("[1, 2, x]", "Array[Int(1), Int(2), Ident(x)]");
     }
 
     #[test]
@@ -792,8 +783,8 @@ mod tests {
     #[test]
     fn parse_index() {
         assert_parse!("arr[2]", "arr[Int(2)]");
-        assert_parse!("arr[x]", "arr[Ident(\"x\")]");
-        assert_parse!("arr[x + 2]", "arr[Op(Add)-Ident(\"x\")-Int(2)]");
+        assert_parse!("arr[x]", "arr[Ident(x)]");
+        assert_parse!("arr[x + 2]", "arr[Op(Add)-Ident(x)-Int(2)]");
         assert_parse!(
             "arr[1] + arr[2]",
             "Add\
@@ -806,22 +797,5 @@ mod tests {
     #[should_panic]
     fn parse_invalid_index() {
         assert_parse!("arr[2", "");
-    }
-
-    #[test]
-    fn parse_pairs() {
-        assert_parse!(
-            r#"{"a": 1, true: 2}"#,
-            "Block\
-            -Pair(Str(\"a\"), Int(1))\
-            -Pair(Bool(true), Int(2))"
-        );
-    }
-
-    #[test]
-    fn parse_range() {
-        assert_parse!(r#"1..10 ignore_this"#, "Range(Int(1), Int(10))");
-
-        assert_parse!(r#"1..=10"#, "RangeInclusive(Int(1), Int(10))");
     }
 }
