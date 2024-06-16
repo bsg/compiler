@@ -139,7 +139,7 @@ impl Parser {
                 NodeKind::Fn(FnStmt {
                     ident: ident.clone(),
                     args: Rc::from(args.as_slice()),
-                    ret: return_type.clone()
+                    ret_ty: return_type.clone()
                 }),
                 None,
                 Some(body)
@@ -247,12 +247,18 @@ impl Parser {
 
                 let lhs = self.parse_ident();
                 self.next_token();
-
-                match self.curr_token {
-                    Some(Token::Assign) => {
-                        Some(node!(NodeKind::Let, lhs, self.parse_expression(0)))
+                assert_eq!(self.curr_token, Some(Token::Colon));
+                self.next_token();
+                if let Some(Token::Ident(ty)) = self.curr_token.clone() {
+                    self.next_token();
+                    match self.curr_token {
+                        Some(Token::Assign) => {
+                            Some(node!(NodeKind::Let(LetStmt { ty }), lhs, self.parse_expression(0)))
+                        }
+                        _ => todo!(),
                     }
-                    _ => todo!(),
+                } else {
+                    panic!()
                 }
             }
             Some(Token::Return) => {
@@ -566,8 +572,8 @@ mod tests {
     #[test]
     fn let_statement() {
         assert_parse!(
-            "let x = 1 + 2",
-            "Let\
+            "let x: i32 = 1 + 2",
+            "Let i32\
             -Ident(x)\
             -Add\
             --Int(1)\
@@ -589,12 +595,12 @@ mod tests {
     #[test]
     fn block_with_semicolons() {
         assert_parse!(
-            "{let x = 1;let y = 2;return x + y}",
+            "{let x: u32 = 1;let y: u32 = 2;return x + y}",
             "Block\
-            -Let\
+            -Let u32\
             --Ident(x)\
             --Int(1)\
-            -Let\
+            -Let u32\
             --Ident(y)\
             --Int(2)\
             -Return\

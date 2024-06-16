@@ -55,7 +55,7 @@ pub struct IfStmt {
 pub struct FnStmt {
     pub ident: Rc<str>,
     pub args: Rc<[Rc<str>]>,
-    pub ret: Rc<str>,
+    pub ret_ty: Rc<str>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -77,6 +77,11 @@ pub struct PairStmt {
 }
 
 #[derive(Clone, PartialEq)]
+pub struct LetStmt {
+    pub ty: Rc<str>,
+} 
+
+#[derive(Clone, PartialEq)]
 pub enum NodeKind {
     Ident(Rc<str>),
     Int(i64),
@@ -84,7 +89,7 @@ pub enum NodeKind {
     Str(Rc<str>),
     InfixOp(Op),
     PrefixOp(Op),
-    Let,
+    Let(LetStmt),
     Return,
     If(IfStmt),
     Block(BlockStmt),
@@ -111,11 +116,11 @@ impl fmt::Debug for NodeKind {
             Self::Str(arg0) => f.debug_tuple("Str").field(arg0).finish(),
             Self::InfixOp(arg0) => f.debug_tuple("Op").field(arg0).finish(),
             Self::PrefixOp(arg0) => f.debug_tuple("Op").field(arg0).finish(),
-            Self::Let => write!(f, "Let"),
+            Self::Let(l) => write!(f, "Let {}", l.ty),
             Self::Return => write!(f, "Return"),
             Self::If(arg0) => f.write_fmt(format_args!("If\n{:?}", arg0)),
             Self::Block(arg0) => f.debug_tuple("Block").field(arg0).finish(),
-            Self::Fn(arg0) => write!(f, "Fn {:?}({:?}) -> {}", arg0.ident, arg0, arg0.ret),
+            Self::Fn(arg0) => write!(f, "Fn {:?}({:?}) -> {}", arg0.ident, arg0, arg0.ret_ty),
             Self::Call(arg0) => write!(f, "Call(\n{:?})", arg0),
             Self::Array(arg0) => write!(f, "Array{:?}", arg0),
             Self::Index(arg0) => write!(f, "{:?}", arg0),
@@ -144,10 +149,10 @@ impl fmt::Display for Node {
                     NodeKind::Str(s) => format!("Str({})\n", s),
                     NodeKind::InfixOp(op) => format!("{:?}\n", op),
                     NodeKind::PrefixOp(op) => format!("{:?}\n", op),
-                    NodeKind::Let => "Let\n".to_string(),
+                    NodeKind::Let(l) => format!("Let {}\n", l.ty),
                     NodeKind::Return => "Return\n".to_string(),
                     NodeKind::If(_) => "If\n".to_string(),
-                    NodeKind::Fn(f) => format!("Fn {}({}) -> {}\n", f.ident, f, f.ret),
+                    NodeKind::Fn(f) => format!("Fn {}({}) -> {}\n", f.ident, f, f.ret_ty),
                     NodeKind::Block(_) => "Block\n".to_string(),
                     NodeKind::Call(call) => format!("Call {}\n", call.ident),
                     NodeKind::Array(a) => format!("Array{:?}\n", a),
