@@ -87,6 +87,12 @@ impl FnCtx {
         self.next_reg += 1;
         reg
     }
+
+    pub fn next_label(&mut self) -> usize {
+        let label = self.next_label;
+        self.next_label += 1;
+        label
+    }
 }
 
 fn emit_fn(ctx: &mut Ctx, node: NodeRef) -> String {
@@ -183,6 +189,28 @@ fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> String {
                 panic!()
             }
         }
+        NodeKind::If(if_stmt) => {
+            let true_block = emit_block(ctx, fn_ctx, node.left.clone().unwrap());
+            let false_block = emit_block(ctx, fn_ctx, node.right.clone().unwrap());
+            let l_true = fn_ctx.next_label();
+            let l_false = fn_ctx.next_label();
+            let l_merge = fn_ctx.next_label();
+            match emit_expr(ctx, fn_ctx, if_stmt.condition.clone()) {
+                EmitExprRes::Imm(imm) => {
+                    format!(
+                        "br i1 {}, label %l0, label %l1\nl{l_true}:{true_block}\nl{l_false}:{false_block}",
+                        imm.code,
+                    )
+                }
+                EmitExprRes::Reg(r) => {
+                    format!(
+                        "{}br i1 %{}, label %l0, label %l1\nl{l_true}:{true_block}\nl{l_false}:{false_block}",
+                        r.code,
+                        r.reg,
+                    )
+                }
+            }
+        }
         _ => "".to_string(),
     }
 }
@@ -272,34 +300,68 @@ fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> EmitExprRes {
         NodeKind::InfixOp(op) => {
             let lhs = emit_expr(_ctx, fn_ctx, node.left.clone().unwrap());
             let rhs = emit_expr(_ctx, fn_ctx, node.right.clone().unwrap());
-            let op = match op {
-                Op::Add => "add nsw i32",
-                Op::Sub => "sub nsw i32",
-                Op::Mul => "mul nsw i32",
-                Op::Div => "sdiv i32",
-                Op::Assign => "",
+            // TODO ret_bool is temporary, impl emit_op()
+            let (op, ret_bool) = match op {
+                Op::Add => ("add nsw i32", false),
+                Op::Sub => ("sub nsw i32", false),
+                Op::Mul => ("mul nsw i32", false),
+                Op::Div => ("sdiv i32", false),
+                Op::Gt => ("icmp sgt i32", true),
+                Op::Assign => ("", false),
                 _ => unimplemented!(),
             };
             let reg = fn_ctx.next_reg();
             // TODO type checking
             match (lhs, rhs) {
                 (EmitExprRes::Imm(lhs), EmitExprRes::Imm(rhs)) => EmitExprRes::Reg(Reg {
-                    ty: lhs.ty,
+                    ty: if ret_bool {
+                        Type {
+                            ident: "bool".to_string(),
+                            llvm_ty: LlvmTy::I1,
+                            align: 1,
+                        }
+                    } else {
+                        lhs.ty
+                    },
                     code: format!("%{reg} = {op} {}, {}\n", lhs.code, rhs.code),
                     reg,
                 }),
                 (EmitExprRes::Imm(lhs), EmitExprRes::Reg(rhs)) => EmitExprRes::Reg(Reg {
-                    ty: lhs.ty,
+                    ty: if ret_bool {
+                        Type {
+                            ident: "bool".to_string(),
+                            llvm_ty: LlvmTy::I1,
+                            align: 1,
+                        }
+                    } else {
+                        lhs.ty
+                    },
                     code: format!("{}%{reg} = {op} {}, %{}\n", rhs.reg, lhs.code, rhs.reg),
                     reg,
                 }),
                 (EmitExprRes::Reg(lhs), EmitExprRes::Imm(rhs)) => EmitExprRes::Reg(Reg {
-                    ty: lhs.ty,
+                    ty: if ret_bool {
+                        Type {
+                            ident: "bool".to_string(),
+                            llvm_ty: LlvmTy::I1,
+                            align: 1,
+                        }
+                    } else {
+                        lhs.ty
+                    },
                     code: format!("{}%{reg} = {op} %{}, {}\n", lhs.code, lhs.reg, rhs.code),
                     reg,
                 }),
                 (EmitExprRes::Reg(lhs), EmitExprRes::Reg(rhs)) => EmitExprRes::Reg(Reg {
-                    ty: lhs.ty,
+                    ty: if ret_bool {
+                        Type {
+                            ident: "bool".to_string(),
+                            llvm_ty: LlvmTy::I1,
+                            align: 1,
+                        }
+                    } else {
+                        lhs.ty
+                    },
                     code: format!(
                         "{}{}%{reg} = {op} %{}, %{}\n",
                         lhs.code, rhs.code, lhs.reg, rhs.reg
