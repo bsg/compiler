@@ -5,3 +5,4 @@ flamegraph.svg
 .VSCodeCounter
 out
 out.ll
+ast.txt
