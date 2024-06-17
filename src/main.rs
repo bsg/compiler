@@ -99,12 +99,7 @@ fn emit_fn(ctx: &mut Ctx, node: NodeRef) -> String {
     match (&node.kind, &node.right) {
         (NodeKind::Fn(fn_stmt), Some(body)) => {
             let ident = &fn_stmt.ident;
-            let ret_type = &ctx
-                .types
-                .get(&fn_stmt.ret_ty.to_string())
-                .unwrap()
-                .llvm_ty
-                .clone();
+            let ret_type = &ctx.get_type(&fn_stmt.ret_ty).unwrap().llvm_ty;
             let mut args = String::new();
             for arg in fn_stmt.args.iter() {
                 let reg = fn_ctx.next_reg();
@@ -316,11 +311,12 @@ fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> EmitExprRes {
             let rhs = emit_expr(_ctx, fn_ctx, node.right.clone().unwrap());
             // TODO ret_bool is temporary, impl emit_op()
             let (op, ret_bool) = match op {
-                Op::Add => ("add nsw i32", false),
-                Op::Sub => ("sub nsw i32", false),
-                Op::Mul => ("mul nsw i32", false),
-                Op::Div => ("sdiv i32", false),
-                Op::Gt => ("icmp sgt i32", true),
+                Op::Add => ("add nsw", false),
+                Op::Sub => ("sub nsw", false),
+                Op::Mul => ("mul nsw", false),
+                Op::Div => ("sdiv", false),
+                Op::Gt => ("icmp sgt", true),
+                Op::Lt => ("icmp slt", true),
                 _ => unimplemented!(),
             };
             let reg = fn_ctx.next_reg();
@@ -330,38 +326,59 @@ fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> EmitExprRes {
                     ty: if ret_bool {
                         Type::new("bool", LlvmTy::I1, 1)
                     } else {
-                        lhs.ty
+                        lhs.ty.clone()
                     },
-                    code: format!("%{reg} = {op} {}, {}\n", lhs.code, rhs.code),
+                    code: format!(
+                        "%{reg} = {op} {} {}, {}\n",
+                        lhs.ty.llvm_ty.as_str(),
+                        lhs.code,
+                        rhs.code
+                    ),
                     reg,
                 }),
                 (EmitExprRes::Imm(lhs), EmitExprRes::Reg(rhs)) => EmitExprRes::Reg(Reg {
                     ty: if ret_bool {
                         Type::new("bool", LlvmTy::I1, 1)
                     } else {
-                        lhs.ty
+                        lhs.ty.clone()
                     },
-                    code: format!("{}%{reg} = {op} {}, %{}\n", rhs.reg, lhs.code, rhs.reg),
+                    code: format!(
+                        "{}%{reg} = {op} {} {}, %{}\n",
+                        rhs.reg,
+                        lhs.ty.llvm_ty.as_str(),
+                        lhs.code,
+                        rhs.reg
+                    ),
                     reg,
                 }),
                 (EmitExprRes::Reg(lhs), EmitExprRes::Imm(rhs)) => EmitExprRes::Reg(Reg {
                     ty: if ret_bool {
                         Type::new("bool", LlvmTy::I1, 1)
                     } else {
-                        lhs.ty
+                        lhs.ty.clone()
                     },
-                    code: format!("{}%{reg} = {op} %{}, {}\n", lhs.code, lhs.reg, rhs.code),
+                    code: format!(
+                        "{}%{reg} = {op} {} %{}, {}\n",
+                        lhs.code,
+                        lhs.ty.llvm_ty.as_str(),
+                        lhs.reg,
+                        rhs.code
+                    ),
                     reg,
                 }),
                 (EmitExprRes::Reg(lhs), EmitExprRes::Reg(rhs)) => EmitExprRes::Reg(Reg {
                     ty: if ret_bool {
                         Type::new("bool", LlvmTy::I1, 1)
                     } else {
-                        lhs.ty
+                        lhs.ty.clone()
                     },
                     code: format!(
-                        "{}{}%{reg} = {op} %{}, %{}\n",
-                        lhs.code, rhs.code, lhs.reg, rhs.reg
+                        "{}{}%{reg} = {op} {} %{}, %{}\n",
+                        lhs.code,
+                        rhs.code,
+                        lhs.ty.llvm_ty.as_str(),
+                        lhs.reg,
+                        rhs.reg
                     ),
                     reg,
                 }),
@@ -394,9 +411,8 @@ fn main() {
         if args.ast {
             println!("{}\n", node);
         } else {
-            match &node.kind {
-                NodeKind::Fn(_) => ir += &emit_fn(&mut ctx, node),
-                _ => (),
+            if let NodeKind::Fn(_) = &node.kind {
+                ir += &emit_fn(&mut ctx, node)
             }
             ir += "\n\n";
         }
