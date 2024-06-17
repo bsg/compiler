@@ -18,4 +18,8 @@ define i32 @add(i32 %0, i32 %1) {
 ret i32 %3
 }
 
+define i1 @foo(i1 %0) {
+ret i1 %0
+}
+
 
