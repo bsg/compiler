@@ -12,5 +12,6 @@ fn add(a: i32, b: i32) -> i32 {
 }
 
 fn foo(a: bool) -> bool {
+    let b: bool = true;
     return a;
 }

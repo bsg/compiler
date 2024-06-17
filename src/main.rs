@@ -30,6 +30,7 @@ impl LlvmTy {
 struct Type {
     ident: String,
     llvm_ty: LlvmTy,
+    align: u8,
 }
 
 #[derive(Clone)]
@@ -51,6 +52,7 @@ impl Default for Ctx {
             Type {
                 ident: "bool".to_string(),
                 llvm_ty: LlvmTy::I1,
+                align: 1,
             },
         );
         types.insert(
@@ -58,6 +60,7 @@ impl Default for Ctx {
             Type {
                 ident: "i32".to_string(),
                 llvm_ty: LlvmTy::I32,
+                align: 4,
             },
         );
         types.insert(
@@ -65,6 +68,7 @@ impl Default for Ctx {
             Type {
                 ident: "u32".to_string(),
                 llvm_ty: LlvmTy::I32,
+                align: 4,
             },
         );
         Self { types }
@@ -103,16 +107,14 @@ fn emit_fn(ctx: &mut Ctx, node: NodeRef) -> String {
             let mut args = String::new();
             for arg in fn_stmt.args.iter() {
                 let reg = fn_ctx.next_reg();
-                args += &format!("{} %{reg}, ", ctx.types.get(arg.1.as_ref()).unwrap().llvm_ty.as_str());
+                let ty = ctx.types.get(arg.1.as_ref()).unwrap();
+                args += &format!("{} %{reg}, ", ty.llvm_ty.as_str());
                 fn_ctx.env.insert(
                     arg.0.to_string(),
                     Var {
                         is_arg: true,
                         reg,
-                        ty: Type {
-                            ident: arg.1.to_string(),
-                            llvm_ty: ctx.types.get(arg.1.as_ref()).unwrap().llvm_ty.clone(),
-                        },
+                        ty: ty.clone(),
                     },
                 );
             }
@@ -145,7 +147,7 @@ fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> String {
     match &node.kind {
         NodeKind::Return => match emit_expr(ctx, fn_ctx, node.right.clone().unwrap()) {
             EmitExprRes::Imm(imm) => format!("ret {} {}", imm.ty.llvm_ty.as_str(), imm.code),
-            EmitExprRes::Reg(r) => format!("{}ret i32 %{}", r.code, r.reg),
+            EmitExprRes::Reg(r) => format!("{}ret {} %{}", r.code, r.ty.llvm_ty.as_str(), r.reg),
         },
         NodeKind::Let(let_stmt) => {
             let reg = fn_ctx.next_reg();
@@ -155,20 +157,26 @@ fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> String {
                     Var {
                         is_arg: false,
                         reg,
-                        ty: Type {
-                            ident: ident.to_string(),
-                            llvm_ty: ctx.types.get(let_stmt.ty.as_ref()).unwrap().llvm_ty.clone(),
-                        },
+                        ty: ctx.types.get(let_stmt.ty.as_ref()).unwrap().clone(),
                     },
                 );
                 match emit_expr(ctx, fn_ctx, node.right.clone().unwrap()) {
                     EmitExprRes::Imm(imm) => format!(
-                        "%{reg} = alloca i32, align 4\nstore i32 {}, ptr %{reg}, align 4\n",
-                        imm.code
+                        "%{reg} = alloca {}, align {}\nstore {} {}, ptr %{reg}, align {}\n",
+                        imm.ty.llvm_ty.as_str(),
+                        imm.ty.align,
+                        imm.ty.llvm_ty.as_str(),
+                        imm.code,
+                        imm.ty.align,
                     ),
                     EmitExprRes::Reg(r) => format!(
-                        "%{reg} = alloca i32, align 4\n{}store i32 %{}, ptr %{reg}, align 4",
-                        r.code, r.reg
+                        "%{reg} = alloca {}, align {}\n{}store {} %{}, ptr %{reg}, align {}",
+                        r.ty.llvm_ty.as_str(),
+                        r.ty.align,
+                        r.code,
+                        r.ty.llvm_ty.as_str(),
+                        r.reg,
+                        r.ty.align,
                     ),
                 }
             } else {
@@ -201,8 +209,17 @@ fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> EmitExprRes {
             ty: Type {
                 ident: "i32".to_string(),
                 llvm_ty: LlvmTy::I32,
+                align: 4,
             },
             code: format!("{}", i),
+        }),
+        NodeKind::Bool(b) => EmitExprRes::Imm(Imm {
+            ty: Type {
+                ident: "bool".to_string(),
+                llvm_ty: LlvmTy::I1,
+                align: 1,
+            },
+            code: format!("{}", b),
         }),
         NodeKind::Ident(ident) => {
             let var = fn_ctx.env.get(ident.as_ref()).unwrap().clone();
@@ -246,6 +263,7 @@ fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> EmitExprRes {
                 ty: Type {
                     ident: "u32".to_string(),
                     llvm_ty: LlvmTy::I32,
+                    align: 4,
                 },
                 code: format!("{code}%{reg} = call i32 @{}({})\n", call.ident, args),
                 reg,
