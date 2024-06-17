@@ -1,5 +1,6 @@
 fn main(argc: i32) -> i32 {
-    let x: i32 = max(3, 4);
+    let x: i32 = 0;
+    x = max(3, 4);
     return add(x, square(2));
 }
 

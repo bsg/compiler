@@ -211,6 +211,39 @@ fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> String {
                 }
             }
         }
+        NodeKind::InfixOp(op) => {
+            match op {
+                Op::Assign => {
+                    if let NodeKind::Ident(lhs_ident) = &node.left.clone().unwrap().kind {
+                        let lhs = fn_ctx.env.get(&lhs_ident.to_string()).unwrap().reg;
+                        match emit_expr(ctx, fn_ctx, node.right.clone().unwrap()) {
+                            EmitExprRes::Imm(imm) => {
+                                format!(
+                                    "store {} {}, ptr %{}, align {}",
+                                    imm.ty.llvm_ty.as_str(),
+                                    imm.code,
+                                    lhs,
+                                    imm.ty.align
+                                )
+                            },
+                            EmitExprRes::Reg(r) => {
+                                format!(
+                                    "{}store {} %{}, ptr %{}, align {}",
+                                    r.code,
+                                    r.ty.llvm_ty.as_str(),
+                                    r.reg,
+                                    lhs,
+                                    r.ty.align
+                                )
+                            },
+                        }
+                    } else {
+                        panic!()
+                    }
+                },
+                _ => unimplemented!()
+            }
+        }
         _ => "".to_string(),
     }
 }
@@ -307,7 +340,6 @@ fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> EmitExprRes {
                 Op::Mul => ("mul nsw i32", false),
                 Op::Div => ("sdiv i32", false),
                 Op::Gt => ("icmp sgt i32", true),
-                Op::Assign => ("", false),
                 _ => unimplemented!(),
             };
             let reg = fn_ctx.next_reg();
