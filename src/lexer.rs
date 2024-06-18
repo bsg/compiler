@@ -2,8 +2,8 @@ use std::{rc::Rc, str};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
-    Illegal,
     Eof,
+    Illegal,
     Ident(Rc<str>),
     Int(Rc<str>),
     Str(Rc<str>),
@@ -126,7 +126,7 @@ impl Tokens {
         Rc::from(self.input[pos_start + 1..self.position].to_string())
     }
 
-    fn next_token(&mut self) -> Token {
+    pub fn next_token(&mut self) -> Token {
         self.skip_whitespace();
         let token = match self.ch {
             Some(b'=') => match self.peek_char() {
