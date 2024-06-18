@@ -2,6 +2,9 @@ use std::{collections::HashMap, fs};
 
 use ast::{BinOpNode, IfNode, Node, NodeRef, Op};
 use clap::Parser;
+use llvm_sys::target_machine::{
+    LLVMGetDefaultTargetTriple, LLVMGetFirstTarget, LLVMGetHostCPUName,
+};
 
 mod ast;
 mod lexer;
@@ -488,38 +491,89 @@ fn main() {
 
     unsafe {
         if llvm_sys::target::LLVM_InitializeNativeTarget() != 0 {
-            panic!("Could not initialise target");
+            panic!();
         }
-        if llvm_sys::target::LLVM_InitializeNativeAsmPrinter() != 0 { // TODO needed?
-            panic!("Could not initialise ASM Printer");
+
+        if llvm_sys::target::LLVM_InitializeNativeAsmPrinter() != 0 {
+            panic!()
         }
     };
 
-    let mod_name = core::ffi::CStr::from_bytes_with_nul(b"hello\0").unwrap().as_ptr();
-    let module = unsafe { llvm_sys::core::LLVMModuleCreateWithName(mod_name) };
+    use llvm_sys::core::*;
+    use llvm_sys::prelude::*;
+    use llvm_sys::target::*;
+    use llvm_sys::target_machine::*;
+
+    let mod_name = core::ffi::CStr::from_bytes_with_nul(b"hello.bok\0")
+        .unwrap()
+        .as_ptr();
+    let module = unsafe { LLVMModuleCreateWithName(mod_name) };
 
     let function_name = core::ffi::CStr::from_bytes_with_nul(b"main\0")
         .unwrap()
         .as_ptr();
-    let llvm_ty_void = unsafe { llvm_sys::core::LLVMVoidType() };
-    let function_type =
-        unsafe { llvm_sys::core::LLVMFunctionType(llvm_ty_void, [].as_mut_ptr(), 0, 0) };
-    let function = unsafe { llvm_sys::core::LLVMAddFunction(module, function_name, function_type) };
+    let llvm_ty_void = unsafe { LLVMVoidType() };
+    let llvm_ty_i32 = unsafe { LLVMInt32Type() };
+    let function_type = unsafe { LLVMFunctionType(llvm_ty_i32, [].as_mut_ptr(), 0, 0) };
+    let function = unsafe { LLVMAddFunction(module, function_name, function_type) };
 
     let block_name = core::ffi::CStr::from_bytes_with_nul(b"\0")
         .unwrap()
         .as_ptr();
-    let entry_block = unsafe { llvm_sys::core::LLVMAppendBasicBlock(function, block_name) };
+    let entry_block = unsafe { LLVMAppendBasicBlock(function, block_name) };
 
     unsafe {
-        let builder = llvm_sys::core::LLVMCreateBuilder();
-        llvm_sys::core::LLVMPositionBuilderAtEnd(builder, entry_block);
-        llvm_sys::core::LLVMBuildRetVoid(builder);
-        llvm_sys::core::LLVMDisposeBuilder(builder);
+        let builder = LLVMCreateBuilder();
+        LLVMPositionBuilderAtEnd(builder, entry_block);
+        let rv = LLVMConstInt(llvm_ty_i32, 123, 0);
+        LLVMBuildRet(builder, rv);
+        LLVMDisposeBuilder(builder);
     }
 
-    unsafe { llvm_sys::core::LLVMDumpModule(module) }
-    unsafe { llvm_sys::core::LLVMDisposeModule(module) }
+    unsafe {
+        LLVMPrintModuleToFile(
+            module,
+            core::ffi::CStr::from_bytes_with_nul(b"out.ll\0")
+                .unwrap()
+                .as_ptr(),
+            core::ptr::null_mut(),
+        )
+    };
+
+    let triple = unsafe { LLVMGetDefaultTargetTriple() };
+    let cpu = unsafe { LLVMGetHostCPUName() };
+    let machine = unsafe {
+        LLVMCreateTargetMachine(
+            LLVMGetFirstTarget(),
+            triple,
+            cpu,
+            LLVMGetHostCPUFeatures(),
+            LLVMCodeGenOptLevel::LLVMCodeGenLevelNone,
+            LLVMRelocMode::LLVMRelocDefault,
+            LLVMCodeModel::LLVMCodeModelDefault,
+        )
+    };
+
+    unsafe {
+        let mut err = core::ptr::null_mut();
+        let res = LLVMTargetMachineEmitToFile(
+            machine,
+            module,
+            core::ffi::CStr::from_bytes_with_nul(b"hello.o\0")
+                .unwrap()
+                .as_ptr() as *mut i8,
+            LLVMCodeGenFileType::LLVMObjectFile,
+            &mut err,
+        );
+
+        if res == 1 {
+            panic!("{:?}", core::ffi::CStr::from_ptr(err));
+        }
+    };
+    unsafe { LLVMDisposeMessage(triple) };
+    unsafe { LLVMDisposeMessage(cpu) };
+
+    unsafe { LLVMDisposeModule(module) }
 
     // for node in ast {
     //     if args.ast {
