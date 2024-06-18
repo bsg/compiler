@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs};
 
-use ast::{NodeKind, NodeRef, Op};
+use ast::{NodeInner, NodeRef, Op};
 use clap::Parser;
 
 mod ast;
@@ -98,7 +98,7 @@ fn emit_fn(ctx: &mut Ctx, node: NodeRef) -> String {
         env: HashMap::new(),
     };
     match (&node.kind, &node.right) {
-        (NodeKind::Fn(fn_stmt), Some(body)) => {
+        (NodeInner::Fn(fn_stmt), Some(body)) => {
             let ident = &fn_stmt.ident;
             let ret_type = &ctx.get_type(&fn_stmt.ret_ty).unwrap().llvm_ty;
             let mut args = String::new();
@@ -139,7 +139,7 @@ fn emit_block(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrBlock {
     let mut body = String::new();
     let mut is_terminal = false;
 
-    if let NodeKind::Block(block) = &node.kind {
+    if let NodeInner::Block(block) = &node.kind {
         for stmt in block.statements.iter() {
             let stmt = emit_stmt(ctx, fn_ctx, stmt.clone());
             if stmt.is_terminal {
@@ -168,8 +168,9 @@ struct IrStmt {
 }
 
 fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrStmt {
+    use NodeInner::*;
     match &node.kind {
-        NodeKind::Return => match &node.right {
+        Return => match &node.right {
             Some(rhs) => match emit_expr(ctx, fn_ctx, rhs.clone()) {
                 IrExpr::Imm(imm) => IrStmt {
                     code: format!("ret {} {}", imm.ty.llvm_ty.as_str(), imm.code),
@@ -185,9 +186,9 @@ fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrStmt {
                 is_terminal: true,
             },
         },
-        NodeKind::Let(let_stmt) => {
+        Let(let_stmt) => {
             let reg = fn_ctx.next_reg();
-            if let NodeKind::Ident(ident) = &node.left.clone().unwrap().kind {
+            if let Ident(ident) = &node.left.clone().unwrap().kind {
                 fn_ctx.env.insert(
                     ident.to_string(),
                     Var {
@@ -225,7 +226,7 @@ fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrStmt {
                 panic!()
             }
         }
-        NodeKind::If(if_stmt) => {
+        If(if_stmt) => {
             let mut true_block = emit_block(ctx, fn_ctx, node.left.clone().unwrap());
             let mut false_block = emit_block(ctx, fn_ctx, node.right.clone().unwrap());
             let l_true = fn_ctx.next_label();
@@ -270,9 +271,9 @@ fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrStmt {
                 }
             }
         }
-        NodeKind::InfixOp(op) => match op {
+        InfixOp(op) => match op {
             Op::Assign => {
-                if let NodeKind::Ident(lhs_ident) = &node.left.clone().unwrap().kind {
+                if let Ident(lhs_ident) = &node.left.clone().unwrap().kind {
                     let lhs = fn_ctx.env.get(&lhs_ident.to_string()).unwrap().reg;
                     match emit_expr(ctx, fn_ctx, node.right.clone().unwrap()) {
                         IrExpr::Imm(imm) => IrStmt {
@@ -324,16 +325,18 @@ enum IrExpr {
 }
 
 fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrExpr {
+    use NodeInner::*;
+
     match &node.kind {
-        NodeKind::Int(i) => IrExpr::Imm(Imm {
+        Int(i) => IrExpr::Imm(Imm {
             ty: Type::new("i32", LlvmTy::I32, 4),
             code: format!("{}", i),
         }),
-        NodeKind::Bool(b) => IrExpr::Imm(Imm {
+        Bool(b) => IrExpr::Imm(Imm {
             ty: Type::new("bool", LlvmTy::I1, 1),
             code: format!("{}", b),
         }),
-        NodeKind::Ident(ident) => {
+        Ident(ident) => {
             let var = fn_ctx.env.get(ident.as_ref()).unwrap().clone();
             if var.is_arg {
                 IrExpr::Imm(Imm {
@@ -353,7 +356,7 @@ fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrExpr {
                 })
             }
         }
-        NodeKind::Call(call) => {
+        Call(call) => {
             let mut args = String::new();
             let mut code = String::new();
             for node in call.args.iter() {
@@ -377,7 +380,7 @@ fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrExpr {
                 reg,
             })
         }
-        NodeKind::InfixOp(op) => {
+        InfixOp(op) => {
             let lhs = emit_expr(_ctx, fn_ctx, node.left.clone().unwrap());
             let rhs = emit_expr(_ctx, fn_ctx, node.right.clone().unwrap());
             // TODO ret_bool is temporary, impl emit_op()
@@ -482,7 +485,7 @@ fn main() {
         if args.ast {
             println!("{}\n", node);
         } else {
-            if let NodeKind::Fn(_) = &node.kind {
+            if let NodeInner::Fn(_) = &node.kind {
                 ir += &emit_fn(&mut ctx, node)
             }
             ir += "\n\n";

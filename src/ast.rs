@@ -107,8 +107,9 @@ pub struct LetStmt {
     pub ty: Rc<str>,
 }
 
+
 #[derive(Clone, PartialEq)]
-pub enum NodeKind {
+pub enum NodeInner {
     Ident(Rc<str>),
     Int(i64),
     Bool(bool),
@@ -126,14 +127,15 @@ pub enum NodeKind {
     Pair(PairStmt),
 }
 
+// TODO this should not exist?! NodeInner should be node and only relevant node types should have links
 #[derive(Clone, PartialEq)]
 pub struct Node {
-    pub kind: NodeKind,
+    pub kind: NodeInner,
     pub left: Option<NodeRef>,
     pub right: Option<NodeRef>,
 }
 
-impl fmt::Debug for NodeKind {
+impl fmt::Debug for NodeInner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ident(arg0) => write!(f, "ident {}", arg0),
@@ -175,32 +177,32 @@ impl fmt::Display for Node {
             (0..indent).for_each(|_| _ = f.write_str("    "));
 
             match &node.kind {
-                NodeKind::Ident(s) => writeln!(f, "ident {}", s),
-                NodeKind::Int(i) => writeln!(f, "{}", i),
-                NodeKind::Bool(b) => writeln!(f, "{}", b),
-                NodeKind::Str(s) => writeln!(f, "{:?}", s),
-                NodeKind::InfixOp(op) => writeln!(f, "{:?}", op),
-                NodeKind::PrefixOp(op) => writeln!(f, "{:?}", op),
-                NodeKind::Let(l) => writeln!(f, "let {}", l.ty),
-                NodeKind::Return => writeln!(f, "return"),
-                NodeKind::If(_) => writeln!(f, "if"),
-                NodeKind::Fn(fstmt) => {
+                NodeInner::Ident(s) => writeln!(f, "ident {}", s),
+                NodeInner::Int(i) => writeln!(f, "{}", i),
+                NodeInner::Bool(b) => writeln!(f, "{}", b),
+                NodeInner::Str(s) => writeln!(f, "{:?}", s),
+                NodeInner::InfixOp(op) => writeln!(f, "{:?}", op),
+                NodeInner::PrefixOp(op) => writeln!(f, "{:?}", op),
+                NodeInner::Let(l) => writeln!(f, "let {}", l.ty),
+                NodeInner::Return => writeln!(f, "return"),
+                NodeInner::If(_) => writeln!(f, "if"),
+                NodeInner::Fn(fstmt) => {
                     writeln!(f, "fn {}({}) -> {}", fstmt.ident, fstmt, fstmt.ret_ty)
                 }
-                NodeKind::Block(_) => writeln!(f, "block"),
-                NodeKind::Call(call) => writeln!(f, "call {}", call.ident),
-                NodeKind::Array(a) => writeln!(f, "array{:?}", a),
-                NodeKind::Index(idx) => writeln!(f, "{:?}", idx),
-                NodeKind::Pair(pair) => writeln!(f, "pair({:?}, {:?})", pair.key, pair.value),
+                NodeInner::Block(_) => writeln!(f, "block"),
+                NodeInner::Call(call) => writeln!(f, "call {}", call.ident),
+                NodeInner::Array(a) => writeln!(f, "array{:?}", a),
+                NodeInner::Index(idx) => writeln!(f, "{:?}", idx),
+                NodeInner::Pair(pair) => writeln!(f, "pair({:?}, {:?})", pair.key, pair.value),
             }?;
 
             match &node.kind {
-                NodeKind::Block(block) => {
+                NodeInner::Block(block) => {
                     for stmt in block.statements.iter() {
                         fmt_with_indent(stmt, f, indent + 1)?
                     }
                 }
-                NodeKind::If(c) => {
+                NodeInner::If(c) => {
                     fmt_with_indent(&c.condition, f, indent + 1)?;
 
                     if let Some(node) = &node.left {
@@ -216,7 +218,7 @@ impl fmt::Display for Node {
                     return Ok(());
                 }
 
-                NodeKind::Call(c) => {
+                NodeInner::Call(c) => {
                     for arg in c.args.iter() {
                         fmt_with_indent(arg, f, indent + 1)?;
                     }

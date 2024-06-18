@@ -1,4 +1,4 @@
-// TODO we need a ParseResult
+// TODO we need a ParseResult -- do we? why not just panic?
 
 use std::iter::Peekable;
 use std::rc::Rc;
@@ -49,7 +49,7 @@ impl Parser {
                 }
 
                 Some(node!(
-                    NodeKind::Block(BlockStmt {
+                    NodeInner::Block(BlockStmt {
                         statements: Rc::from(statements.as_slice())
                     }),
                     None,
@@ -89,7 +89,7 @@ impl Parser {
                 };
 
                 match lhs {
-                    Some(_) => Some(node!(NodeKind::If(IfStmt { condition: cond }), lhs, rhs)),
+                    Some(_) => Some(node!(NodeInner::If(IfStmt { condition: cond }), lhs, rhs)),
                     None => todo!(),
                 }
             }
@@ -143,7 +143,7 @@ impl Parser {
             let body = self.parse_block()?;
 
             Some(node!(
-                NodeKind::Fn(FnStmt {
+                NodeInner::Fn(FnStmt {
                     ident: ident.clone(),
                     args: Rc::from(args.as_slice()),
                     ret_ty: return_type.clone()
@@ -160,7 +160,7 @@ impl Parser {
         let mut args: Vec<NodeRef> = Vec::new();
 
         let ident = match &lhs.kind {
-            NodeKind::Ident(id) => id.clone(),
+            NodeInner::Ident(id) => id.clone(),
             _ => todo!(),
         };
 
@@ -181,7 +181,7 @@ impl Parser {
         self.next_token();
 
         Some(node!(
-            NodeKind::Call(CallStmt {
+            NodeInner::Call(CallStmt {
                 ident,
                 args: Rc::from(args.as_slice())
             }),
@@ -207,14 +207,14 @@ impl Parser {
         assert_eq!(self.peek_token, Token::RBracket);
         self.next_token();
 
-        Some(node!(NodeKind::Array(arr), None, None))
+        Some(node!(NodeInner::Array(arr), None, None))
     }
 
     fn parse_index(&mut self, lhs: NodeRef) -> Option<NodeRef> {
         assert_eq!(self.peek_token, Token::LBracket);
 
         let ident = match &lhs.kind {
-            NodeKind::Ident(id) => id.clone(),
+            NodeInner::Ident(id) => id.clone(),
             _ => todo!(),
         };
         self.next_token();
@@ -224,7 +224,7 @@ impl Parser {
         self.next_token();
 
         Some(node!(
-            NodeKind::Index(IndexStmt { ident, index }),
+            NodeInner::Index(IndexStmt { ident, index }),
             None,
             None
         ))
@@ -239,7 +239,7 @@ impl Parser {
             self.next_token();
         }
 
-        Some(node!(NodeKind::Pair(PairStmt { key, value }), None, None))
+        Some(node!(NodeInner::Pair(PairStmt { key, value }), None, None))
     }
 
     pub fn parse_statement(&mut self) -> Option<NodeRef> {
@@ -256,7 +256,7 @@ impl Parser {
                     self.next_token();
                     match self.curr_token {
                         Token::Assign => Some(node!(
-                            NodeKind::Let(LetStmt { ty }),
+                            NodeInner::Let(LetStmt { ty }),
                             lhs,
                             self.parse_expression(0)
                         )),
@@ -268,7 +268,7 @@ impl Parser {
             }
             Some(Token::Return) => {
                 self.next_token();
-                Some(node!(NodeKind::Return, None, self.parse_expression(0)))
+                Some(node!(NodeInner::Return, None, self.parse_expression(0)))
             }
             Some(_) => self.parse_expression(0),
             None => return None,
@@ -283,7 +283,7 @@ impl Parser {
 
     fn parse_ident(&self) -> Option<NodeRef> {
         match &self.curr_token {
-            Token::Ident(name) => Some(node!(NodeKind::Ident(name.clone()), None, None)),
+            Token::Ident(name) => Some(node!(NodeInner::Ident(name.clone()), None, None)),
             _ => todo!(),
         }
     }
@@ -297,16 +297,16 @@ impl Parser {
                     Err(_) => todo!(),
                 };
 
-                node!(NodeKind::Int(i), None, None)
+                node!(NodeInner::Int(i), None, None)
             }
-            Token::Str(s) => node!(NodeKind::Str(s.clone()), None, None),
+            Token::Str(s) => node!(NodeInner::Str(s.clone()), None, None),
             Token::Ident(_) => self.parse_ident()?,
-            Token::True => node!(NodeKind::Bool(true), None, None),
-            Token::False => node!(NodeKind::Bool(false), None, None),
+            Token::True => node!(NodeInner::Bool(true), None, None),
+            Token::False => node!(NodeInner::Bool(false), None, None),
             Token::Minus => {
-                node!(NodeKind::PrefixOp(Op::Neg), None, self.parse_expression(0))
+                node!(NodeInner::PrefixOp(Op::Neg), None, self.parse_expression(0))
             }
-            Token::Bang => node!(NodeKind::PrefixOp(Op::Not), None, self.parse_expression(0)),
+            Token::Bang => node!(NodeInner::PrefixOp(Op::Not), None, self.parse_expression(0)),
             Token::Let => self.parse_statement()?,
             Token::LParen => {
                 let node = self.parse_expression(0)?;
@@ -354,7 +354,7 @@ impl Parser {
                     }
                     self.next_token();
                     let rhs = self.parse_expression(op.precedence())?;
-                    lhs = node!(NodeKind::InfixOp(op), Some(lhs), Some(rhs));
+                    lhs = node!(NodeInner::InfixOp(op), Some(lhs), Some(rhs));
                 }
             }
         }
