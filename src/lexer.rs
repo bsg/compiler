@@ -52,8 +52,8 @@ pub enum Token {
 impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Ident(s) => f.write_fmt(format_args!("Ident({})", s)),
-            Self::Int(s) => f.write_fmt(format_args!("Int({})", s)),
+            Self::Ident(s) => f.write_fmt(format_args!("ident:{}", s)),
+            Self::Int(s) => f.write_fmt(format_args!("int:{}", s)),
             _ => f.write_fmt(format_args!("{:?}", self)),
         }
     }

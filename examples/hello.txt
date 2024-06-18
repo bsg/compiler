@@ -9,7 +9,14 @@ fn max(a: i32, b: i32) -> i32 {
 fn main() -> i32 {
     let x: i32 = 0;
     x = max(3, 4);
+    return x + square(2);
+}
 
+fn square(x: i32) -> i32 {
+    return x * x;
+}
+
+fn nested_ifs(x: i32) -> i32 {
     if (x > 1) {
         if (x < 5) {
             return x;
@@ -19,8 +26,4 @@ fn main() -> i32 {
     } else {
         return 1;
     }
-}
-
-fn square(x: i32) -> i32 {
-    return x * x;
 }

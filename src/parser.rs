@@ -374,17 +374,12 @@ impl Parser {
 mod tests {
     use super::*;
 
+    // TODO maybe use "pretty_assertions" crate here
     macro_rules! assert_parse {
         ($input:expr, $expected:expr) => {
             let mut parser = Parser::new($input);
             match parser.parse_statement() {
-                Some(ast) => assert_eq!(
-                    format!("{}", ast)
-                        .chars()
-                        .filter(|c| !c.is_ascii_control())
-                        .collect::<String>(),
-                    $expected
-                ),
+                Some(ast) => assert_eq!(format!("{}", ast), $expected,),
                 None => panic!(),
             }
         };
@@ -392,25 +387,41 @@ mod tests {
 
     #[test]
     fn int_literal() {
-        assert_parse!("453;", "Int(453)");
+        assert_parse!(
+            "453;", "\
+453
+"
+        );
     }
 
     #[test]
     fn ident() {
-        assert_parse!("__var_12;", "Ident(__var_12)");
+        assert_parse!(
+            "__var_12;",
+            "\
+ident __var_12
+"
+        );
     }
 
     #[test]
     fn bool() {
-        assert_parse!("true", "Bool(true)");
+        assert_parse!(
+            "true", "\
+true
+"
+        );
     }
 
+    // TODO neg shouldn't be an op
     #[test]
     fn op_neg() {
         assert_parse!(
             "-12;",
-            "Neg\
-            -Int(12)"
+            "\
+neg
+    12
+"
         );
     }
 
@@ -418,8 +429,10 @@ mod tests {
     fn op_not() {
         assert_parse!(
             "!false;",
-            "Not\
-            -Bool(false)"
+            "\
+not
+    false
+"
         );
     }
 
@@ -427,9 +440,11 @@ mod tests {
     fn op_assign() {
         assert_parse!(
             "x = 2",
-            "Assign\
-            -Ident(x)\
-            -Int(2)"
+            "\
+assign
+    ident x
+    2
+"
         );
     }
 
@@ -437,9 +452,11 @@ mod tests {
     fn op_add() {
         assert_parse!(
             "6 + 2",
-            "Add\
-            -Int(6)\
-            -Int(2)"
+            "\
+add
+    6
+    2
+"
         );
     }
 
@@ -447,9 +464,11 @@ mod tests {
     fn op_sub() {
         assert_parse!(
             "6 - 2",
-            "Sub\
-            -Int(6)\
-            -Int(2)"
+            "\
+sub
+    6
+    2
+"
         );
     }
 
@@ -457,9 +476,11 @@ mod tests {
     fn op_mul() {
         assert_parse!(
             "6 * 2",
-            "Mul\
-            -Int(6)\
-            -Int(2)"
+            "\
+mul
+    6
+    2
+"
         );
     }
 
@@ -467,9 +488,11 @@ mod tests {
     fn op_div() {
         assert_parse!(
             "6 / 2",
-            "Div\
-            -Int(6)\
-            -Int(2)"
+            "\
+div
+    6
+    2
+"
         );
     }
 
@@ -477,9 +500,11 @@ mod tests {
     fn op_eq() {
         assert_parse!(
             "5 == 5",
-            "Eq\
-            -Int(5)\
-            -Int(5)"
+            "\
+eq
+    5
+    5
+"
         );
     }
 
@@ -487,18 +512,22 @@ mod tests {
     fn op_not_eq() {
         assert_parse!(
             "5 != 5",
-            "NotEq\
-            -Int(5)\
-            -Int(5)"
+            "\
+neq
+    5
+    5
+"
         );
     }
     #[test]
     fn op_lt() {
         assert_parse!(
             "5 < 5",
-            "Lt\
-            -Int(5)\
-            -Int(5)"
+            "\
+lt
+    5
+    5
+"
         );
     }
 
@@ -506,9 +535,11 @@ mod tests {
     fn op_gt() {
         assert_parse!(
             "5 > 5",
-            "Gt\
-            -Int(5)\
-            -Int(5)"
+            "\
+gt
+    5
+    5
+"
         );
     }
 
@@ -516,14 +547,16 @@ mod tests {
     fn if_expression() {
         assert_parse!(
             "if (x < 0) {return 0}",
-            "If\
-            -Lt\
-            --Ident(x)\
-            --Int(0)\
-            Then\
-            -Block\
-            --Return\
-            ---Int(0)"
+            "\
+if
+    lt
+        ident x
+        0
+then
+    block
+        return
+            0
+"
         );
     }
 
@@ -531,18 +564,20 @@ mod tests {
     fn if_with_alternate() {
         assert_parse!(
             "if (a < b) {return a} {return b}",
-            "If\
-            -Lt\
-            --Ident(a)\
-            --Ident(b)\
-            Then\
-            -Block\
-            --Return\
-            ---Ident(a)\
-            Else\
-            -Block\
-            --Return\
-            ---Ident(b)"
+            "\
+if
+    lt
+        ident a
+        ident b
+then
+    block
+        return
+            ident a
+else
+    block
+        return
+            ident b
+"
         );
     }
 
@@ -550,18 +585,20 @@ mod tests {
     fn if_else() {
         assert_parse!(
             "if (a < b) {return a} else {return b}",
-            "If\
-            -Lt\
-            --Ident(a)\
-            --Ident(b)\
-            Then\
-            -Block\
-            --Return\
-            ---Ident(a)\
-            Else\
-            -Block\
-            --Return\
-            ---Ident(b)"
+            "\
+if
+    lt
+        ident a
+        ident b
+then
+    block
+        return
+            ident a
+else
+    block
+        return
+            ident b
+"
         );
     }
 
@@ -569,15 +606,17 @@ mod tests {
     fn op_precedence() {
         assert_parse!(
             "1 + 2 * (3 - 4) / 5",
-            "Add\
-            -Int(1)\
-            -Mul\
-            --Int(2)\
-            --Div\
-            ---Sub\
-            ----Int(3)\
-            ----Int(4)\
-            ---Int(5)"
+            "\
+add
+    1
+    mul
+        2
+        div
+            sub
+                3
+                4
+            5
+"
         );
     }
 
@@ -585,11 +624,13 @@ mod tests {
     fn let_statement() {
         assert_parse!(
             "let x: i32 = 1 + 2",
-            "Let i32\
-            -Ident(x)\
-            -Add\
-            --Int(1)\
-            --Int(2)"
+            "\
+let i32
+    ident x
+    add
+        1
+        2
+"
         );
     }
 
@@ -597,10 +638,12 @@ mod tests {
     fn return_statement() {
         assert_parse!(
             "return 1 + 2",
-            "Return\
-            -Add\
-            --Int(1)\
-            --Int(2)"
+            "\
+return
+    add
+        1
+        2
+"
         );
     }
 
@@ -608,17 +651,19 @@ mod tests {
     fn block_with_semicolons() {
         assert_parse!(
             "{let x: u32 = 1;let y: u32 = 2;return x + y}",
-            "Block\
-            -Let u32\
-            --Ident(x)\
-            --Int(1)\
-            -Let u32\
-            --Ident(y)\
-            --Int(2)\
-            -Return\
-            --Add\
-            ---Ident(x)\
-            ---Ident(y)"
+            "\
+block
+    let u32
+        ident x
+        1
+    let u32
+        ident y
+        2
+    return
+        add
+            ident x
+            ident y
+"
         );
     }
 
@@ -626,13 +671,15 @@ mod tests {
     fn block_without_semicolons() {
         assert_parse!(
             "{1 + 2 3 + 4}",
-            "Block\
-            -Add\
-            --Int(1)\
-            --Int(2)\
-            -Add\
-            --Int(3)\
-            --Int(4)"
+            "\
+block
+    add
+        1
+        2
+    add
+        3
+        4
+"
         );
     }
 
@@ -640,11 +687,13 @@ mod tests {
     fn nested_blocks() {
         assert_parse!(
             "{{1+2}}",
-            "Block\
-            -Block\
-            --Add\
-            ---Int(1)\
-            ---Int(2)"
+            "\
+block
+    block
+        add
+            1
+            2
+"
         );
     }
 
@@ -653,8 +702,10 @@ mod tests {
         // NOTE second block should not be parsed since we're parsing a single statement
         assert_parse!(
             r#"{"1"}{"2"}"#,
-            "Block\
-            -Str(1)"
+            "\
+block
+    \"1\"
+"
         );
     }
 
@@ -662,11 +713,13 @@ mod tests {
     fn nested_sequential_blocks() {
         assert_parse!(
             "{{1}{2}}",
-            "Block\
-            -Block\
-            --Int(1)\
-            -Block\
-            --Int(2)"
+            "\
+block
+    block
+        1
+    block
+        2
+"
         );
     }
 
@@ -674,31 +727,40 @@ mod tests {
     fn fn_expression() {
         assert_parse!(
             "fn test(a: u32, b: u32, c: u32) -> u32 {return a * b - c;}",
-            "Fn test(a: u32, b: u32, c: u32) -> u32\
-            -Block\
-            --Return\
-            ---Sub\
-            ----Mul\
-            -----Ident(a)\
-            -----Ident(b)\
-            ----Ident(c)"
+            "\
+fn test(a: u32, b: u32, c: u32) -> u32
+    block
+        return
+            sub
+                mul
+                    ident a
+                    ident b
+                ident c
+"
         );
     }
 
     #[test]
     fn fn_call_noarg() {
-        assert_parse!("f()", "Call f");
+        assert_parse!(
+            "f()",
+            "\
+call f
+"
+        );
     }
 
     #[test]
     fn fn_call_with_args() {
         assert_parse!(
             "f(2, a+1)",
-            "Call f\
-            -Int(2)\
-            -Add\
-            --Ident(a)\
-            --Int(1)"
+            "\
+call f
+    2
+    add
+        ident a
+        1
+"
         );
     }
 
@@ -706,29 +768,33 @@ mod tests {
     fn fn_call_with_block_arg() {
         assert_parse!(
             "f(2, {a+1})",
-            "Call f\
-            -Int(2)\
-            -Block\
-            --Add\
-            ---Ident(a)\
-            ---Int(1)"
+            "\
+call f
+    2
+    block
+        add
+            ident a
+            1
+"
         );
     }
 
     #[test]
-    fn fn_call_with_if_arg() {
+    fn fn_call_with_if_expr_arg() {
         assert_parse!(
             "f(2, if(x){1}else{2})",
-            "Call f\
-                -Int(2)\
-                -If\
-                --Ident(x)\
-                -Then\
-                --Block\
-                ---Int(1)\
-                -Else\
-                --Block\
-                ---Int(2)"
+            "\
+call f
+    2
+    if
+        ident x
+    then
+        block
+            1
+    else
+        block
+            2
+"
         );
     }
 
@@ -736,17 +802,19 @@ mod tests {
     fn sequential_ifs() {
         assert_parse!(
             "{if(x){1}if(y){2}}",
-            "Block\
-            -If\
-            --Ident(x)\
-            -Then\
-            --Block\
-            ---Int(1)\
-            -If\
-            --Ident(y)\
-            -Then\
-            --Block\
-            ---Int(2)"
+            "\
+block
+    if
+        ident x
+    then
+        block
+            1
+    if
+        ident y
+    then
+        block
+            2
+"
         );
     }
 
@@ -754,11 +822,13 @@ mod tests {
     fn call_precedence() {
         assert_parse!(
             "f(1) + f(2)",
-            "Add\
-            -Call f\
-            --Int(1)\
-            -Call f\
-            --Int(2)"
+            "\
+add
+    call f
+        1
+    call f
+        2
+"
         );
     }
 
@@ -766,30 +836,42 @@ mod tests {
     fn if_precedence() {
         assert_parse!(
             "if(a){1}{2} + if(b){3}{4}",
-            "Add\
-            -If\
-            --Ident(a)\
-            -Then\
-            --Block\
-            ---Int(1)\
-            -Else\
-            --Block\
-            ---Int(2)\
-            -If\
-            --Ident(b)\
-            -Then\
-            --Block\
-            ---Int(3)\
-            -Else\
-            --Block\
-            ---Int(4)"
+            "\
+add
+    if
+        ident a
+    then
+        block
+            1
+    else
+        block
+            2
+    if
+        ident b
+    then
+        block
+            3
+    else
+        block
+            4
+"
         );
     }
 
     #[test]
     fn parse_array() {
-        assert_parse!("[]", "Array[]");
-        assert_parse!("[1, 2, x]", "Array[Int(1), Int(2), Ident(x)]");
+        assert_parse!(
+            "[]",
+            "\
+array[]
+"
+        );
+        assert_parse!(
+            "[1, 2, x]",
+            "\
+array[1, 2, ident x]
+"
+        );
     }
 
     #[test]
@@ -800,14 +882,31 @@ mod tests {
 
     #[test]
     fn parse_index() {
-        assert_parse!("arr[2]", "arr[Int(2)]");
-        assert_parse!("arr[x]", "arr[Ident(x)]");
-        assert_parse!("arr[x + 2]", "arr[Op(Add)-Ident(x)-Int(2)]");
+        assert_parse!(
+            "arr[2]",
+            "\
+arr[2]
+"
+        );
+        assert_parse!(
+            "arr[x]",
+            "\
+arr[ident x]
+"
+        );
+        assert_parse!(
+            "arr[x + 2]",
+            "\
+arr[add\n   ident x\n   2]
+"
+        );
         assert_parse!(
             "arr[1] + arr[2]",
-            "Add\
-            -arr[Int(1)]\
-            -arr[Int(2)]"
+            "\
+add
+    arr[1]
+    arr[2]
+"
         );
     }
 

@@ -5,7 +5,7 @@ use std::{
     rc::Rc,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Op {
     Assign,
     Eq,
@@ -26,6 +26,32 @@ pub enum Op {
     Call,
     Index,
     Colon,
+}
+
+impl std::fmt::Debug for Op {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Assign => write!(f, "assign"),
+            Self::Eq => write!(f, "eq"),
+            Self::NotEq => write!(f, "neq"),
+            Self::Lt => write!(f, "lt"),
+            Self::Gt => write!(f, "gt"),
+            Self::Le => write!(f, "le"),
+            Self::Ge => write!(f, "ge"),
+            Self::Add => write!(f, "add"),
+            Self::Sub => write!(f, "sub"),
+            Self::Mul => write!(f, "mul"),
+            Self::Div => write!(f, "div"),
+            Self::Mod => write!(f, "mod"),
+            Self::Neg => write!(f, "neg"),
+            Self::Not => write!(f, "not"),
+            Self::And => write!(f, "and"),
+            Self::Or => write!(f, "or"),
+            Self::Call => write!(f, "call"),
+            Self::Index => write!(f, "index"),
+            Self::Colon => write!(f, "colon"),
+        }
+    }
 }
 
 impl Op {
@@ -110,21 +136,21 @@ pub struct Node {
 impl fmt::Debug for NodeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Ident(arg0) => write!(f, "Ident({})", arg0),
-            Self::Int(arg0) => f.debug_tuple("Int").field(arg0).finish(),
-            Self::Bool(arg0) => f.debug_tuple("Bool").field(arg0).finish(),
-            Self::Str(arg0) => f.debug_tuple("Str").field(arg0).finish(),
-            Self::InfixOp(arg0) => f.debug_tuple("Op").field(arg0).finish(),
-            Self::PrefixOp(arg0) => f.debug_tuple("Op").field(arg0).finish(),
-            Self::Let(l) => write!(f, "Let {}", l.ty),
-            Self::Return => write!(f, "Return"),
-            Self::If(arg0) => f.write_fmt(format_args!("If\n{:?}", arg0)),
-            Self::Block(arg0) => f.debug_tuple("Block").field(arg0).finish(),
-            Self::Fn(arg0) => write!(f, "Fn {:?}({:?}) -> {}", arg0.ident, arg0, arg0.ret_ty),
-            Self::Call(arg0) => write!(f, "Call(\n{:?})", arg0),
-            Self::Array(arg0) => write!(f, "Array{:?}", arg0),
+            Self::Ident(arg0) => write!(f, "ident {}", arg0),
+            Self::Int(arg0) => write!(f, "{}", arg0),
+            Self::Bool(arg0) => f.debug_tuple("bool").field(arg0).finish(),
+            Self::Str(arg0) => f.debug_tuple("str").field(arg0).finish(),
+            Self::InfixOp(arg0) => f.debug_tuple("op").field(arg0).finish(),
+            Self::PrefixOp(arg0) => f.debug_tuple("op").field(arg0).finish(),
+            Self::Let(l) => write!(f, "let {}", l.ty),
+            Self::Return => write!(f, "return"),
+            Self::If(arg0) => f.write_fmt(format_args!("if\n{:?}", arg0)),
+            Self::Block(arg0) => f.debug_tuple("block").field(arg0).finish(),
+            Self::Fn(arg0) => write!(f, "fn {:?}({:?}) -> {}", arg0.ident, arg0, arg0.ret_ty),
+            Self::Call(arg0) => write!(f, "call(\n{:?})", arg0),
+            Self::Array(arg0) => write!(f, "array{:?}", arg0),
             Self::Index(arg0) => write!(f, "{:?}", arg0),
-            Self::Pair(pair) => write!(f, "Pair({:?}, {:?})", pair.key, pair.value),
+            Self::Pair(pair) => write!(f, "pair({:?}, {:?})", pair.key, pair.value),
         }
     }
 }
@@ -142,31 +168,32 @@ impl fmt::Display for FnStmt {
     }
 }
 
+// TODO merge the debug impl into this and make this impl fmt::Debug
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fn fmt_with_indent(node: &Node, f: &mut fmt::Formatter, indent: usize) -> fmt::Result {
-            (0..indent).for_each(|_| _ = f.write_str("-"));
+            (0..indent).for_each(|_| _ = f.write_str("    "));
 
-            f.write_fmt(format_args!(
-                "{}",
-                match &node.kind {
-                    NodeKind::Ident(s) => format!("Ident({})\n", s),
-                    NodeKind::Int(i) => format!("Int({})\n", i),
-                    NodeKind::Bool(b) => format!("Bool({})\n", b),
-                    NodeKind::Str(s) => format!("Str({})\n", s),
-                    NodeKind::InfixOp(op) => format!("{:?}\n", op),
-                    NodeKind::PrefixOp(op) => format!("{:?}\n", op),
-                    NodeKind::Let(l) => format!("Let {}\n", l.ty),
-                    NodeKind::Return => "Return\n".to_string(),
-                    NodeKind::If(_) => "If\n".to_string(),
-                    NodeKind::Fn(f) => format!("Fn {}({}) -> {}\n", f.ident, f, f.ret_ty),
-                    NodeKind::Block(_) => "Block\n".to_string(),
-                    NodeKind::Call(call) => format!("Call {}\n", call.ident),
-                    NodeKind::Array(a) => format!("Array{:?}\n", a),
-                    NodeKind::Index(idx) => format!("{:?}\n", idx),
-                    NodeKind::Pair(pair) => format!("Pair({:?}, {:?})\n", pair.key, pair.value),
+            match &node.kind {
+                NodeKind::Ident(s) => writeln!(f, "ident {}", s),
+                NodeKind::Int(i) => writeln!(f, "{}", i),
+                NodeKind::Bool(b) => writeln!(f, "{}", b),
+                NodeKind::Str(s) => writeln!(f, "{:?}", s),
+                NodeKind::InfixOp(op) => writeln!(f, "{:?}", op),
+                NodeKind::PrefixOp(op) => writeln!(f, "{:?}", op),
+                NodeKind::Let(l) => writeln!(f, "let {}", l.ty),
+                NodeKind::Return => writeln!(f, "return"),
+                NodeKind::If(_) => writeln!(f, "if"),
+                NodeKind::Fn(fstmt) => {
+                    writeln!(f, "fn {}({}) -> {}", fstmt.ident, fstmt, fstmt.ret_ty)
                 }
-            ))?;
+                NodeKind::Block(_) => writeln!(f, "block"),
+                NodeKind::Call(call) => writeln!(f, "call {}", call.ident),
+                NodeKind::Array(a) => writeln!(f, "array{:?}", a),
+                NodeKind::Index(idx) => writeln!(f, "{:?}", idx),
+                NodeKind::Pair(pair) => writeln!(f, "pair({:?}, {:?})", pair.key, pair.value),
+            }?;
+
             match &node.kind {
                 NodeKind::Block(block) => {
                     for stmt in block.statements.iter() {
@@ -177,12 +204,12 @@ impl fmt::Display for Node {
                     fmt_with_indent(&c.condition, f, indent + 1)?;
 
                     if let Some(node) = &node.left {
-                        f.write_fmt(format_args!("{}Then\n", "-".repeat(indent)))?;
+                        writeln!(f, "{}then", "    ".repeat(indent))?;
                         fmt_with_indent(node, f, indent + 1)?;
                     }
 
                     if let Some(node) = &node.right {
-                        f.write_fmt(format_args!("{}Else\n", "-".repeat(indent)))?;
+                        writeln!(f, "{}else", "    ".repeat(indent))?;
                         fmt_with_indent(node, f, indent + 1)?;
                     }
 
@@ -207,6 +234,7 @@ impl fmt::Display for Node {
 
             Ok(())
         }
+
         fmt_with_indent(self, f, 0)?;
         Ok(())
     }
@@ -215,7 +243,7 @@ impl fmt::Display for Node {
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fn fmt_with_indent(node: &Node, f: &mut fmt::Formatter, indent: usize) -> fmt::Result {
-            (0..indent).for_each(|_| _ = f.write_str("-"));
+            (0..indent).for_each(|_| _ = f.write_str("  "));
             f.write_fmt(format_args!("{:?}\n", node.kind))?;
 
             if let Some(lhs) = node.left.as_ref() {
