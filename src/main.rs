@@ -9,6 +9,10 @@ use llvm_sys::target_machine::{
 mod ast;
 mod lexer;
 mod parser;
+mod codegen;
+
+use llvm_sys::core::*;
+use llvm_sys::target_machine::*;
 
 #[derive(Clone)]
 enum LlvmTy {
@@ -480,14 +484,9 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    // if args.path.is_none() {
-    //     return;
-    // }
-    // let code = fs::read_to_string(args.path.unwrap()).unwrap();
-
-    // let mut ctx = Ctx::default();
-    // let mut ir = String::new();
-    // let ast = crate::parser::Parser::new(&code).parse();
+    if args.path.is_none() {
+        return;
+    }
 
     unsafe {
         if llvm_sys::target::LLVM_InitializeNativeTarget() != 0 {
@@ -499,40 +498,20 @@ fn main() {
         }
     };
 
-    use llvm_sys::core::*;
-    use llvm_sys::prelude::*;
-    use llvm_sys::target::*;
-    use llvm_sys::target_machine::*;
+    let code = fs::read_to_string(args.path.unwrap()).unwrap();
 
-    let mod_name = core::ffi::CStr::from_bytes_with_nul(b"hello.bok\0")
-        .unwrap()
-        .as_ptr();
-    let module = unsafe { LLVMModuleCreateWithName(mod_name) };
+    let mut ctx = Ctx::default();
+    let mut ir = String::new();
+    let ast = crate::parser::Parser::new(&code).parse();
 
-    let function_name = core::ffi::CStr::from_bytes_with_nul(b"main\0")
-        .unwrap()
-        .as_ptr();
-    let llvm_ty_void = unsafe { LLVMVoidType() };
-    let llvm_ty_i32 = unsafe { LLVMInt32Type() };
-    let function_type = unsafe { LLVMFunctionType(llvm_ty_i32, [].as_mut_ptr(), 0, 0) };
-    let function = unsafe { LLVMAddFunction(module, function_name, function_type) };
-
-    let block_name = core::ffi::CStr::from_bytes_with_nul(b"\0")
-        .unwrap()
-        .as_ptr();
-    let entry_block = unsafe { LLVMAppendBasicBlock(function, block_name) };
-
-    unsafe {
-        let builder = LLVMCreateBuilder();
-        LLVMPositionBuilderAtEnd(builder, entry_block);
-        let rv = LLVMConstInt(llvm_ty_i32, 123, 0);
-        LLVMBuildRet(builder, rv);
-        LLVMDisposeBuilder(builder);
+    let mut module = codegen::Module::new("hello");
+    for node in ast {
+        module.build_func(node);
     }
 
     unsafe {
         LLVMPrintModuleToFile(
-            module,
+            module.get_llvm_module_ref(),
             core::ffi::CStr::from_bytes_with_nul(b"out.ll\0")
                 .unwrap()
                 .as_ptr(),
@@ -558,7 +537,7 @@ fn main() {
         let mut err = core::ptr::null_mut();
         let res = LLVMTargetMachineEmitToFile(
             machine,
-            module,
+            module.get_llvm_module_ref(),
             core::ffi::CStr::from_bytes_with_nul(b"hello.o\0")
                 .unwrap()
                 .as_ptr() as *mut i8,
@@ -570,10 +549,9 @@ fn main() {
             panic!("{:?}", core::ffi::CStr::from_ptr(err));
         }
     };
+
     unsafe { LLVMDisposeMessage(triple) };
     unsafe { LLVMDisposeMessage(cpu) };
-
-    unsafe { LLVMDisposeModule(module) }
 
     // for node in ast {
     //     if args.ast {
