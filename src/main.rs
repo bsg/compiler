@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs};
 
-use ast::{NodeInner, NodeRef, Op};
+use ast::{BinOpNode, IfNode, Node, NodeRef, Op};
 use clap::Parser;
 
 mod ast;
@@ -71,6 +71,7 @@ impl Default for Ctx {
     }
 }
 
+// TODO env accessor
 struct FnCtx {
     next_reg: usize,
     next_label: usize,
@@ -97,36 +98,35 @@ fn emit_fn(ctx: &mut Ctx, node: NodeRef) -> String {
         next_label: 0usize,
         env: HashMap::new(),
     };
-    match (&node.kind, &node.right) {
-        (NodeInner::Fn(fn_stmt), Some(body)) => {
-            let ident = &fn_stmt.ident;
-            let ret_type = &ctx.get_type(&fn_stmt.ret_ty).unwrap().llvm_ty;
-            let mut args = String::new();
-            for arg in fn_stmt.args.iter() {
-                let reg = fn_ctx.next_reg();
-                let ty = ctx.get_type(arg.1.as_ref()).unwrap();
-                args += &format!("{} %{reg}, ", ty.llvm_ty.as_str());
-                fn_ctx.env.insert(
-                    arg.0.to_string(),
-                    Var {
-                        is_arg: true,
-                        reg,
-                        ty: ty.clone(),
-                    },
-                );
-            }
-            // pop trailing comma and whitespace
-            args.pop();
-            args.pop();
-            fn_ctx.next_reg();
-            let body = emit_block(ctx, &mut fn_ctx, body.clone());
-            format!(
-                "define {} @{ident}({args}) {{{}\n}}",
-                ret_type.as_str(),
-                body.code
-            )
+    if let Node::Fn(fn_node) = &*node {
+        let ident = &fn_node.ident;
+        let ret_type = &ctx.get_type(&fn_node.ret_ty).unwrap().llvm_ty;
+        let mut args = String::new();
+        for arg in fn_node.args.iter() {
+            let reg = fn_ctx.next_reg();
+            let ty = ctx.get_type(arg.1.as_ref()).unwrap();
+            args += &format!("{} %{reg}, ", ty.llvm_ty.as_str());
+            fn_ctx.env.insert(
+                arg.0.to_string(),
+                Var {
+                    is_arg: true,
+                    reg,
+                    ty: ty.clone(),
+                },
+            );
         }
-        _ => panic!(),
+        // pop trailing comma and whitespace
+        args.pop();
+        args.pop();
+        fn_ctx.next_reg();
+        let body = emit_block(ctx, &mut fn_ctx, fn_node.body.clone());
+        format!(
+            "define {} @{ident}({args}) {{{}\n}}",
+            ret_type.as_str(),
+            body.code
+        )
+    } else {
+        panic!()
     }
 }
 
@@ -139,7 +139,7 @@ fn emit_block(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrBlock {
     let mut body = String::new();
     let mut is_terminal = false;
 
-    if let NodeInner::Block(block) = &node.kind {
+    if let Node::Block(block) = &*node {
         for stmt in block.statements.iter() {
             let stmt = emit_stmt(ctx, fn_ctx, stmt.clone());
             if stmt.is_terminal {
@@ -168,9 +168,9 @@ struct IrStmt {
 }
 
 fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrStmt {
-    use NodeInner::*;
-    match &node.kind {
-        Return => match &node.right {
+    use Node::*;
+    match &*node {
+        Return(node) => match &node.stmt {
             Some(rhs) => match emit_expr(ctx, fn_ctx, rhs.clone()) {
                 IrExpr::Imm(imm) => IrStmt {
                     code: format!("ret {} {}", imm.ty.llvm_ty.as_str(), imm.code),
@@ -186,18 +186,18 @@ fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrStmt {
                 is_terminal: true,
             },
         },
-        Let(let_stmt) => {
+        Let(node) => {
             let reg = fn_ctx.next_reg();
-            if let Ident(ident) = &node.left.clone().unwrap().kind {
+            if let Ident(ident) = &*node.lhs {
                 fn_ctx.env.insert(
-                    ident.to_string(),
+                    ident.name.to_string(),
                     Var {
                         is_arg: false,
                         reg,
-                        ty: ctx.get_type(let_stmt.ty.as_ref()).unwrap(),
+                        ty: ctx.get_type(node.ty.as_ref()).unwrap(),
                     },
                 );
-                match emit_expr(ctx, fn_ctx, node.right.clone().unwrap()) {
+                match emit_expr(ctx, fn_ctx, node.rhs.clone()) {
                     IrExpr::Imm(imm) => IrStmt {
                         code: format!(
                             "%{reg} = alloca {}, align {}\nstore {} {}, ptr %{reg}, align {}",
@@ -226,56 +226,61 @@ fn emit_stmt(ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrStmt {
                 panic!()
             }
         }
-        If(if_stmt) => {
-            let mut true_block = emit_block(ctx, fn_ctx, node.left.clone().unwrap());
-            let mut false_block = emit_block(ctx, fn_ctx, node.right.clone().unwrap());
+        If(IfNode {
+            condition,
+            then_block,
+            else_block,
+        }) => {
+            let mut then_block = emit_block(ctx, fn_ctx, then_block.clone());
+            // FIXME optional else
+            let mut else_block = emit_block(ctx, fn_ctx, else_block.clone().unwrap());
             let l_true = fn_ctx.next_label();
             let l_false = fn_ctx.next_label();
             let mut exit_point: String = String::new();
 
-            if true_block.is_terminal || false_block.is_terminal {
+            if then_block.is_terminal || else_block.is_terminal {
                 let exit_to = fn_ctx.next_label();
 
-                if !true_block.is_terminal {
-                    true_block.code += &format!("\nbr label %l{}", exit_to);
+                if !then_block.is_terminal {
+                    then_block.code += &format!("\nbr label %l{}", exit_to);
                 }
 
-                if !false_block.is_terminal {
-                    false_block.code += &format!("\nbr label %l{}", exit_to);
+                if !else_block.is_terminal {
+                    else_block.code += &format!("\nbr label %l{}", exit_to);
                 }
 
                 exit_point = format!("\nl{}:", exit_to);
             }
 
-            match emit_expr(ctx, fn_ctx, if_stmt.condition.clone()) {
+            match emit_expr(ctx, fn_ctx, condition.clone()) {
                 IrExpr::Imm(imm) => IrStmt {
                     code: format!(
                         "br i1 {}, label %l{l_true}, label %l{l_false}\nl{l_true}:{}\nl{l_false}:{}{}",
-                        true_block.code,
+                        then_block.code,
                         imm.code,
-                        false_block.code,
+                        else_block.code,
                         exit_point,
                     ),
-                    is_terminal: true_block.is_terminal && false_block.is_terminal,
+                    is_terminal: then_block.is_terminal && else_block.is_terminal,
                 },
                 IrExpr::Reg(r) => IrStmt {
                     code: format!(
                         "{}br i1 %{}, label %l{l_true}, label %l{l_false}\nl{l_true}:{}\nl{l_false}:{}{}",
                         r.code,
                         r.reg,
-                        true_block.code,
-                        false_block.code,
+                        then_block.code,
+                        else_block.code,
                         exit_point
                     ),
-                    is_terminal: true_block.is_terminal && false_block.is_terminal,
+                    is_terminal: then_block.is_terminal && else_block.is_terminal,
                 }
             }
         }
-        InfixOp(op) => match op {
+        BinOp(BinOpNode { op, lhs, rhs }) => match op {
             Op::Assign => {
-                if let Ident(lhs_ident) = &node.left.clone().unwrap().kind {
-                    let lhs = fn_ctx.env.get(&lhs_ident.to_string()).unwrap().reg;
-                    match emit_expr(ctx, fn_ctx, node.right.clone().unwrap()) {
+                if let Ident(ident_node) = &**lhs {
+                    let lhs = fn_ctx.env.get(&ident_node.name.to_string()).unwrap().reg;
+                    match emit_expr(ctx, fn_ctx, rhs.clone()) {
                         IrExpr::Imm(imm) => IrStmt {
                             code: format!(
                                 "store {} {}, ptr %{}, align {}",
@@ -325,19 +330,19 @@ enum IrExpr {
 }
 
 fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrExpr {
-    use NodeInner::*;
+    use Node::*;
 
-    match &node.kind {
+    match &*node {
         Int(i) => IrExpr::Imm(Imm {
             ty: Type::new("i32", LlvmTy::I32, 4),
-            code: format!("{}", i),
+            code: format!("{}", i.value),
         }),
         Bool(b) => IrExpr::Imm(Imm {
             ty: Type::new("bool", LlvmTy::I1, 1),
-            code: format!("{}", b),
+            code: format!("{}", b.value),
         }),
         Ident(ident) => {
-            let var = fn_ctx.env.get(ident.as_ref()).unwrap().clone();
+            let var = fn_ctx.env.get(&*ident.name).unwrap().clone();
             if var.is_arg {
                 IrExpr::Imm(Imm {
                     ty: var.ty,
@@ -376,13 +381,13 @@ fn emit_expr(_ctx: &mut Ctx, fn_ctx: &mut FnCtx, node: NodeRef) -> IrExpr {
             // TODO fn return type lookup
             IrExpr::Reg(Reg {
                 ty: Type::new("u32", LlvmTy::I32, 4),
-                code: format!("{code}%{reg} = call i32 @{}({})\n", call.ident, args),
+                code: format!("{code}%{reg} = call i32 @{}({})\n", call.ident.name, args),
                 reg,
             })
         }
-        InfixOp(op) => {
-            let lhs = emit_expr(_ctx, fn_ctx, node.left.clone().unwrap());
-            let rhs = emit_expr(_ctx, fn_ctx, node.right.clone().unwrap());
+        BinOp(BinOpNode { op, lhs, rhs }) => {
+            let lhs = emit_expr(_ctx, fn_ctx, lhs.clone());
+            let rhs = emit_expr(_ctx, fn_ctx, rhs.clone());
             // TODO ret_bool is temporary, impl emit_op()
             let (op, ret_bool) = match op {
                 Op::Add => ("add nsw", false),
@@ -485,7 +490,7 @@ fn main() {
         if args.ast {
             println!("{}\n", node);
         } else {
-            if let NodeInner::Fn(_) = &node.kind {
+            if let Node::Fn(_) = *node {
                 ir += &emit_fn(&mut ctx, node)
             }
             ir += "\n\n";

@@ -12,16 +12,6 @@ pub struct Parser {
     peek_token: Token,
 }
 
-macro_rules! node {
-    ($kind:expr, $left:expr, $right:expr) => {
-        Rc::new(Node {
-            kind: $kind,
-            left: $left,
-            right: $right,
-        })
-    };
-}
-
 impl Parser {
     pub fn new(input: &str) -> Parser {
         Parser {
@@ -48,13 +38,12 @@ impl Parser {
                     statements.push(stmt.clone());
                 }
 
-                Some(node!(
-                    NodeInner::Block(BlockStmt {
-                        statements: Rc::from(statements.as_slice())
-                    }),
-                    None,
-                    None
-                ))
+                Some(
+                    Node::Block(BlockNode {
+                        statements: Rc::from(statements.as_slice()),
+                    })
+                    .into(),
+                )
             }
             _ => todo!(),
         }
@@ -73,7 +62,7 @@ impl Parser {
 
                 assert_eq!(self.peek_token, Token::LBrace);
                 self.next_token();
-                let lhs = self.parse_block();
+                let then_block = self.parse_block();
 
                 // eat 'else' if there is one
                 if self.peek_token == Token::Else {
@@ -81,15 +70,22 @@ impl Parser {
                     assert_eq!(self.peek_token, Token::LBrace);
                 }
 
-                let rhs = if self.peek_token == Token::LBrace {
+                let else_block = if self.peek_token == Token::LBrace {
                     self.next_token();
                     self.parse_block()
                 } else {
                     None
                 };
 
-                match lhs {
-                    Some(_) => Some(node!(NodeInner::If(IfStmt { condition: cond }), lhs, rhs)),
+                match then_block {
+                    Some(then_blk) => Some(
+                        Node::If(IfNode {
+                            condition: cond,
+                            then_block: then_blk,
+                            else_block,
+                        })
+                        .into(),
+                    ),
                     None => todo!(),
                 }
             }
@@ -142,15 +138,15 @@ impl Parser {
 
             let body = self.parse_block()?;
 
-            Some(node!(
-                NodeInner::Fn(FnStmt {
+            Some(
+                Node::Fn(FnNode {
                     ident: ident.clone(),
                     args: Rc::from(args.as_slice()),
-                    ret_ty: return_type.clone()
-                }),
-                None,
-                Some(body)
-            ))
+                    ret_ty: return_type.clone(),
+                    body,
+                })
+                .into(),
+            )
         } else {
             todo!()
         }
@@ -159,8 +155,8 @@ impl Parser {
     fn parse_call(&mut self, lhs: NodeRef) -> Option<NodeRef> {
         let mut args: Vec<NodeRef> = Vec::new();
 
-        let ident = match &lhs.kind {
-            NodeInner::Ident(id) => id.clone(),
+        let ident = match &*lhs {
+            Node::Ident(id) => id.clone(),
             _ => todo!(),
         };
 
@@ -180,14 +176,13 @@ impl Parser {
         assert_eq!(self.peek_token, Token::RParen);
         self.next_token();
 
-        Some(node!(
-            NodeInner::Call(CallStmt {
+        Some(
+            Node::Call(CallNode {
                 ident,
-                args: Rc::from(args.as_slice())
-            }),
-            None,
-            None
-        ))
+                args: Rc::from(args.as_slice()),
+            })
+            .into(),
+        )
     }
 
     fn parse_array(&mut self) -> Option<NodeRef> {
@@ -207,14 +202,14 @@ impl Parser {
         assert_eq!(self.peek_token, Token::RBracket);
         self.next_token();
 
-        Some(node!(NodeInner::Array(arr), None, None))
+        Some(Node::Array(arr).into())
     }
 
     fn parse_index(&mut self, lhs: NodeRef) -> Option<NodeRef> {
         assert_eq!(self.peek_token, Token::LBracket);
 
-        let ident = match &lhs.kind {
-            NodeInner::Ident(id) => id.clone(),
+        let ident = match &*lhs {
+            Node::Ident(id) => id.clone(),
             _ => todo!(),
         };
         self.next_token();
@@ -223,11 +218,7 @@ impl Parser {
         assert_eq!(self.peek_token, Token::RBracket);
         self.next_token();
 
-        Some(node!(
-            NodeInner::Index(IndexStmt { ident, index }),
-            None,
-            None
-        ))
+        Some(Node::Index(IndexNode { ident, index }).into())
     }
 
     fn parse_pair(&mut self, key: NodeRef) -> Option<NodeRef> {
@@ -239,7 +230,7 @@ impl Parser {
             self.next_token();
         }
 
-        Some(node!(NodeInner::Pair(PairStmt { key, value }), None, None))
+        Some(Node::Pair(PairNode { key, value }).into())
     }
 
     pub fn parse_statement(&mut self) -> Option<NodeRef> {
@@ -255,11 +246,11 @@ impl Parser {
                 if let Token::Ident(ty) = self.curr_token.clone() {
                     self.next_token();
                     match self.curr_token {
-                        Token::Assign => Some(node!(
-                            NodeInner::Let(LetStmt { ty }),
-                            lhs,
-                            self.parse_expression(0)
-                        )),
+                        Token::Assign => Some(Rc::new(Node::Let(LetNode {
+                            ty,
+                            lhs: lhs?,
+                            rhs: self.parse_expression(0)?,
+                        }))),
                         _ => todo!(),
                     }
                 } else {
@@ -268,7 +259,9 @@ impl Parser {
             }
             Some(Token::Return) => {
                 self.next_token();
-                Some(node!(NodeInner::Return, None, self.parse_expression(0)))
+                Some(Rc::new(Node::Return(ReturnNode {
+                    stmt: self.parse_expression(0),
+                })))
             }
             Some(_) => self.parse_expression(0),
             None => return None,
@@ -283,7 +276,7 @@ impl Parser {
 
     fn parse_ident(&self) -> Option<NodeRef> {
         match &self.curr_token {
-            Token::Ident(name) => Some(node!(NodeInner::Ident(name.clone()), None, None)),
+            Token::Ident(name) => Some(Node::Ident(IdentNode { name: name.clone() }).into()),
             _ => todo!(),
         }
     }
@@ -292,21 +285,28 @@ impl Parser {
         self.next_token();
         let mut lhs = match &self.curr_token {
             Token::Int(s) => {
-                let i = match s.parse() {
+                let value = match s.parse() {
                     Ok(i) => i,
                     Err(_) => todo!(),
                 };
 
-                node!(NodeInner::Int(i), None, None)
+                Rc::new(Node::Int(IntNode { value }))
             }
-            Token::Str(s) => node!(NodeInner::Str(s.clone()), None, None),
+            Token::Str(s) => Rc::new(Node::Str(StrNode { value: s.clone() })),
             Token::Ident(_) => self.parse_ident()?,
-            Token::True => node!(NodeInner::Bool(true), None, None),
-            Token::False => node!(NodeInner::Bool(false), None, None),
+            Token::True => Rc::new(Node::Bool(BoolNode { value: true })),
+            Token::True => Rc::new(Node::Bool(BoolNode { value: false })),
             Token::Minus => {
-                node!(NodeInner::PrefixOp(Op::Neg), None, self.parse_expression(0))
+                // TODO this should not be an op
+                Rc::new(Node::UnOp(UnOpNode {
+                    op: Op::Neg,
+                    rhs: self.parse_expression(0)?,
+                }))
             }
-            Token::Bang => node!(NodeInner::PrefixOp(Op::Not), None, self.parse_expression(0)),
+            Token::Bang => Rc::new(Node::UnOp(UnOpNode {
+                op: Op::Not,
+                rhs: self.parse_expression(0)?,
+            })),
             Token::Let => self.parse_statement()?,
             Token::LParen => {
                 let node = self.parse_expression(0)?;
@@ -345,20 +345,24 @@ impl Parser {
             };
 
             match op {
-                Op::Call => lhs = self.parse_call(lhs)?,
-                Op::Index => lhs = self.parse_index(lhs)?,
-                Op::Colon => lhs = self.parse_pair(lhs)?,
+                Op::Call => lhs = self.parse_call(lhs.into())?,
+                Op::Index => lhs = self.parse_index(lhs.into())?,
+                Op::Colon => lhs = self.parse_pair(lhs.into())?,
                 op => {
                     if op.precedence() < precedence {
                         break;
                     }
                     self.next_token();
                     let rhs = self.parse_expression(op.precedence())?;
-                    lhs = node!(NodeInner::InfixOp(op), Some(lhs), Some(rhs));
+                    lhs = Rc::new(Node::BinOp(BinOpNode {
+                        op,
+                        lhs: lhs.into(),
+                        rhs,
+                    }));
                 }
             }
         }
-        Some(lhs)
+        Some(lhs.into())
     }
 
     pub fn parse(&mut self) -> Vec<NodeRef> {
