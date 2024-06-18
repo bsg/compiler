@@ -1,10 +1,10 @@
 fn main() -> u32 {
-    let x: u32 = 1;
-    return x + 5;
+    let x: u32 = 10;
+    return x + 5 * 3 + int_return();
 }
 
 fn int_return() -> u32 {
-    return 42;
+    return 100;
 }
 
 fn void_return() -> void {

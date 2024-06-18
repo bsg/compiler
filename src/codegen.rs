@@ -26,23 +26,54 @@ pub struct Var {
     ty: LLVMTypeRef,
 }
 
+pub struct Func {
+    val: LLVMValueRef,
+    ty: LLVMTypeRef,
+}
+
 pub struct Env {
     vars: HashMap<String, Var>,
+    types: HashMap<String, LLVMTypeRef>,
+    funcs: HashMap<String, Func>,
 }
 
 impl Env {
     pub fn new() -> Self {
+        let mut types = HashMap::new();
+        types.insert("void".to_owned(), unsafe { LLVMVoidType() });
+        types.insert("u32".to_owned(), unsafe { LLVMInt32Type() });
+        types.insert("i32".to_owned(), unsafe { LLVMInt32Type() });
+
         Env {
             vars: HashMap::new(),
+            types,
+            funcs: HashMap::new(),
         }
     }
 
-    pub fn insert_var(&mut self, ident: String, val: LLVMValueRef, ty: LLVMTypeRef) {
-        self.vars.insert(ident, Var { val, ty });
+    pub fn insert_type(&mut self, ident: &str, ty: LLVMTypeRef) {
+        self.types.insert(ident.to_string(), ty);
     }
 
-    pub fn get_var(&mut self, ident: &String) -> Option<&Var> {
+    pub fn get_type(&mut self, ident: &str) -> Option<&LLVMTypeRef> {
+        self.types.get(ident)
+    }
+
+    pub fn insert_var(&mut self, ident: &str, val: LLVMValueRef, ty: LLVMTypeRef) {
+        self.vars.insert(ident.to_string(), Var { val, ty });
+    }
+
+    pub fn get_var(&mut self, ident: &str) -> Option<&Var> {
         self.vars.get(ident)
+    }
+
+    pub fn insert_func(&mut self, ident: &str, val: LLVMValueRef, ty: LLVMTypeRef) {
+        println!("insert_func {}", ident);
+        self.funcs.insert(ident.to_string(), Func { val, ty });
+    }
+
+    pub fn get_func(&mut self, ident: &str) -> Option<&Func> {
+        self.funcs.get(ident)
     }
 }
 
@@ -50,7 +81,6 @@ pub struct ModuleBuilder {
     name: String,
     module: LLVMModuleRef,
     builder: LLVMBuilderRef,
-    types: HashMap<String, LLVMTypeRef>,
     env: Env,
 }
 
@@ -60,16 +90,10 @@ impl ModuleBuilder {
         let module = unsafe { LLVMModuleCreateWithName(mod_name) };
         let builder = unsafe { LLVMCreateBuilder() };
 
-        let mut types = HashMap::new();
-        types.insert("void".to_owned(), unsafe { LLVMVoidType() });
-        types.insert("u32".to_owned(), unsafe { LLVMInt32Type() });
-        types.insert("i32".to_owned(), unsafe { LLVMInt32Type() });
-
         Self {
             name: name.to_owned(),
             module,
             builder,
-            types,
             env: Env::new(),
         }
     }
@@ -95,6 +119,31 @@ impl ModuleBuilder {
                     "".to_cstring().as_ptr(),
                 )
             },
+            Op::Sub => unsafe {
+                LLVMBuildSub(
+                    self.builder,
+                    self.build_expr(node.lhs),
+                    self.build_expr(node.rhs),
+                    "".to_cstring().as_ptr(),
+                )
+            },
+            Op::Mul => unsafe {
+                LLVMBuildMul(
+                    self.builder,
+                    self.build_expr(node.lhs),
+                    self.build_expr(node.rhs),
+                    "".to_cstring().as_ptr(),
+                )
+            },
+            Op::Div => unsafe {
+                // TODO
+                LLVMBuildUDiv(
+                    self.builder,
+                    self.build_expr(node.lhs),
+                    self.build_expr(node.rhs),
+                    "".to_cstring().as_ptr(),
+                )
+            },
             _ => unimplemented!(),
         }
     }
@@ -103,10 +152,26 @@ impl ModuleBuilder {
         match &*node {
             Node::Int(_) => self.build_value(node),
             Node::Ident(ident) => unsafe {
-                let var = self.env.get_var(&ident.name.to_string()).unwrap();
+                let var = self.env.get_var(&ident.name).unwrap();
                 LLVMBuildLoad2(self.builder, var.ty, var.val, "".to_cstring().as_ptr())
             },
             Node::BinOp(op) => self.build_binop(op.clone()),
+            Node::Call(call) => {
+                // TODO return type etc is hardcoded rn. traverse ast and build symtable for use here
+                // will also need to build fns without bodies first to act as prototypes
+                // TODO LLVMGetNamedFunction for extern fns
+                let func = self.env.get_func(&call.ident.name).unwrap();
+                unsafe {
+                    LLVMBuildCall2(
+                        self.builder,
+                        func.ty,
+                        func.val,
+                        core::ptr::null_mut(),
+                        0,
+                        "".to_cstring().as_ptr(),
+                    )
+                }
+            }
             _ => unimplemented!(),
         }
     }
@@ -125,12 +190,12 @@ impl ModuleBuilder {
                 if let Node::Ident(ident) = &*l.lhs {
                     let reg = LLVMBuildAlloca(
                         self.builder,
-                        *self.types.get(&*l.ty).unwrap(),
+                        *self.env.get_type(&l.ty).unwrap(),
                         "".to_cstring().as_ptr(),
                     );
                     let rhs = self.build_expr(l.rhs.clone());
-                    let ty = self.types.get(&*l.ty).unwrap();
-                    self.env.insert_var(ident.name.to_string(), reg, *ty);
+                    let ty = *self.env.get_type(&l.ty).unwrap();
+                    self.env.insert_var(&ident.name, reg, ty);
                     LLVMBuildStore(self.builder, rhs, reg)
                 } else {
                     panic!()
@@ -152,11 +217,12 @@ impl ModuleBuilder {
 
     pub fn build_func(&mut self, node: NodeRef) {
         if let Node::Fn(func) = &*node {
-            let fn_type = self.types.get(&*func.ret_ty).unwrap();
+            let fn_type = self.env.get_type(&func.ret_ty).unwrap();
             let function_type = unsafe { LLVMFunctionType(*fn_type, [].as_mut_ptr(), 0, 0) };
             let function = unsafe {
                 LLVMAddFunction(self.module, func.ident.to_cstring().as_ptr(), function_type)
             };
+            self.env.insert_func(&func.ident, function, function_type);
             let entry_block =
                 unsafe { LLVMAppendBasicBlock(function, "".to_string().to_cstring().as_ptr()) };
             unsafe { LLVMPositionBuilderAtEnd(self.builder, entry_block) };
