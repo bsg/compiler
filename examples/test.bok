@@ -1,3 +1,12 @@
 fn main() -> u32 {
+    let x: u32 = 1;
+    return x + 5;
+}
+
+fn int_return() -> u32 {
     return 42;
+}
+
+fn void_return() -> void {
+    return;
 }
