@@ -295,7 +295,7 @@ impl Parser {
             Token::Str(s) => Rc::new(Node::Str(StrNode { value: s.clone() })),
             Token::Ident(_) => self.parse_ident()?,
             Token::True => Rc::new(Node::Bool(BoolNode { value: true })),
-            Token::True => Rc::new(Node::Bool(BoolNode { value: false })),
+            Token::False => Rc::new(Node::Bool(BoolNode { value: false })),
             Token::Minus => {
                 // TODO this should not be an op
                 Rc::new(Node::UnOp(UnOpNode {
@@ -345,24 +345,20 @@ impl Parser {
             };
 
             match op {
-                Op::Call => lhs = self.parse_call(lhs.into())?,
-                Op::Index => lhs = self.parse_index(lhs.into())?,
-                Op::Colon => lhs = self.parse_pair(lhs.into())?,
+                Op::Call => lhs = self.parse_call(lhs)?,
+                Op::Index => lhs = self.parse_index(lhs)?,
+                Op::Colon => lhs = self.parse_pair(lhs)?,
                 op => {
                     if op.precedence() < precedence {
                         break;
                     }
                     self.next_token();
                     let rhs = self.parse_expression(op.precedence())?;
-                    lhs = Rc::new(Node::BinOp(BinOpNode {
-                        op,
-                        lhs: lhs.into(),
-                        rhs,
-                    }));
+                    lhs = Rc::new(Node::BinOp(BinOpNode { op, lhs, rhs }));
                 }
             }
         }
-        Some(lhs.into())
+        Some(lhs)
     }
 
     pub fn parse(&mut self) -> Vec<NodeRef> {

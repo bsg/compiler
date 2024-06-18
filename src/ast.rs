@@ -250,7 +250,7 @@ impl fmt::Display for Node {
 
                     if let Some(else_node) = &if_node.else_block {
                         writeln!(f, "{}else", "    ".repeat(indent))?;
-                        fmt_with_indent(&else_node, f, indent + 1)?;
+                        fmt_with_indent(else_node, f, indent + 1)?;
                     }
 
                     return Ok(());
