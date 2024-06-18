@@ -477,25 +477,60 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    if args.path.is_none() {
-        return;
-    }
+    // if args.path.is_none() {
+    //     return;
+    // }
+    // let code = fs::read_to_string(args.path.unwrap()).unwrap();
 
-    let code = fs::read_to_string(args.path.unwrap()).unwrap();
+    // let mut ctx = Ctx::default();
+    // let mut ir = String::new();
+    // let ast = crate::parser::Parser::new(&code).parse();
 
-    let mut ctx = Ctx::default();
-    let mut ir = String::new();
-    let ast = crate::parser::Parser::new(&code).parse();
-    for node in ast {
-        if args.ast {
-            println!("{}\n", node);
-        } else {
-            if let Node::Fn(_) = *node {
-                ir += &emit_fn(&mut ctx, node)
-            }
-            ir += "\n\n";
+    unsafe {
+        if llvm_sys::target::LLVM_InitializeNativeTarget() != 0 {
+            panic!("Could not initialise target");
         }
+        if llvm_sys::target::LLVM_InitializeNativeAsmPrinter() != 0 { // TODO needed?
+            panic!("Could not initialise ASM Printer");
+        }
+    };
+
+    let mod_name = core::ffi::CStr::from_bytes_with_nul(b"hello\0").unwrap().as_ptr();
+    let module = unsafe { llvm_sys::core::LLVMModuleCreateWithName(mod_name) };
+
+    let function_name = core::ffi::CStr::from_bytes_with_nul(b"main\0")
+        .unwrap()
+        .as_ptr();
+    let llvm_ty_void = unsafe { llvm_sys::core::LLVMVoidType() };
+    let function_type =
+        unsafe { llvm_sys::core::LLVMFunctionType(llvm_ty_void, [].as_mut_ptr(), 0, 0) };
+    let function = unsafe { llvm_sys::core::LLVMAddFunction(module, function_name, function_type) };
+
+    let block_name = core::ffi::CStr::from_bytes_with_nul(b"\0")
+        .unwrap()
+        .as_ptr();
+    let entry_block = unsafe { llvm_sys::core::LLVMAppendBasicBlock(function, block_name) };
+
+    unsafe {
+        let builder = llvm_sys::core::LLVMCreateBuilder();
+        llvm_sys::core::LLVMPositionBuilderAtEnd(builder, entry_block);
+        llvm_sys::core::LLVMBuildRetVoid(builder);
+        llvm_sys::core::LLVMDisposeBuilder(builder);
     }
 
-    println!("{}", ir);
+    unsafe { llvm_sys::core::LLVMDumpModule(module) }
+    unsafe { llvm_sys::core::LLVMDisposeModule(module) }
+
+    // for node in ast {
+    //     if args.ast {
+    //         println!("{}\n", node);
+    //     } else {
+    //         if let Node::Fn(_) = *node {
+    //             ir += &emit_fn(&mut ctx, node)
+    //         }
+    //         ir += "\n\n";
+    //     }
+    // }
+
+    // println!("{}", ir);
 }

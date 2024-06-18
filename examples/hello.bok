@@ -18,6 +18,6 @@ fn square(x: i32) -> i32 {
     return x * x;
 }
 
-fn no_return() -> void {
+fn void_return() -> void {
     return;
 }
