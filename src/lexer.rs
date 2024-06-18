@@ -2,7 +2,7 @@ use std::{rc::Rc, str};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
-    Eof,
+    None,
     Illegal,
     Ident(Rc<str>),
     Int(Rc<str>),
@@ -209,7 +209,7 @@ impl Tokens {
                 (b'0'..=b'9') => return Token::Int(self.read_number()),
                 _ => Token::Illegal,
             },
-            None => Token::Eof,
+            None => Token::None,
         };
         self.read_char();
         token
@@ -222,7 +222,7 @@ impl Iterator for Tokens {
     fn next(&mut self) -> Option<Self::Item> {
         let tok = self.next_token();
         match tok {
-            Token::Eof => None,
+            Token::None => None,
             _ => Some(tok),
         }
     }
