@@ -218,8 +218,6 @@ impl ModuleBuilder {
             },
             Node::BinOp(op) => self.build_binop(env, op.clone()),
             Node::Call(call) => {
-                // TODO return type etc is hardcoded rn. traverse ast and build symtable for use here
-                // will also need to build fns without bodies first to act as prototypes
                 // TODO LLVMGetNamedFunction for extern fns
                 let func = (unsafe { &*env.get() }).get_func(&call.ident.name).unwrap();
                 let mut args: Vec<LLVMValueRef> = Vec::new();
