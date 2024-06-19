@@ -42,6 +42,7 @@ fn main() {
     let ast = crate::parser::Parser::new(&code).parse();
 
     let mut module = codegen::ModuleBuilder::new("hello");
+    module.build_symtable(ast.as_slice());
     for node in ast {
         module.build_func(node);
     }
@@ -89,17 +90,4 @@ fn main() {
 
     unsafe { LLVMDisposeMessage(triple) };
     unsafe { LLVMDisposeMessage(cpu) };
-
-    // for node in ast {
-    //     if args.ast {
-    //         println!("{}\n", node);
-    //     } else {
-    //         if let Node::Fn(_) = *node {
-    //             ir += &emit_fn(&mut ctx, node)
-    //         }
-    //         ir += "\n\n";
-    //     }
-    // }
-
-    // println!("{}", ir);
 }
