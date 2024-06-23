@@ -1,9 +1,9 @@
-fn add(a: u32, b: u32) -> u32 {
-    return a + b;
+fn add(a: *u32, b: *u32) -> u32 {
+    return *a + *b;
 }
 
 fn main(argc: u32) -> u32 {
-    let a: u32 = 123;
+    let a: u32 = 100;
     let p: *u32 = &a;
-    return *p;
+    return add(&argc, &a);
 }

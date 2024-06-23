@@ -112,13 +112,23 @@ impl Parser {
                         assert_eq!(self.curr_token, Token::Colon);
                         self.next_token();
 
-                        if let Token::Ident(ty_ident) = &self.curr_token {
-                            args.push(Arg {
+                        match &self.curr_token {
+                            Token::Ident(ty_ident) => args.push(Arg {
                                 ident: arg_ident.clone(),
                                 ty: ty_ident.clone(),
-                            })
-                        } else {
-                            todo!()
+                            }),
+                            Token::Star => {
+                                // FIXME duplicate code
+                                self.next_token();
+                                match &self.curr_token {
+                                    Token::Ident(ty_ident) => args.push(Arg {
+                                        ident: arg_ident.clone(),
+                                        ty: ("*".to_string() + ty_ident).as_str().into(),
+                                    }),
+                                    _ => todo!(),
+                                }
+                            }
+                            _ => todo!(),
                         }
                     }
                     Token::Comma => (),
@@ -133,6 +143,14 @@ impl Parser {
 
             let return_type = match self.curr_token.clone() {
                 Token::Ident(ret_ident) => ret_ident,
+                Token::Star => {
+                    // FIXME duplicate code
+                    self.next_token();
+                    match self.curr_token.clone() {
+                        Token::Ident(ret_ident) => ret_ident,
+                        _ => todo!()
+                    }
+                }
                 _ => todo!(),
             };
             self.next_token();
@@ -248,7 +266,7 @@ impl Parser {
                 self.next_token();
 
                 let mut is_ptr = false;
-                if let Token::Asterisk = self.curr_token {
+                if let Token::Star = self.curr_token {
                     self.next_token();
                     is_ptr = true;
                 };
@@ -336,7 +354,7 @@ impl Parser {
                 op: Op::Ref,
                 rhs: self.parse_expression(0)?,
             }),
-            Token::Asterisk => Rc::new(Node::UnOp {
+            Token::Star => Rc::new(Node::UnOp {
                 op: Op::Deref,
                 rhs: self.parse_expression(0)?,
             }),
@@ -348,7 +366,7 @@ impl Parser {
                 Token::Assign => Op::Assign,
                 Token::Plus => Op::Add,
                 Token::Minus => Op::Sub,
-                Token::Asterisk => Op::Mul,
+                Token::Star => Op::Mul,
                 Token::Slash => Op::Div,
                 Token::Percent => Op::Mod,
                 Token::Eq => Op::Eq,
@@ -635,16 +653,18 @@ else
     #[test]
     fn op_precedence() {
         assert_parse!(
-            "1 + 2 * (3 - 4) / 5",
+            "!1 + 2 * !(3 - 4) / 5",
             "\
 add
-    1
+    not
+        1
     mul
         2
         div
-            sub
-                3
-                4
+            not
+                sub
+                    3
+                    4
             5
 "
         );
@@ -974,6 +994,19 @@ ref
             "\
 deref
     ident p
+"
+        );
+    }
+
+    #[test]
+    fn ptr_type_in_fn_head() {
+        assert_parse!(
+            "fn f(x: *u32) -> *u32 {return x;}",
+            "\
+fn f(x: *u32) -> u32
+    block
+        return
+            ident x
 "
         );
     }

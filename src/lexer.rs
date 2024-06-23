@@ -13,7 +13,7 @@ pub enum Token {
     Plus,
     Minus,
     Bang,
-    Asterisk,
+    Star,
     Slash,
     Percent,
     Amp,
@@ -151,7 +151,7 @@ impl Tokens {
                 }
                 _ => Token::Bang,
             },
-            Some(b'*') => Token::Asterisk,
+            Some(b'*') => Token::Star,
             Some(b'<') => match self.peek_char() {
                 Some(b'=') => {
                     self.read_char();
@@ -261,7 +261,7 @@ mod tests {
     fn symbols() {
         let source = "=+-!*/(){}[],;:->&||&&";
         let expected = [
-            Assign, Plus, Minus, Bang, Asterisk, Slash, LParen, RParen, LBrace, RBrace, LBracket,
+            Assign, Plus, Minus, Bang, Star, Slash, LParen, RParen, LBrace, RBrace, LBracket,
             RBracket, Comma, Semicolon, Colon, Arrow, Amp, BarBar, AmpAmp,
         ];
         let mut tokens = Lexer::new(source).tokens();
