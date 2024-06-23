@@ -39,9 +39,9 @@ impl Parser {
                 }
 
                 Some(
-                    Node::Block(BlockNode {
+                    Node::Block {
                         statements: Rc::from(statements.as_slice()),
-                    })
+                    }
                     .into(),
                 )
             }
@@ -79,11 +79,11 @@ impl Parser {
 
                 match then_block {
                     Some(then_blk) => Some(
-                        Node::If(IfNode {
+                        Node::If {
                             condition: cond,
                             then_block: then_blk,
                             else_block,
-                        })
+                        }
                         .into(),
                     ),
                     None => todo!(),
@@ -95,7 +95,7 @@ impl Parser {
 
     // caller must ensure current token is Fn
     fn parse_fn(&mut self) -> Option<NodeRef> {
-        let mut args: Vec<(Rc<str>, Rc<str>)> = Vec::new();
+        let mut args: Vec<Arg> = Vec::new();
 
         assert_eq!(self.curr_token, Token::Fn);
         self.next_token();
@@ -112,8 +112,18 @@ impl Parser {
                         assert_eq!(self.curr_token, Token::Colon);
                         self.next_token();
 
+                        let mut is_ref = false;
+                        if let Token::Asterisk = &self.curr_token {
+                            self.next_token();
+                            is_ref = true;
+                        }
+
                         if let Token::Ident(ty_ident) = &self.curr_token {
-                            args.push((arg_ident.clone(), ty_ident.clone()))
+                            args.push(Arg {
+                                ident: arg_ident.clone(),
+                                ty: ty_ident.clone(),
+                                is_ref,
+                            })
                         } else {
                             todo!()
                         }
@@ -139,12 +149,12 @@ impl Parser {
             let body = self.parse_block()?;
 
             Some(
-                Node::Fn(FnNode {
+                Node::Fn {
                     ident: ident.clone(),
                     args: Rc::from(args.as_slice()),
                     ret_ty: return_type.clone(),
                     body,
-                })
+                }
                 .into(),
             )
         } else {
@@ -156,7 +166,7 @@ impl Parser {
         let mut args: Vec<NodeRef> = Vec::new();
 
         let ident = match &*lhs {
-            Node::Ident(id) => id.clone(),
+            Node::Ident { name } => name.clone(),
             _ => todo!(),
         };
 
@@ -177,10 +187,10 @@ impl Parser {
         self.next_token();
 
         Some(
-            Node::Call(CallNode {
+            Node::Call {
                 ident,
                 args: Rc::from(args.as_slice()),
-            })
+            }
             .into(),
         )
     }
@@ -202,14 +212,14 @@ impl Parser {
         assert_eq!(self.peek_token, Token::RBracket);
         self.next_token();
 
-        Some(Node::Array(arr).into())
+        Some(Node::Array { value: arr }.into())
     }
 
     fn parse_index(&mut self, lhs: NodeRef) -> Option<NodeRef> {
         assert_eq!(self.peek_token, Token::LBracket);
 
         let ident = match &*lhs {
-            Node::Ident(id) => id.clone(),
+            Node::Ident { name } => name.clone(),
             _ => todo!(),
         };
         self.next_token();
@@ -218,7 +228,7 @@ impl Parser {
         assert_eq!(self.peek_token, Token::RBracket);
         self.next_token();
 
-        Some(Node::Index(IndexNode { ident, index }).into())
+        Some(Node::Index { ident, index }.into())
     }
 
     fn parse_pair(&mut self, key: NodeRef) -> Option<NodeRef> {
@@ -230,7 +240,7 @@ impl Parser {
             self.next_token();
         }
 
-        Some(Node::Pair(PairNode { key, value }).into())
+        Some(Node::Pair { key, value }.into())
     }
 
     pub fn parse_statement(&mut self) -> Option<NodeRef> {
@@ -243,14 +253,25 @@ impl Parser {
                 self.next_token();
                 assert_eq!(self.curr_token, Token::Colon);
                 self.next_token();
+
+                let mut is_ptr = false;
+                if let Token::Asterisk = self.curr_token {
+                    self.next_token();
+                    is_ptr = true;
+                };
+
                 if let Token::Ident(ty) = self.curr_token.clone() {
                     self.next_token();
                     match self.curr_token {
-                        Token::Assign => Some(Rc::new(Node::Let(LetNode {
-                            ty,
+                        Token::Assign => Some(Rc::new(Node::Let {
+                            ty: if is_ptr {
+                                ("*".to_string() + &ty).into()
+                            } else {
+                                ty
+                            },
                             lhs: lhs?,
                             rhs: self.parse_expression(0)?,
-                        }))),
+                        })),
                         _ => todo!(),
                     }
                 } else {
@@ -259,9 +280,9 @@ impl Parser {
             }
             Some(Token::Return) => {
                 self.next_token();
-                Some(Rc::new(Node::Return(ReturnNode {
+                Some(Rc::new(Node::Return {
                     stmt: self.parse_expression(0),
-                })))
+                }))
             }
             Some(_) => self.parse_expression(0),
             None => return None,
@@ -276,7 +297,7 @@ impl Parser {
 
     fn parse_ident(&self) -> Option<NodeRef> {
         match &self.curr_token {
-            Token::Ident(name) => Some(Node::Ident(IdentNode { name: name.clone() }).into()),
+            Token::Ident(name) => Some(Node::Ident { name: name.clone() }.into()),
             _ => todo!(),
         }
     }
@@ -290,23 +311,23 @@ impl Parser {
                     Err(_) => todo!(),
                 };
 
-                Rc::new(Node::Int(IntNode { value }))
+                Rc::new(Node::Int { value })
             }
-            Token::Str(s) => Rc::new(Node::Str(StrNode { value: s.clone() })),
+            Token::Str(s) => Rc::new(Node::Str { value: s.clone() }),
             Token::Ident(_) => self.parse_ident()?,
-            Token::True => Rc::new(Node::Bool(BoolNode { value: true })),
-            Token::False => Rc::new(Node::Bool(BoolNode { value: false })),
+            Token::True => Rc::new(Node::Bool { value: true }),
+            Token::False => Rc::new(Node::Bool { value: false }),
             Token::Minus => {
                 // TODO this should not be an op
-                Rc::new(Node::UnOp(UnOpNode {
+                Rc::new(Node::UnOp {
                     op: Op::Neg,
                     rhs: self.parse_expression(0)?,
-                }))
+                })
             }
-            Token::Bang => Rc::new(Node::UnOp(UnOpNode {
+            Token::Bang => Rc::new(Node::UnOp {
                 op: Op::Not,
                 rhs: self.parse_expression(0)?,
-            })),
+            }),
             Token::Let => self.parse_statement()?,
             Token::LParen => {
                 let node = self.parse_expression(0)?;
@@ -318,7 +339,14 @@ impl Parser {
             Token::LBrace => self.parse_block()?,
             Token::Fn => self.parse_fn()?,
             Token::If => self.parse_if()?,
-
+            Token::Amp => Rc::new(Node::UnOp {
+                op: Op::Ref,
+                rhs: self.parse_expression(0)?,
+            }),
+            Token::Asterisk => Rc::new(Node::UnOp {
+                op: Op::Deref,
+                rhs: self.parse_expression(0)?,
+            }),
             _ => return None,
         };
 
@@ -336,8 +364,8 @@ impl Parser {
                 Token::Gt => Op::Gt,
                 Token::Le => Op::Le,
                 Token::Ge => Op::Ge,
-                Token::And => Op::And,
-                Token::Or => Op::Or,
+                Token::Amp => Op::And,
+                Token::Bar => Op::Or,
                 Token::LParen => Op::Call,
                 Token::LBracket => Op::Index,
                 Token::Colon => Op::Colon,
@@ -354,7 +382,7 @@ impl Parser {
                     }
                     self.next_token();
                     let rhs = self.parse_expression(op.precedence())?;
-                    lhs = Rc::new(Node::BinOp(BinOpNode { op, lhs, rhs }));
+                    lhs = Rc::new(Node::BinOp { op, lhs, rhs });
                 }
             }
         }
@@ -379,7 +407,7 @@ mod tests {
         ($input:expr, $expected:expr) => {
             let mut parser = Parser::new($input);
             match parser.parse_statement() {
-                Some(ast) => assert_eq!(format!("{}", ast), $expected,),
+                Some(ast) => assert_eq!($expected, format!("{:?}", ast)),
                 None => panic!(),
             }
         };
@@ -405,7 +433,7 @@ ident __var_12
     }
 
     #[test]
-    fn bool() {
+    fn bool_literal() {
         assert_parse!(
             "true", "\
 true
@@ -413,7 +441,16 @@ true
         );
     }
 
-    // TODO neg shouldn't be an op
+    #[test]
+    fn str_literal() {
+        assert_parse!(
+            "\"test\"",
+            "\
+\"test\"
+"
+        );
+    }
+
     #[test]
     fn op_neg() {
         assert_parse!(
@@ -509,7 +546,7 @@ eq
     }
 
     #[test]
-    fn op_not_eq() {
+    fn op_neq() {
         assert_parse!(
             "5 != 5",
             "\
@@ -667,21 +704,22 @@ block
         );
     }
 
-    #[test]
-    fn block_without_semicolons() {
-        assert_parse!(
-            "{1 + 2 3 + 4}",
-            "\
-block
-    add
-        1
-        2
-    add
-        3
-        4
-"
-        );
-    }
+    // TODO make sure this does not parse
+    //     #[test]
+    //     fn block_without_semicolons() {
+    //         assert_parse!(
+    //             "{1 + 2 3 + 4}",
+    //             "\
+    // block
+    //     add
+    //         1
+    //         2
+    //     add
+    //         3
+    //         4
+    // "
+    //         );
+    //     }
 
     #[test]
     fn nested_blocks() {
@@ -861,15 +899,17 @@ add
     #[test]
     fn parse_array() {
         assert_parse!(
-            "[]",
-            "\
-array[]
+            "[]", "\
+array
 "
         );
         assert_parse!(
             "[1, 2, x]",
             "\
-array[1, 2, ident x]
+array
+    1
+    2
+    ident x
 "
         );
     }
@@ -885,27 +925,34 @@ array[1, 2, ident x]
         assert_parse!(
             "arr[2]",
             "\
-arr[2]
+index arr
+    2
 "
         );
         assert_parse!(
             "arr[x]",
             "\
-arr[ident x]
+index arr
+    ident x
 "
         );
         assert_parse!(
             "arr[x + 2]",
             "\
-arr[add\n   ident x\n   2]
+index arr
+    add
+        ident x
+        2
 "
         );
         assert_parse!(
             "arr[1] + arr[2]",
             "\
 add
-    arr[1]
-    arr[2]
+    index arr
+        1
+    index arr
+        2
 "
         );
     }
@@ -914,5 +961,27 @@ add
     #[should_panic]
     fn parse_invalid_index() {
         assert_parse!("arr[2", "");
+    }
+
+    #[test]
+    fn get_ref() {
+        assert_parse!(
+            "&foo",
+            "\
+ref
+    ident foo
+"
+        );
+    }
+
+    #[test]
+    fn deref() {
+        assert_parse!(
+            "*p",
+            "\
+deref
+    ident p
+"
+        );
     }
 }

@@ -1,6 +1,5 @@
-use std::{collections::HashMap, fs};
+use std::fs;
 
-use ast::{BinOpNode, IfNode, Node, NodeRef, Op};
 use clap::Parser;
 use llvm_sys::target_machine::{
     LLVMGetDefaultTargetTriple, LLVMGetFirstTarget, LLVMGetHostCPUName,
@@ -40,6 +39,10 @@ fn main() {
 
     let code = fs::read_to_string(args.path.unwrap()).unwrap();
     let ast = crate::parser::Parser::new(&code).parse();
+
+    if args.ast {
+        fs::write("ast.txt", format!("{:?}", ast)).unwrap();
+    }
 
     let mut module = codegen::ModuleBuilder::new("hello");
     module.build_symtable(ast.as_slice());

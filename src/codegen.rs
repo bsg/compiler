@@ -48,6 +48,15 @@ impl Env {
         types.insert("void".to_owned(), unsafe { LLVMVoidType() });
         types.insert("u32".to_owned(), unsafe { LLVMInt32Type() });
         types.insert("i32".to_owned(), unsafe { LLVMInt32Type() });
+        types.insert("*void".to_owned(), unsafe {
+            LLVMPointerType(LLVMVoidType(), 0)
+        });
+        types.insert("*u32".to_owned(), unsafe {
+            LLVMPointerType(LLVMInt32Type(), 0)
+        });
+        types.insert("*i32".to_owned(), unsafe {
+            LLVMPointerType(LLVMInt32Type(), 0)
+        });
 
         Env {
             parent: None,
@@ -71,9 +80,9 @@ impl Env {
         self.types.insert(ident.to_string(), ty);
     }
 
-    pub fn get_type(&self, ident: &str) -> Option<&LLVMTypeRef> {
+    pub fn get_type(&self, ident: &str) -> Option<LLVMTypeRef> {
         match self.types.get(ident) {
-            v @ Some(_) => v,
+            Some(ty) => Some(*ty),
             None => {
                 if let Some(parent) = &self.parent {
                     let p = unsafe { &*parent.get() };
@@ -83,6 +92,11 @@ impl Env {
                 }
             }
         }
+    }
+
+    pub fn get_ptr_type(&self, ident: &str) -> Option<LLVMTypeRef> {
+        self.get_type(ident)
+            .map(|ty| unsafe { LLVMPointerType(ty, 0) })
     }
 
     pub fn insert_var(&mut self, ident: &str, val: LLVMValueRef, ty: LLVMTypeRef, is_fn_arg: bool) {
@@ -129,7 +143,6 @@ impl Env {
     }
 }
 
-// TODO might want a ScopeBuilder or something with its own env
 pub struct ModuleBuilder {
     name: String,
     module: LLVMModuleRef,
@@ -154,74 +167,106 @@ impl ModuleBuilder {
 
     fn build_value(&mut self, node: NodeRef) -> LLVMValueRef {
         match &*node {
-            Node::Int(i) => {
+            Node::Int { value } => {
                 // FIXME int type
                 // TODO sign extend
-                unsafe { LLVMConstInt(LLVMInt32Type(), i.value.try_into().unwrap(), 0) }
+                unsafe { LLVMConstInt(LLVMInt32Type(), (*value).try_into().unwrap(), 0) }
             }
             _ => unimplemented!(),
         }
     }
 
-    fn build_binop(&mut self, env: Rc<UnsafeCell<Env>>, node: BinOpNode) -> LLVMValueRef {
-        match node.op {
-            Op::Add => unsafe {
-                LLVMBuildAdd(
-                    self.builder,
-                    self.build_expr(env.clone(), node.lhs),
-                    self.build_expr(env, node.rhs),
-                    "".to_cstring().as_ptr(),
-                )
-            },
-            Op::Sub => unsafe {
-                LLVMBuildSub(
-                    self.builder,
-                    self.build_expr(env.clone(), node.lhs),
-                    self.build_expr(env, node.rhs),
-                    "".to_cstring().as_ptr(),
-                )
-            },
-            Op::Mul => unsafe {
-                LLVMBuildMul(
-                    self.builder,
-                    self.build_expr(env.clone(), node.lhs),
-                    self.build_expr(env, node.rhs),
-                    "".to_cstring().as_ptr(),
-                )
-            },
-            Op::Div => unsafe {
-                // TODO
-                LLVMBuildUDiv(
-                    self.builder,
-                    self.build_expr(env.clone(), node.lhs),
-                    self.build_expr(env, node.rhs),
-                    "".to_cstring().as_ptr(),
-                )
-            },
-            _ => unimplemented!(),
+    fn build_unop(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef) -> LLVMValueRef {
+        if let Node::UnOp { op, rhs } = &*node {
+            match op {
+                Op::Ref => unsafe {
+                    LLVMBuildLoad2(
+                        self.builder,
+                        LLVMPointerType(LLVMInt32Type(), 0),
+                        self.build_expr(env, rhs.clone()),
+                        "p".to_cstring().as_ptr(),
+                    )
+                },
+                Op::Deref => unsafe {
+                    let p =
+                        LLVMBuildAlloca(self.builder, LLVMInt32Type(), "".to_cstring().as_ptr());
+                    LLVMBuildStore(self.builder, self.build_expr(env, rhs.clone()), p);
+                    p
+                },
+                _ => todo!(),
+            }
+        } else {
+            todo!()
+        }
+    }
+
+    fn build_binop(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef) -> LLVMValueRef {
+        if let Node::BinOp { op, lhs, rhs } = &*node {
+            match op {
+                Op::Add => unsafe {
+                    LLVMBuildAdd(
+                        self.builder,
+                        self.build_expr(env.clone(), lhs.clone()),
+                        self.build_expr(env, rhs.clone()),
+                        "".to_cstring().as_ptr(),
+                    )
+                },
+                Op::Sub => unsafe {
+                    LLVMBuildSub(
+                        self.builder,
+                        self.build_expr(env.clone(), lhs.clone()),
+                        self.build_expr(env, rhs.clone()),
+                        "".to_cstring().as_ptr(),
+                    )
+                },
+                Op::Mul => unsafe {
+                    LLVMBuildMul(
+                        self.builder,
+                        self.build_expr(env.clone(), lhs.clone()),
+                        self.build_expr(env, rhs.clone()),
+                        "".to_cstring().as_ptr(),
+                    )
+                },
+                Op::Div => unsafe {
+                    // TODO
+                    LLVMBuildUDiv(
+                        self.builder,
+                        self.build_expr(env.clone(), lhs.clone()),
+                        self.build_expr(env, rhs.clone()),
+                        "".to_cstring().as_ptr(),
+                    )
+                },
+                _ => unimplemented!(),
+            }
+        } else {
+            todo!()
         }
     }
 
     fn build_expr(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef) -> LLVMValueRef {
         match &*node {
-            Node::Int(_) => self.build_value(node),
-            Node::Ident(ident) => unsafe {
-                if let Some(var) = (*env.get()).get_var(&ident.name) {
+            Node::Int { .. } => self.build_value(node),
+            Node::Ident { name } => unsafe {
+                if let Some(var) = (*env.get()).get_var(&name) {
                     if var.is_fn_arg {
                         var.val
                     } else {
                         LLVMBuildLoad2(self.builder, var.ty, var.val, "".to_cstring().as_ptr())
                     }
                 } else {
-                    panic!("unknown ident {}", ident.name)
+                    panic!("unresolved ident {}", name)
                 }
             },
-            Node::BinOp(op) => self.build_binop(env, op.clone()),
-            Node::Call(call) => {
+            Node::UnOp { .. } => self.build_unop(env, node.clone()),
+            Node::BinOp { .. } => self.build_binop(env, node.clone()),
+            Node::Call {
+                ident,
+                args: arg_exprs,
+            } => {
                 // TODO LLVMGetNamedFunction for extern fns
-                let func = (unsafe { &*env.get() }).get_func(&call.ident.name).unwrap();
+                let func = (unsafe { &*env.get() }).get_func(&ident).unwrap();
                 let mut args: Vec<LLVMValueRef> = Vec::new();
-                for arg in call.args.iter() {
+                for arg in arg_exprs.iter() {
                     args.push(self.build_expr(env.clone(), arg.clone()));
                 }
                 unsafe {
@@ -241,24 +286,24 @@ impl ModuleBuilder {
 
     fn build_stmt(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef) -> LLVMValueRef {
         match &*node {
-            Node::Return(r) => {
-                if let Some(rhs) = &r.stmt {
+            Node::Return { stmt } => {
+                if let Some(rhs) = &stmt {
                     let v = self.build_expr(env, rhs.clone());
                     unsafe { LLVMBuildRet(self.builder, v) }
                 } else {
                     unsafe { LLVMBuildRetVoid(self.builder) }
                 }
             }
-            Node::Let(l) => unsafe {
-                if let Node::Ident(ident) = &*l.lhs {
+            Node::Let { ty, lhs, rhs } => unsafe {
+                if let Node::Ident { name } = &**lhs {
                     let reg = LLVMBuildAlloca(
                         self.builder,
-                        *(*env.get()).get_type(&l.ty).unwrap(),
+                        (*env.get()).get_type(&ty).unwrap(),
                         "".to_cstring().as_ptr(),
                     );
-                    let rhs = self.build_expr(env.clone(), l.rhs.clone());
-                    let ty = *(*env.get()).get_type(&l.ty).unwrap();
-                    (*env.get()).insert_var(&ident.name, reg, ty, false);
+                    let rhs = self.build_expr(env.clone(), rhs.clone());
+                    let ty = (*env.get()).get_type(&ty).unwrap();
+                    (*env.get()).insert_var(&name, reg, ty, false);
                     LLVMBuildStore(self.builder, rhs, reg)
                 } else {
                     panic!()
@@ -269,8 +314,8 @@ impl ModuleBuilder {
     }
 
     fn build_block(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef) {
-        if let Node::Block(block) = &*node {
-            for stmt in block.statements.iter() {
+        if let Node::Block { statements } = &*node {
+            for stmt in statements.iter() {
                 self.build_stmt(env.clone(), stmt.clone());
             }
         } else {
@@ -281,12 +326,12 @@ impl ModuleBuilder {
     pub fn build_func(&mut self, node: NodeRef) {
         let env = self.env.clone();
         let env = unsafe { &*env.get() };
-        if let Node::Fn(func) = &*node {
-            let f = env.get_func(&func.ident).unwrap();
+        if let Node::Fn { ident, body, .. } = &*node {
+            let f = env.get_func(&ident).unwrap();
             let entry_block =
                 unsafe { LLVMAppendBasicBlock(f.val, "".to_string().to_cstring().as_ptr()) };
             unsafe { LLVMPositionBuilderAtEnd(self.builder, entry_block) };
-            self.build_block(f.env.clone(), func.body.clone());
+            self.build_block(f.env.clone(), body.clone());
         }
     }
 
@@ -294,37 +339,52 @@ impl ModuleBuilder {
         let env = self.env.clone();
         let env = unsafe { &mut *env.get() };
         for node in ast {
-            if let Node::Fn(func) = &**node {
-                let func_ty_str = env.get_type(&func.ret_ty).unwrap();
+            if let Node::Fn {
+                ident,
+                args: arg_exprs,
+                ret_ty,
+                ..
+            } = &**node
+            {
+                let func_ty_str = env.get_type(&ret_ty).unwrap();
                 let mut args: Vec<LLVMTypeRef> = Vec::new();
-                for arg in func.args.iter() {
-                    args.push(*env.get_type(&arg.1).unwrap());
+                for arg in arg_exprs.iter() {
+                    let arg_ty = if arg.is_ref {
+                        env.get_ptr_type(&arg.ty)
+                    } else {
+                        env.get_type(&arg.ty)
+                    };
+
+                    if let Some(ty) = arg_ty {
+                        args.push(ty);
+                    } else {
+                        panic!("unresolved type {}", &arg.ty);
+                    }
                 }
                 let func_ty = unsafe {
                     LLVMFunctionType(
-                        *func_ty_str,
+                        func_ty_str,
                         args.as_mut_slice().as_mut_ptr(),
                         args.len().try_into().unwrap(),
                         0,
                     )
                 };
-                let val = unsafe {
-                    LLVMAddFunction(self.module, func.ident.to_cstring().as_ptr(), func_ty)
-                };
+                let val =
+                    unsafe { LLVMAddFunction(self.module, ident.to_cstring().as_ptr(), func_ty) };
 
                 let mut fn_env = Env::make_child(self.env.clone());
 
-                for (i, arg) in func.args.iter().enumerate() {
-                    let ty = env.get_type(&arg.1).unwrap();
+                for (i, arg) in arg_exprs.iter().enumerate() {
+                    let ty = env.get_type(&arg.ty).unwrap();
                     fn_env.insert_var(
-                        &arg.0,
+                        &arg.ident,
                         unsafe { LLVMGetParam(val, i.try_into().unwrap()) },
-                        *ty,
+                        ty,
                         true,
                     );
                 }
 
-                env.insert_func(&func.ident, val, func_ty, Rc::new(UnsafeCell::new(fn_env)));
+                env.insert_func(&ident, val, func_ty, Rc::new(UnsafeCell::new(fn_env)));
             }
         }
     }

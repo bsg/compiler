@@ -26,30 +26,34 @@ pub enum Op {
     Call,
     Index,
     Colon,
+    Ref,
+    Deref,
 }
 
 impl std::fmt::Debug for Op {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Assign => write!(f, "assign"),
-            Self::Eq => write!(f, "eq"),
-            Self::NotEq => write!(f, "neq"),
-            Self::Lt => write!(f, "lt"),
-            Self::Gt => write!(f, "gt"),
-            Self::Le => write!(f, "le"),
-            Self::Ge => write!(f, "ge"),
-            Self::Add => write!(f, "add"),
-            Self::Sub => write!(f, "sub"),
-            Self::Mul => write!(f, "mul"),
-            Self::Div => write!(f, "div"),
-            Self::Mod => write!(f, "mod"),
-            Self::Neg => write!(f, "neg"),
-            Self::Not => write!(f, "not"),
-            Self::And => write!(f, "and"),
-            Self::Or => write!(f, "or"),
-            Self::Call => write!(f, "call"),
-            Self::Index => write!(f, "index"),
-            Self::Colon => write!(f, "colon"),
+            Op::Assign => write!(f, "assign"),
+            Op::Eq => write!(f, "eq"),
+            Op::NotEq => write!(f, "neq"),
+            Op::Lt => write!(f, "lt"),
+            Op::Gt => write!(f, "gt"),
+            Op::Le => write!(f, "le"),
+            Op::Ge => write!(f, "ge"),
+            Op::Add => write!(f, "add"),
+            Op::Sub => write!(f, "sub"),
+            Op::Mul => write!(f, "mul"),
+            Op::Div => write!(f, "div"),
+            Op::Mod => write!(f, "mod"),
+            Op::Neg => write!(f, "neg"),
+            Op::Not => write!(f, "not"),
+            Op::And => write!(f, "and"),
+            Op::Or => write!(f, "or"),
+            Op::Call => write!(f, "call"),
+            Op::Index => write!(f, "index"),
+            Op::Colon => write!(f, "colon"),
+            Op::Ref => write!(f, "ref"),
+            Op::Deref => write!(f, "deref"),
         }
     }
 }
@@ -61,276 +65,195 @@ impl Op {
             Op::Lt | Op::Gt | Op::Le | Op::Ge => 2,
             Op::Add | Op::Sub => 3,
             Op::Mul | Op::Div | Op::Mod => 4,
+            Op::Ref | Op::Deref => 5,
             _ => 0,
         }
     }
 }
 pub type NodeRef = Rc<Node>;
 
-#[derive(Clone, PartialEq)]
-pub struct BlockNode {
-    pub statements: Rc<[NodeRef]>,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct IfNode {
-    pub condition: NodeRef,
-    pub then_block: NodeRef,
-    pub else_block: Option<NodeRef>,
-}
-
 #[derive(PartialEq, Clone)]
-pub struct FnNode {
+pub struct Arg {
     pub ident: Rc<str>,
-    pub args: Rc<[(Rc<str>, Rc<str>)]>,
-    pub ret_ty: Rc<str>,
-    pub body: NodeRef,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct CallNode {
-    pub ident: IdentNode,
-    pub args: Rc<[NodeRef]>,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct IndexNode {
-    pub ident: IdentNode,
-    pub index: NodeRef,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct PairNode {
-    pub key: NodeRef,
-    pub value: NodeRef,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct LetNode {
     pub ty: Rc<str>,
-    pub lhs: NodeRef,
-    pub rhs: NodeRef,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct IdentNode {
-    pub name: Rc<str>,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct IntNode {
-    pub value: i64,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct BoolNode {
-    pub value: bool,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct StrNode {
-    pub value: Rc<str>,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct UnOpNode {
-    pub op: Op,
-    pub rhs: NodeRef,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct BinOpNode {
-    pub op: Op,
-    pub lhs: NodeRef,
-    pub rhs: NodeRef,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct ArrayNode {
-    pub value: Vec<NodeRef>,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct ReturnNode {
-    pub stmt: Option<NodeRef>,
+    pub is_ref: bool,
 }
 
 #[derive(Clone, PartialEq)]
 pub enum Node {
-    Ident(IdentNode),
-    Int(IntNode),
-    Bool(BoolNode),
-    Str(StrNode),
-    UnOp(UnOpNode),
-    BinOp(BinOpNode),
-    Let(LetNode),
-    Return(ReturnNode),
-    If(IfNode),
-    Block(BlockNode),
-    Fn(FnNode),
-    Call(CallNode),
-    Array(Vec<Rc<Node>>),
-    Index(IndexNode),
-    Pair(PairNode),
+    Ident {
+        name: Rc<str>,
+    },
+    Int {
+        value: i64,
+    },
+    Bool {
+        value: bool,
+    },
+    Str {
+        value: Rc<str>,
+    },
+    UnOp {
+        op: Op,
+        rhs: NodeRef,
+    },
+    BinOp {
+        op: Op,
+        lhs: NodeRef,
+        rhs: NodeRef,
+    },
+    Let {
+        ty: Rc<str>,
+        lhs: NodeRef,
+        rhs: NodeRef,
+    },
+    Return {
+        stmt: Option<NodeRef>,
+    },
+    If {
+        condition: NodeRef,
+        then_block: NodeRef,
+        else_block: Option<NodeRef>,
+    },
+    Block {
+        statements: Rc<[NodeRef]>,
+    },
+    Fn {
+        ident: Rc<str>,
+        args: Rc<[Arg]>,
+        ret_ty: Rc<str>,
+        body: NodeRef,
+    },
+    Call {
+        ident: Rc<str>,
+        args: Rc<[NodeRef]>,
+    },
+    Array {
+        value: Vec<NodeRef>,
+    },
+    Index {
+        ident: Rc<str>,
+        index: NodeRef,
+    },
+    Pair {
+        key: NodeRef,
+        value: NodeRef,
+    },
 }
 
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Ident(x) => write!(f, "ident {}", x.name),
-            Self::Int(x) => write!(f, "{}", x.value),
-            Self::Bool(x) => f.debug_tuple("bool").field(&x.value).finish(),
-            Self::Str(x) => f.debug_tuple("str").field(&x.value).finish(),
-            Self::UnOp(x) => f.debug_tuple("op").field(&x.op).finish(),
-            Self::BinOp(x) => f.debug_tuple("op").field(&x.op).finish(),
-            Self::Let(l) => write!(f, "let {}", l.ty),
-            Self::Return(_) => write!(f, "return"),
-            Self::If(arg0) => f.write_fmt(format_args!("if\n{:?}", arg0)),
-            Self::Block(arg0) => f.debug_tuple("block").field(arg0).finish(),
-            Self::Fn(arg0) => write!(f, "fn {:?}({:?}) -> {}", arg0.ident, arg0, arg0.ret_ty),
-            Self::Call(arg0) => write!(f, "call(\n{:?})", arg0),
-            Self::Array(arg0) => write!(f, "array{:?}", arg0),
-            Self::Index(arg0) => write!(f, "{:?}", arg0),
-            Self::Pair(pair) => write!(f, "pair({:?}, {:?})", pair.key, pair.value),
-        }
-    }
-}
-
-impl fmt::Display for FnNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(
-            self.args
-                .iter()
-                .map(|arg| format!("{}: {}", arg.0, arg.1))
-                .collect::<Vec<String>>()
-                .join(", ")
-                .as_str(),
-        )
-    }
-}
-
-// TODO merge the debug impl into this and make this impl fmt::Debug
-impl fmt::Display for Node {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fn fmt_with_indent(node: &Node, f: &mut fmt::Formatter, indent: usize) -> fmt::Result {
-            (0..indent).for_each(|_| _ = f.write_str("    "));
-
-            use Node::*;
-            match node {
-                Ident(s) => writeln!(f, "ident {}", s.name),
-                Int(i) => writeln!(f, "{}", i.value),
-                Bool(b) => writeln!(f, "{}", b.value),
-                Str(s) => writeln!(f, "{:?}", s.value),
-                UnOp(op) => writeln!(f, "{:?}", op.op),
-                BinOp(op) => writeln!(f, "{:?}", op.op),
-                Let(l) => writeln!(f, "let {}", l.ty),
-                Return(_) => writeln!(f, "return"),
-                If(_) => writeln!(f, "if"),
-                Fn(fstmt) => {
-                    writeln!(f, "fn {}({}) -> {}", fstmt.ident, fstmt, fstmt.ret_ty)
-                }
-                Block(_) => writeln!(f, "block"),
-                Call(call) => writeln!(f, "call {}", call.ident.name),
-                Array(a) => writeln!(f, "array{:?}", a),
-                Index(idx) => writeln!(f, "{:?}", idx),
-                Pair(pair) => writeln!(f, "pair({:?}, {:?})", pair.key, pair.value),
-            }?;
-
-            match node {
-                Block(block) => {
-                    for stmt in block.statements.iter() {
-                        fmt_with_indent(stmt, f, indent + 1)?
-                    }
-                }
-                If(if_node) => {
-                    fmt_with_indent(&if_node.condition, f, indent + 1)?;
-
-                    writeln!(f, "{}then", "    ".repeat(indent))?;
-                    fmt_with_indent(&if_node.then_block, f, indent + 1)?;
-
-                    if let Some(else_node) = &if_node.else_block {
-                        writeln!(f, "{}else", "    ".repeat(indent))?;
-                        fmt_with_indent(else_node, f, indent + 1)?;
-                    }
-
-                    return Ok(());
-                }
-
-                Call(c) => {
-                    for arg in c.args.iter() {
-                        fmt_with_indent(arg, f, indent + 1)?;
-                    }
-                }
-                _ => (),
+        fn fmt_with_indent(node: &Node, indent_level: usize, on_new_line: bool) -> String {
+            let mut s = String::new();
+            if on_new_line {
+                s += "\n";
             }
+            s += "    ".repeat(indent_level).as_str();
 
-            // TODO yeah...
-            // if let Some(lhs) = node.left.as_ref() {
-            //     fmt_with_indent(lhs, f, indent + 1)?;
-            // }
+            s += match node {
+                Node::Ident { name } => format!("ident {}", name),
+                Node::Int { value } => format!("{}", value),
+                Node::Bool { value } => format!("{}", value),
+                Node::Str { value } => format!("{:?}", value),
+                Node::UnOp { op, rhs } => {
+                    format!("{:?}{}", op, fmt_with_indent(rhs, indent_level + 1, true))
+                }
+                Node::BinOp { op, lhs, rhs } => {
+                    format!(
+                        "{:?}{}{}",
+                        op,
+                        fmt_with_indent(lhs, indent_level + 1, true),
+                        fmt_with_indent(rhs, indent_level + 1, true)
+                    )
+                }
+                Node::Let { ty, lhs, rhs } => {
+                    format!(
+                        "let {}{}{}",
+                        ty,
+                        fmt_with_indent(lhs, indent_level + 1, true),
+                        fmt_with_indent(rhs, indent_level + 1, true)
+                    )
+                }
+                Node::Return { stmt } => match stmt {
+                    Some(stmt) => {
+                        format!("return{}", fmt_with_indent(stmt, indent_level + 1, true))
+                    }
+                    None => "return".to_string(),
+                },
+                Node::If {
+                    condition,
+                    then_block,
+                    else_block,
+                } => {
+                    if let Some(else_block) = else_block {
+                        format!(
+                            "if{}\n{}then{}\n{}else{}",
+                            fmt_with_indent(condition, indent_level + 1, true),
+                            "    ".repeat(indent_level),
+                            fmt_with_indent(then_block, indent_level + 1, true),
+                            "    ".repeat(indent_level),
+                            fmt_with_indent(else_block, indent_level + 1, true)
+                        )
+                    } else {
+                        format!(
+                            "if{}\n{}then{}",
+                            fmt_with_indent(condition, indent_level + 1, true),
+                            "    ".repeat(indent_level),
+                            fmt_with_indent(then_block, indent_level + 1, true),
+                        )
+                    }
+                }
+                Node::Block { statements } => {
+                    let mut b = "block".to_string();
+                    for stmt in statements.iter() {
+                        b += fmt_with_indent(stmt, indent_level + 1, true).as_str();
+                    }
+                    b
+                }
+                Node::Fn {
+                    ident,
+                    args,
+                    ret_ty,
+                    body,
+                } => {
+                    let args_str = args
+                        .iter()
+                        .map(|arg| format!("{}: {}", arg.ident, arg.ty))
+                        .collect::<Vec<String>>()
+                        .join(", ");
 
-            // if let Some(rhs) = node.right.as_ref() {
-            //     fmt_with_indent(rhs, f, indent + 1)?;
-            // }
+                    format!(
+                        "fn {}({}) -> {}{}",
+                        ident,
+                        args_str,
+                        ret_ty,
+                        fmt_with_indent(body, indent_level + 1, true)
+                    )
+                }
+                Node::Call { ident, args } => {
+                    let mut c = format!("call {}", ident);
+                    for arg in args.iter() {
+                        c += fmt_with_indent(arg, indent_level + 1, true).as_str();
+                    }
+                    c
+                }
+                Node::Array { value } => {
+                    let mut s = "array".to_string();
+                    for val in value.iter() {
+                        s += fmt_with_indent(val, indent_level + 1, true).as_str();
+                    }
+                    s
+                }
+                Node::Index { ident, index } => {
+                    format! {"index {}{}", ident, fmt_with_indent(index, indent_level + 1, true).as_str()}
+                }
+                Node::Pair { .. } => todo!(),
+            }
+            .as_str();
 
-            Ok(())
+            s
         }
 
-        fmt_with_indent(self, f, 0)?;
-        Ok(())
-    }
-}
-
-// impl fmt::Debug for Node {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         fn fmt_with_indent(node: &Node, f: &mut fmt::Formatter, indent: usize) -> fmt::Result {
-//             (0..indent).for_each(|_| _ = f.write_str("  "));
-//             f.write_fmt(format_args!("{:?}\n", node.kind))?;
-
-//             if let Some(lhs) = node.left.as_ref() {
-//                 fmt_with_indent(lhs, f, indent + 1)?;
-//             }
-
-//             if let Some(rhs) = node.right.as_ref() {
-//                 fmt_with_indent(rhs, f, indent + 1)?
-//             }
-
-//             Ok(())
-//         }
-//         fmt_with_indent(self, f, 0)?;
-//         Ok(())
-//     }
-// }
-
-impl fmt::Debug for BlockNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for stmt in self.statements.iter() {
-            f.write_fmt(format_args!("{:?}", stmt))?;
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Debug for IfNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{:?})", self.condition))
-    }
-}
-
-impl fmt::Debug for FnNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{:?})", self.args))
-    }
-}
-
-impl fmt::Debug for CallNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{:?})", self.args))
-    }
-}
-
-impl fmt::Debug for IndexNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("{}[{:?}]", self.ident.name, self.index))
+        f.write_str((fmt_with_indent(self, 0, false) + "\n").as_str())
     }
 }

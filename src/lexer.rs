@@ -16,10 +16,10 @@ pub enum Token {
     Asterisk,
     Slash,
     Percent,
-    And,
-    Or,
-    BitwiseAnd,
-    BitwiseOr,
+    Amp,
+    Bar,
+    AmpAmp,
+    BarBar,
     Lt,
     Gt,
     Le,
@@ -171,16 +171,16 @@ impl Tokens {
             Some(b'&') => match self.peek_char() {
                 Some(b'&') => {
                     self.read_char();
-                    Token::And
+                    Token::AmpAmp
                 }
-                _ => Token::BitwiseAnd,
+                _ => Token::Amp,
             },
             Some(b'|') => match self.peek_char() {
                 Some(b'|') => {
                     self.read_char();
-                    Token::Or
+                    Token::BarBar
                 }
-                _ => Token::BitwiseOr,
+                _ => Token::Bar,
             },
             Some(b'(') => Token::LParen,
             Some(b')') => Token::RParen,
@@ -259,10 +259,10 @@ mod tests {
 
     #[test]
     fn symbols() {
-        let source = "=+-!*/(){}[],;:->";
+        let source = "=+-!*/(){}[],;:->&||&&";
         let expected = [
             Assign, Plus, Minus, Bang, Asterisk, Slash, LParen, RParen, LBrace, RBrace, LBracket,
-            RBracket, Comma, Semicolon, Colon, Arrow,
+            RBracket, Comma, Semicolon, Colon, Arrow, Amp, BarBar, AmpAmp,
         ];
         let mut tokens = Lexer::new(source).tokens();
         expected
