@@ -112,17 +112,10 @@ impl Parser {
                         assert_eq!(self.curr_token, Token::Colon);
                         self.next_token();
 
-                        let mut is_ref = false;
-                        if let Token::Asterisk = &self.curr_token {
-                            self.next_token();
-                            is_ref = true;
-                        }
-
                         if let Token::Ident(ty_ident) = &self.curr_token {
                             args.push(Arg {
                                 ident: arg_ident.clone(),
                                 ty: ty_ident.clone(),
-                                is_ref,
                             })
                         } else {
                             todo!()

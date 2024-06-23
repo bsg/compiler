@@ -76,7 +76,6 @@ pub type NodeRef = Rc<Node>;
 pub struct Arg {
     pub ident: Rc<str>,
     pub ty: Rc<str>,
-    pub is_ref: bool,
 }
 
 #[derive(Clone, PartialEq)]
@@ -143,6 +142,8 @@ pub enum Node {
 
 impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // TODO append to a single string instance instead of creating so many new strings
+        // or find a way to recurse with &mut f
         fn fmt_with_indent(node: &Node, indent_level: usize, on_new_line: bool) -> String {
             let mut s = String::new();
             if on_new_line {
