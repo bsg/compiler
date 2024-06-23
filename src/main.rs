@@ -41,7 +41,11 @@ fn main() {
     let ast = crate::parser::Parser::new(&code).parse();
 
     if args.ast {
-        fs::write("ast.txt", format!("{:?}", ast)).unwrap();
+        let mut s = String::new();
+        for node in ast.iter() {
+            s += format!("{:?}\n", node).as_str();
+        }
+        fs::write("ast.txt", s).unwrap();
     }
 
     let mut module = codegen::ModuleBuilder::new("hello");

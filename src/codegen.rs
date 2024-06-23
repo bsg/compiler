@@ -247,7 +247,7 @@ impl ModuleBuilder {
         match &*node {
             Node::Int { .. } => self.build_value(node),
             Node::Ident { name } => unsafe {
-                if let Some(var) = (*env.get()).get_var(&name) {
+                if let Some(var) = (*env.get()).get_var(name) {
                     if var.is_fn_arg {
                         var.val
                     } else {
@@ -264,7 +264,7 @@ impl ModuleBuilder {
                 args: arg_exprs,
             } => {
                 // TODO LLVMGetNamedFunction for extern fns
-                let func = (unsafe { &*env.get() }).get_func(&ident).unwrap();
+                let func = (unsafe { &*env.get() }).get_func(ident).unwrap();
                 let mut args: Vec<LLVMValueRef> = Vec::new();
                 for arg in arg_exprs.iter() {
                     args.push(self.build_expr(env.clone(), arg.clone()));
@@ -298,12 +298,12 @@ impl ModuleBuilder {
                 if let Node::Ident { name } = &**lhs {
                     let reg = LLVMBuildAlloca(
                         self.builder,
-                        (*env.get()).get_type(&ty).unwrap(),
+                        (*env.get()).get_type(ty).unwrap(),
                         "".to_cstring().as_ptr(),
                     );
                     let rhs = self.build_expr(env.clone(), rhs.clone());
-                    let ty = (*env.get()).get_type(&ty).unwrap();
-                    (*env.get()).insert_var(&name, reg, ty, false);
+                    let ty = (*env.get()).get_type(ty).unwrap();
+                    (*env.get()).insert_var(name, reg, ty, false);
                     LLVMBuildStore(self.builder, rhs, reg)
                 } else {
                     panic!()
@@ -327,7 +327,7 @@ impl ModuleBuilder {
         let env = self.env.clone();
         let env = unsafe { &*env.get() };
         if let Node::Fn { ident, body, .. } = &*node {
-            let f = env.get_func(&ident).unwrap();
+            let f = env.get_func(ident).unwrap();
             let entry_block =
                 unsafe { LLVMAppendBasicBlock(f.val, "".to_string().to_cstring().as_ptr()) };
             unsafe { LLVMPositionBuilderAtEnd(self.builder, entry_block) };
@@ -346,7 +346,7 @@ impl ModuleBuilder {
                 ..
             } = &**node
             {
-                let func_ty_str = env.get_type(&ret_ty).unwrap();
+                let func_ty_str = env.get_type(ret_ty).unwrap();
                 let mut args: Vec<LLVMTypeRef> = Vec::new();
                 for arg in arg_exprs.iter() {
                     let arg_ty = if arg.is_ref {
@@ -384,7 +384,7 @@ impl ModuleBuilder {
                     );
                 }
 
-                env.insert_func(&ident, val, func_ty, Rc::new(UnsafeCell::new(fn_env)));
+                env.insert_func(ident, val, func_ty, Rc::new(UnsafeCell::new(fn_env)));
             }
         }
     }
