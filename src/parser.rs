@@ -254,7 +254,7 @@ impl Parser {
         Some(Node::Pair { key, value }.into())
     }
 
-    pub fn parse_statement(&mut self) -> Option<NodeRef> {
+    fn parse_statement(&mut self) -> Option<NodeRef> {
         let node = match self.tokens.peek() {
             Some(Token::Let) => {
                 self.next_token();
@@ -313,7 +313,7 @@ impl Parser {
         }
     }
 
-    pub fn parse_expression(&mut self, precedence: i32) -> Option<NodeRef> {
+    fn parse_expression(&mut self, precedence: i32) -> Option<NodeRef> {
         self.next_token();
         let mut lhs = match &self.curr_token {
             Token::Int(s) => {
@@ -329,15 +329,14 @@ impl Parser {
             Token::True => Rc::new(Node::Bool { value: true }),
             Token::False => Rc::new(Node::Bool { value: false }),
             Token::Minus => {
-                // TODO this should not be an op
                 Rc::new(Node::UnOp {
                     op: Op::Neg,
-                    rhs: self.parse_expression(0)?,
+                    rhs: self.parse_expression(Op::precedence(&Op::Neg))?,
                 })
             }
             Token::Bang => Rc::new(Node::UnOp {
                 op: Op::Not,
-                rhs: self.parse_expression(0)?,
+                rhs: self.parse_expression(Op::precedence(&Op::Not))?,
             }),
             Token::Let => self.parse_statement()?,
             Token::LParen => {
@@ -352,11 +351,11 @@ impl Parser {
             Token::If => self.parse_if()?,
             Token::Amp => Rc::new(Node::UnOp {
                 op: Op::Ref,
-                rhs: self.parse_expression(0)?,
+                rhs: self.parse_expression(Op::precedence(&Op::Ref))?,
             }),
             Token::Star => Rc::new(Node::UnOp {
                 op: Op::Deref,
-                rhs: self.parse_expression(0)?,
+                rhs: self.parse_expression(Op::precedence(&Op::Deref))?,
             }),
             _ => return None,
         };

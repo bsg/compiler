@@ -1,3 +1,4 @@
+rm ./out
 cargo run -- --ast examples/test.bok
 clang hello.o -o out
 ./out

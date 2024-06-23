@@ -65,6 +65,7 @@ impl Op {
             Op::Lt | Op::Gt | Op::Le | Op::Ge => 2,
             Op::Add | Op::Sub => 3,
             Op::Mul | Op::Div | Op::Mod => 4,
+            Op::Neg | Op::Not | Op::Ref | Op::Deref => 5,
             _ => 0,
         }
     }
