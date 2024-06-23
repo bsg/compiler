@@ -5,5 +5,7 @@ fn add(a: *u32, b: *u32) -> u32 {
 fn main(argc: u32) -> u32 {
     let a: u32 = 100;
     let p: *u32 = &a;
+    a = 123;
+    *p = 10;
     return add(&argc, &a);
 }

@@ -226,6 +226,27 @@ impl ModuleBuilder {
                         "".to_cstring().as_ptr(),
                     )
                 },
+                Op::Assign => unsafe {
+                    match &**lhs {
+                        Node::Ident { .. } => LLVMBuildStore(
+                            self.builder,
+                            self.build_expr(env.clone(), rhs.clone(), false),
+                            self.build_expr(env, lhs.clone(), true),
+                        ),
+                        Node::UnOp {
+                            op: Op::Deref,
+                            rhs: deref_rhs,
+                        } => match &**deref_rhs {
+                            Node::Ident { .. } => LLVMBuildStore(
+                                self.builder,
+                                self.build_expr(env.clone(), rhs.clone(), false),
+                                self.build_expr(env, deref_rhs.clone(), false),
+                            ),
+                            _ => todo!(),
+                        },
+                        _ => panic!("cannot assign to whatever this is"),
+                    }
+                },
                 _ => unimplemented!(),
             }
         } else {
@@ -237,13 +258,13 @@ impl ModuleBuilder {
         &mut self,
         env: Rc<UnsafeCell<Env>>,
         node: NodeRef,
-        is_ref: bool,
+        ident_no_load: bool,
     ) -> LLVMValueRef {
         match &*node {
             Node::Int { .. } => self.build_value(node),
             Node::Ident { name } => unsafe {
                 if let Some(var) = (*env.get()).get_var(name) {
-                    if is_ref {
+                    if ident_no_load {
                         var.val
                     } else {
                         LLVMBuildLoad2(self.builder, var.ty, var.val, "".to_cstring().as_ptr())
@@ -304,7 +325,7 @@ impl ModuleBuilder {
                     panic!()
                 }
             },
-            _ => unimplemented!(),
+            _ => self.build_expr(env, node, false),
         }
     }
 
