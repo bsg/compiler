@@ -59,28 +59,28 @@ impl Type {
     // TODO numeric id
     pub fn id(&self, env: &TypeEnv) -> usize {
         match self {
-            Type::None => env.get_type_id_by_name("void").unwrap(),
-            Type::Bool => env.get_type_id_by_name("bool").unwrap(),
+            Type::None => env.get_type_id_by_name("void"),
+            Type::Bool => env.get_type_id_by_name("bool"),
             Type::Int { width, signed } => match width {
                 8 => {
                     if *signed {
-                        env.get_type_id_by_name("u8").unwrap()
+                        env.get_type_id_by_name("u8")
                     } else {
-                        env.get_type_id_by_name("i8").unwrap()
+                        env.get_type_id_by_name("i8")
                     }
                 }
                 16 => {
                     if *signed {
-                        env.get_type_id_by_name("u16").unwrap()
+                        env.get_type_id_by_name("u16")
                     } else {
-                        env.get_type_id_by_name("i16").unwrap()
+                        env.get_type_id_by_name("i16")
                     }
                 }
                 32 => {
                     if *signed {
-                        env.get_type_id_by_name("u32").unwrap()
+                        env.get_type_id_by_name("u32")
                     } else {
-                        env.get_type_id_by_name("i32").unwrap()
+                        env.get_type_id_by_name("i32")
                     }
                 }
                 _ => todo!(),
@@ -124,6 +124,8 @@ impl TypeEnv {
         };
 
         env.insert_type_by_name("void", Type::None);
+
+        // TODO make_int_type macro
         env.insert_type_by_name(
             "u8",
             Type::Int {
@@ -133,6 +135,20 @@ impl TypeEnv {
         );
         env.insert_type_by_name(
             "i8",
+            Type::Int {
+                width: 8,
+                signed: true,
+            },
+        );
+        env.insert_type_by_name(
+            "u16",
+            Type::Int {
+                width: 8,
+                signed: false,
+            },
+        );
+        env.insert_type_by_name(
+            "i16",
             Type::Int {
                 width: 8,
                 signed: true,
@@ -156,37 +172,49 @@ impl TypeEnv {
         env.insert_type_by_name(
             "*void",
             Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("void").unwrap(),
+                pointee_ty: env.get_type_id_by_name("void"),
             },
         );
         env.insert_type_by_name(
             "*u8",
             Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("u8").unwrap(),
+                pointee_ty: env.get_type_id_by_name("u8"),
             },
         );
         env.insert_type_by_name(
             "*i8",
             Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("i8").unwrap(),
+                pointee_ty: env.get_type_id_by_name("i8"),
+            },
+        );
+        env.insert_type_by_name(
+            "*u16",
+            Type::Ptr {
+                pointee_ty: env.get_type_id_by_name("u8"),
+            },
+        );
+        env.insert_type_by_name(
+            "*i16",
+            Type::Ptr {
+                pointee_ty: env.get_type_id_by_name("i8"),
             },
         );
         env.insert_type_by_name(
             "*u32",
             Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("u32").unwrap(),
+                pointee_ty: env.get_type_id_by_name("u32"),
             },
         );
         env.insert_type_by_name(
             "*i32",
             Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("i32").unwrap(),
+                pointee_ty: env.get_type_id_by_name("i32"),
             },
         );
         env.insert_type_by_name(
             "*bool",
             Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("bool").unwrap(),
+                pointee_ty: env.get_type_id_by_name("bool"),
             },
         );
 
@@ -194,20 +222,19 @@ impl TypeEnv {
     }
 
     pub fn insert_type_by_name(&mut self, name: &str, ty: Type) {
-        self.types
-            .insert(self.get_type_id_by_name(name).unwrap(), ty);
+        self.types.insert(self.get_type_id_by_name(name), ty);
     }
 
     // TODO make sure this is sound
-    fn get_type_id_by_name(&self, type_ident: &str) -> Option<usize> {
+    fn get_type_id_by_name(&self, type_ident: &str) -> usize {
         match (unsafe { &*self.type_ids.get() }).get(type_ident) {
-            Some(type_id) => Some(*type_id),
+            Some(type_id) => *type_id,
             None => {
                 let type_id = *(unsafe { &*self.next_type_id.get() });
                 *(unsafe { &mut *self.next_type_id.get() }) += 1;
 
                 (unsafe { &mut *self.type_ids.get() }).insert(type_ident.into(), type_id);
-                Some(type_id)
+                type_id
             }
         }
     }
@@ -217,7 +244,7 @@ impl TypeEnv {
     }
 
     pub fn get_type_by_name(&self, name: &str) -> Option<&Type> {
-        self.get_type_by_id(self.get_type_id_by_name(name).unwrap())
+        self.get_type_by_id(self.get_type_id_by_name(name))
     }
 }
 
@@ -418,7 +445,7 @@ impl ModuleBuilder {
                     let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
                     LLVMBuildICmp(
                         self.builder,
-                        llvm_sys::LLVMIntPredicate::LLVMIntEQ, // TODO
+                        llvm_sys::LLVMIntPredicate::LLVMIntEQ,
                         lhs_val.llvm_val,
                         rhs_val.llvm_val,
                         "".to_cstring().as_ptr(),
@@ -763,9 +790,10 @@ impl ModuleBuilder {
                 ..
             } = &**node
             {
-                let ret_ty = (unsafe { &*self.type_env.get() })
-                    .get_type_by_name(ret_ty)
-                    .unwrap();
+                let ret_ty = match (unsafe { &*self.type_env.get() }).get_type_by_name(ret_ty) {
+                    Some(ty) => ty,
+                    None => panic!("unresolved type {}", ret_ty),
+                };
                 let mut args: Vec<LLVMTypeRef> = Vec::new();
                 for arg in fn_args.iter() {
                     let arg_ty = (unsafe { &*self.type_env.get() }).get_type_by_name(&arg.ty);

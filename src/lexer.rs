@@ -167,7 +167,23 @@ impl Tokens {
                 }
                 _ => Token::Gt,
             },
-            Some(b'/') => Token::Slash,
+            Some(b'/') => match self.peek_char() {
+                Some(b'/') => {
+                    let mut skip = true;
+                    while skip {
+                        self.read_char();
+                        match self.ch {
+                            Some(c) => if c == b'\n' {
+                                skip = false;
+                                self.read_char();
+                            },
+                            None => return Token::None
+                        }
+                    }
+                    self.next_token()
+                }
+                _ => Token::Slash,
+            },
             Some(b'%') => Token::Percent,
             Some(b'&') => match self.peek_char() {
                 Some(b'&') => {

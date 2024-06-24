@@ -43,3 +43,7 @@ fn main(argc: u32) -> u32 {
 
     return add_by_ref(&argc, &a);
 }
+
+// fn add_different_types(a: u32, b: u8) -> u16 {
+//     return a + b;
+// }
