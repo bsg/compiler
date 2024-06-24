@@ -1,11 +1,33 @@
-fn add(a: *u32, b: *u32) -> u32 {
+fn add(a: u32, b: u32) -> u32 {
+    return a + b;
+}
+
+fn add_by_ref(a: *u32, b: *u32) -> u32 {
     return *a + *b;
+}
+
+fn max(a: u32, b: u32) -> u32 {
+    if(a > b) {
+        return a;
+    } else {
+        return b;
+    }
+    return;
 }
 
 fn main(argc: u32) -> u32 {
     let a: u32 = 100;
-    let p: *u32 = &a;
-    a = 123;
-    *p = 10;
-    return add(&argc, &a);
+    a = max(1, 10);
+    let c1: bool = 100 > a;
+    let c2: bool = 0 > argc;
+
+    if(c1) {
+        if(c2) {
+            a = 1;
+        } else {
+            a = 2;
+        }
+    }
+
+    return add_by_ref(&argc, &a);
 }
