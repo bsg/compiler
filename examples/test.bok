@@ -28,9 +28,10 @@ fn sum_range(start: u32, end: u32) -> u32 {
 
 fn main(argc: u32) -> u32 {
     let a: u32 = 100;
-    a = max(1, 10);
     let c1: bool = 1000 > a;
     let c2: bool = 10 > argc;
+    let p: *u32 = &argc;
+    *p = max(1, 10);
 
     if c1 {
         if c2 {
