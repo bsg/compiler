@@ -52,14 +52,9 @@ impl Parser {
     /// caller must ensure current token is If
     fn parse_if(&mut self) -> Option<NodeRef> {
         assert_eq!(self.curr_token, Token::If);
-        assert_eq!(self.peek_token, Token::LParen);
-        self.next_token();
 
         match self.parse_expression(0) {
             Some(cond) => {
-                assert_eq!(self.peek_token, Token::RParen);
-                self.next_token();
-
                 assert_eq!(self.peek_token, Token::LBrace);
                 self.next_token();
                 let then_block = self.parse_block();
@@ -70,6 +65,7 @@ impl Parser {
                     assert_eq!(self.peek_token, Token::LBrace);
                 }
 
+                // TODO do not allow without preceding 'else' keyword
                 let else_block = if self.peek_token == Token::LBrace {
                     self.next_token();
                     self.parse_block()
@@ -593,7 +589,7 @@ gt
     #[test]
     fn if_expression() {
         assert_parse!(
-            "if (x < 0) {return 0}",
+            "if x < 0 {return 0}",
             "\
 if
     lt
@@ -610,7 +606,7 @@ then
     #[test]
     fn if_with_alternate() {
         assert_parse!(
-            "if (a < b) {return a} {return b}",
+            "if a < b {return a} else {return b}",
             "\
 if
     lt

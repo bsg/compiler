@@ -46,11 +46,19 @@ impl Env {
     pub fn new() -> Self {
         let mut types = HashMap::new();
         types.insert("void".to_owned(), unsafe { LLVMVoidType() });
+        types.insert("u8".to_owned(), unsafe { LLVMInt8Type() });
+        types.insert("i8".to_owned(), unsafe { LLVMInt8Type() });
         types.insert("u32".to_owned(), unsafe { LLVMInt32Type() });
         types.insert("i32".to_owned(), unsafe { LLVMInt32Type() });
         types.insert("bool".to_owned(), unsafe { LLVMInt1Type() });
         types.insert("*void".to_owned(), unsafe {
             LLVMPointerType(LLVMVoidType(), 0)
+        });
+        types.insert("*u8".to_owned(), unsafe {
+            LLVMPointerType(LLVMInt8Type(), 0)
+        });
+        types.insert("*i8".to_owned(), unsafe {
+            LLVMPointerType(LLVMInt8Type(), 0)
         });
         types.insert("*u32".to_owned(), unsafe {
             LLVMPointerType(LLVMInt32Type(), 0)
@@ -431,6 +439,7 @@ impl ModuleBuilder {
             }
 
             self.build_block(f.env.clone(), body.clone());
+            unsafe { LLVMBuildRetVoid(self.builder) }; // TODO
             self.current_func_ident = None;
         }
     }
