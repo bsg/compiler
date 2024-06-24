@@ -33,13 +33,12 @@ pub enum Type {
         signed: bool,
     },
     Ptr {
-        // TODO type id
-        pointee_ty: Rc<str>,
+        pointee_ty: usize,
     },
 }
 
 impl Type {
-    pub fn get_llvm_type(&self, env: &Env) -> LLVMTypeRef {
+    pub fn llvm_type(&self, env: &TypeEnv) -> LLVMTypeRef {
         match self {
             Type::None => unsafe { LLVMVoidType() },
             Type::Bool => unsafe { LLVMInt1Type() },
@@ -52,50 +51,36 @@ impl Type {
                 _ => todo!(),
             },
             Type::Ptr { pointee_ty } => unsafe {
-                LLVMPointerType(env.get_type(pointee_ty).unwrap().get_llvm_type(env), 0)
+                LLVMPointerType(env.get_type_by_id(*pointee_ty).unwrap().llvm_type(env), 0)
             },
         }
     }
 
     // TODO numeric id
-    pub fn id(&self) -> &str {
+    pub fn id(&self, env: &TypeEnv) -> usize {
         match self {
-            Type::None => "void",
-            Type::Bool => "bool",
+            Type::None => env.get_type_id_by_name("void").unwrap(),
+            Type::Bool => env.get_type_id_by_name("bool").unwrap(),
             Type::Int { width, signed } => match width {
                 8 => {
                     if *signed {
-                        "u8"
+                        env.get_type_id_by_name("u8").unwrap()
                     } else {
-                        "i8"
+                        env.get_type_id_by_name("i8").unwrap()
                     }
                 }
                 16 => {
                     if *signed {
-                        "u16"
+                        env.get_type_id_by_name("u16").unwrap()
                     } else {
-                        "i16"
+                        env.get_type_id_by_name("i16").unwrap()
                     }
                 }
                 32 => {
                     if *signed {
-                        "u32"
+                        env.get_type_id_by_name("u32").unwrap()
                     } else {
-                        "i32"
-                    }
-                }
-                64 => {
-                    if *signed {
-                        "u64"
-                    } else {
-                        "i64"
-                    }
-                }
-                128 => {
-                    if *signed {
-                        "u128"
-                    } else {
-                        "i128"
+                        env.get_type_id_by_name("i32").unwrap()
                     }
                 }
                 _ => todo!(),
@@ -104,9 +89,9 @@ impl Type {
         }
     }
 
-    pub fn to_ref_type(&self) -> Type {
+    pub fn to_ref_type(&self, env: &TypeEnv) -> Type {
         Type::Ptr {
-            pointee_ty: self.id().into(),
+            pointee_ty: self.id(env),
         }
     }
 }
@@ -124,87 +109,129 @@ pub struct Func {
     body: LLVMBasicBlockRef,
 }
 
+pub struct TypeEnv {
+    types: HashMap<usize, Type>,
+    next_type_id: UnsafeCell<usize>,
+    type_ids: UnsafeCell<HashMap<String, usize>>,
+}
+
+impl TypeEnv {
+    pub fn new() -> Self {
+        let mut env = TypeEnv {
+            types: HashMap::new(),
+            next_type_id: UnsafeCell::new(0),
+            type_ids: UnsafeCell::new(HashMap::new()),
+        };
+
+        env.insert_type_by_name("void", Type::None);
+        env.insert_type_by_name(
+            "u8",
+            Type::Int {
+                width: 8,
+                signed: false,
+            },
+        );
+        env.insert_type_by_name(
+            "i8",
+            Type::Int {
+                width: 8,
+                signed: true,
+            },
+        );
+        env.insert_type_by_name(
+            "u32",
+            Type::Int {
+                width: 32,
+                signed: false,
+            },
+        );
+        env.insert_type_by_name(
+            "i32",
+            Type::Int {
+                width: 32,
+                signed: true,
+            },
+        );
+        env.insert_type_by_name("bool", Type::Bool);
+        env.insert_type_by_name(
+            "*void",
+            Type::Ptr {
+                pointee_ty: env.get_type_id_by_name("void").unwrap(),
+            },
+        );
+        env.insert_type_by_name(
+            "*u8",
+            Type::Ptr {
+                pointee_ty: env.get_type_id_by_name("u8").unwrap(),
+            },
+        );
+        env.insert_type_by_name(
+            "*i8",
+            Type::Ptr {
+                pointee_ty: env.get_type_id_by_name("i8").unwrap(),
+            },
+        );
+        env.insert_type_by_name(
+            "*u32",
+            Type::Ptr {
+                pointee_ty: env.get_type_id_by_name("u32").unwrap(),
+            },
+        );
+        env.insert_type_by_name(
+            "*i32",
+            Type::Ptr {
+                pointee_ty: env.get_type_id_by_name("i32").unwrap(),
+            },
+        );
+        env.insert_type_by_name(
+            "*bool",
+            Type::Ptr {
+                pointee_ty: env.get_type_id_by_name("bool").unwrap(),
+            },
+        );
+
+        env
+    }
+
+    pub fn insert_type_by_name(&mut self, name: &str, ty: Type) {
+        self.types
+            .insert(self.get_type_id_by_name(name).unwrap(), ty);
+    }
+
+    // TODO make sure this is sound
+    fn get_type_id_by_name(&self, type_ident: &str) -> Option<usize> {
+        match (unsafe { &*self.type_ids.get() }).get(type_ident) {
+            Some(type_id) => Some(*type_id),
+            None => {
+                let type_id = *(unsafe { &*self.next_type_id.get() });
+                *(unsafe { &mut *self.next_type_id.get() }) += 1;
+
+                (unsafe { &mut *self.type_ids.get() }).insert(type_ident.into(), type_id);
+                Some(type_id)
+            }
+        }
+    }
+
+    pub fn get_type_by_id(&self, type_id: usize) -> Option<&Type> {
+        self.types.get(&type_id)
+    }
+
+    pub fn get_type_by_name(&self, name: &str) -> Option<&Type> {
+        self.get_type_by_id(self.get_type_id_by_name(name).unwrap())
+    }
+}
+
 pub struct Env {
     parent: Option<Rc<UnsafeCell<Env>>>,
     vars: HashMap<String, Var>,
-    types: HashMap<String, Type>,
     funcs: HashMap<String, Func>,
 }
 
 impl Env {
     pub fn new() -> Self {
-        let mut types: HashMap<String, Type> = HashMap::new();
-        types.insert("void".to_owned(), Type::None);
-        types.insert(
-            "u8".to_owned(),
-            Type::Int {
-                width: 8,
-                signed: false,
-            },
-        );
-        types.insert(
-            "i8".to_owned(),
-            Type::Int {
-                width: 8,
-                signed: true,
-            },
-        );
-        types.insert(
-            "u32".to_owned(),
-            Type::Int {
-                width: 32,
-                signed: false,
-            },
-        );
-        types.insert(
-            "i32".to_owned(),
-            Type::Int {
-                width: 32,
-                signed: true,
-            },
-        );
-        types.insert("bool".to_owned(), Type::Bool);
-        types.insert(
-            "*void".to_owned(),
-            Type::Ptr {
-                pointee_ty: "void".into(),
-            },
-        );
-        types.insert(
-            "*u8".to_owned(),
-            Type::Ptr {
-                pointee_ty: "u8".into(),
-            },
-        );
-        types.insert(
-            "*i8".to_owned(),
-            Type::Ptr {
-                pointee_ty: "i8".into(),
-            },
-        );
-        types.insert(
-            "*u32".to_owned(),
-            Type::Ptr {
-                pointee_ty: "u32".into(),
-            },
-        );
-        types.insert(
-            "*i32".to_owned(),
-            Type::Ptr {
-                pointee_ty: "i32".into(),
-            },
-        );
-        types.insert(
-            "*bool".to_owned(),
-            Type::Ptr {
-                pointee_ty: "bool".into(),
-            },
-        );
-
         Env {
             parent: None,
             vars: HashMap::new(),
-            types,
             funcs: HashMap::new(),
         }
     }
@@ -214,26 +241,7 @@ impl Env {
         Env {
             parent: Some(parent),
             vars: HashMap::new(),
-            types: HashMap::new(),
             funcs: HashMap::new(),
-        }
-    }
-
-    pub fn insert_type(&mut self, ident: &str, ty: Type) {
-        self.types.insert(ident.to_string(), ty);
-    }
-
-    pub fn get_type(&self, ident: &str) -> Option<&Type> {
-        match self.types.get(ident) {
-            Some(ty) => Some(ty),
-            None => {
-                if let Some(parent) = &self.parent {
-                    let p = unsafe { &*parent.get() };
-                    p.get_type(ident)
-                } else {
-                    None
-                }
-            }
         }
     }
 
@@ -297,11 +305,13 @@ struct Val {
     llvm_val: LLVMValueRef,
 }
 
+// TODO type_env accessors
 pub struct ModuleBuilder {
     name: String,
     module: LLVMModuleRef,
     builder: LLVMBuilderRef,
     // because fuck it
+    type_env: Rc<UnsafeCell<TypeEnv>>,
     env: Rc<UnsafeCell<Env>>,
     current_func_ident: Option<Rc<str>>,
 }
@@ -316,6 +326,7 @@ impl ModuleBuilder {
             name: name.to_owned(),
             module,
             builder,
+            type_env: Rc::new(UnsafeCell::new(TypeEnv::new())),
             env: Rc::new(UnsafeCell::new(Env::new())),
             current_func_ident: None,
         }
@@ -325,10 +336,10 @@ impl ModuleBuilder {
         if let Node::UnOp { op, rhs } = &*node {
             match op {
                 Op::Ref => {
-                    let val = self.build_expr(env, rhs.clone(), true);
+                    let val = self.build_expr(env.clone(), rhs.clone(), true);
 
                     Val {
-                        ty: val.ty.to_ref_type(),
+                        ty: val.ty.to_ref_type(unsafe { &*self.type_env.get() }),
                         llvm_val: val.llvm_val,
                     }
                 }
@@ -342,9 +353,10 @@ impl ModuleBuilder {
                     );
 
                     let ty = match val.ty {
-                        Type::Ptr { pointee_ty } => {
-                            (*env.get()).get_type(&pointee_ty).unwrap().clone()
-                        }
+                        Type::Ptr { pointee_ty } => (*self.type_env.get())
+                            .get_type_by_id(pointee_ty)
+                            .unwrap()
+                            .clone(),
                         _ => panic!("cannot deref"),
                     };
 
@@ -446,7 +458,8 @@ impl ModuleBuilder {
                             rhs: deref_rhs,
                         } => match &**deref_rhs {
                             Node::Ident { .. } => {
-                                let lhs_val = self.build_expr(env.clone(), deref_rhs.clone(), false);
+                                let lhs_val =
+                                    self.build_expr(env.clone(), deref_rhs.clone(), false);
                                 let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
                                 LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val)
                             }
@@ -459,7 +472,10 @@ impl ModuleBuilder {
             };
 
             Val {
-                ty: (unsafe { &*env.get() }).get_type("u32").unwrap().clone(), // TODO
+                ty: (unsafe { &*self.type_env.get() })
+                    .get_type_by_name("u32")
+                    .unwrap()
+                    .clone(), // TODO
                 llvm_val,
             }
         } else {
@@ -475,7 +491,10 @@ impl ModuleBuilder {
                 let llvm_val = LLVMConstInt(LLVMInt32Type(), (*value).try_into().unwrap(), 0);
 
                 Val {
-                    ty: (*env.get()).get_type("u32").unwrap().clone(),
+                    ty: (*self.type_env.get())
+                        .get_type_by_name("u32")
+                        .unwrap()
+                        .clone(),
                     llvm_val,
                 }
             },
@@ -483,7 +502,10 @@ impl ModuleBuilder {
                 let llvm_val = LLVMConstInt(LLVMInt1Type(), if *value { 1 } else { 0 }, 0);
 
                 Val {
-                    ty: (*env.get()).get_type("bool").unwrap().clone(),
+                    ty: (*self.type_env.get())
+                        .get_type_by_name("bool")
+                        .unwrap()
+                        .clone(),
                     llvm_val,
                 }
             },
@@ -494,7 +516,7 @@ impl ModuleBuilder {
                     } else {
                         LLVMBuildLoad2(
                             self.builder,
-                            var.ty.get_llvm_type(&*env.get()),
+                            var.ty.llvm_type(&*self.type_env.get()),
                             var.val,
                             "".to_cstring().as_ptr(),
                         )
@@ -565,7 +587,12 @@ impl ModuleBuilder {
                 };
 
                 Val {
-                    ty: unsafe { (*env.get()).get_type("void").unwrap().clone() },
+                    ty: unsafe {
+                        (*self.type_env.get())
+                            .get_type_by_name("void")
+                            .unwrap()
+                            .clone()
+                    },
                     llvm_val,
                 }
             }
@@ -573,14 +600,14 @@ impl ModuleBuilder {
                 if let Node::Ident { name } = &**lhs {
                     let reg = LLVMBuildAlloca(
                         self.builder,
-                        (*env.get())
-                            .get_type(ty)
+                        (*self.type_env.get())
+                            .get_type_by_name(ty)
                             .unwrap()
-                            .get_llvm_type(&*(*env).get()),
+                            .llvm_type(&*(*self.type_env).get()),
                         "".to_cstring().as_ptr(),
                     );
                     let rhs = self.build_expr(env.clone(), rhs.clone(), false);
-                    let ty = (*env.get()).get_type(ty).unwrap();
+                    let ty = (*self.type_env.get()).get_type_by_name(ty).unwrap();
                     (*env.get()).insert_var(name, reg, ty.clone());
                     let llvm_val = LLVMBuildStore(self.builder, rhs.llvm_val, reg);
 
@@ -625,7 +652,10 @@ impl ModuleBuilder {
                     LLVMPositionBuilderAtEnd(self.builder, bb_exit);
 
                     Val {
-                        ty: (*env.get()).get_type("void").unwrap().clone(),
+                        ty: (*self.type_env.get())
+                            .get_type_by_name("void")
+                            .unwrap()
+                            .clone(),
                         llvm_val: cond,
                     }
                 } else {
@@ -658,7 +688,10 @@ impl ModuleBuilder {
                     LLVMPositionBuilderAtEnd(self.builder, bb_exit);
 
                     Val {
-                        ty: (*env.get()).get_type("void").unwrap().clone(),
+                        ty: (*self.type_env.get())
+                            .get_type_by_name("void")
+                            .unwrap()
+                            .clone(),
                         llvm_val: cond,
                     }
                 } else {
@@ -693,11 +726,13 @@ impl ModuleBuilder {
             let fn_env = unsafe { &mut *f.env.get() };
 
             for (i, arg) in args.iter().enumerate() {
-                let ty = env.get_type(&arg.ty).unwrap();
+                let ty = (unsafe { &*self.type_env.get() })
+                    .get_type_by_name(&arg.ty)
+                    .unwrap();
                 let argp = unsafe {
                     LLVMBuildAlloca(
                         self.builder,
-                        ty.get_llvm_type(env),
+                        ty.llvm_type(&*self.type_env.get()),
                         "".to_cstring().as_ptr(),
                     )
                 };
@@ -728,20 +763,22 @@ impl ModuleBuilder {
                 ..
             } = &**node
             {
-                let ret_ty = env.get_type(ret_ty).unwrap();
+                let ret_ty = (unsafe { &*self.type_env.get() })
+                    .get_type_by_name(ret_ty)
+                    .unwrap();
                 let mut args: Vec<LLVMTypeRef> = Vec::new();
                 for arg in fn_args.iter() {
-                    let arg_ty = env.get_type(&arg.ty);
+                    let arg_ty = (unsafe { &*self.type_env.get() }).get_type_by_name(&arg.ty);
 
                     if let Some(ty) = arg_ty {
-                        args.push(ty.get_llvm_type(env));
+                        args.push(ty.llvm_type(unsafe { &*self.type_env.get() }));
                     } else {
                         panic!("unresolved type {}", &arg.ty);
                     }
                 }
                 let func_ty = unsafe {
                     LLVMFunctionType(
-                        ret_ty.get_llvm_type(env),
+                        ret_ty.llvm_type(&*self.type_env.get()),
                         args.as_mut_slice().as_mut_ptr(),
                         args.len().try_into().unwrap(),
                         0,
