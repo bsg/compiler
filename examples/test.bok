@@ -14,15 +14,27 @@ fn max(a: u32, b: u32) -> u32 {
     }
 }
 
+fn sum_range(start: u32, end: u32) -> u32 {
+    let n: u32 = start;
+    let sum: u32 = 0;
+    
+    while n < end + 1 {
+        sum = sum + n;
+        n = n + 1;
+    }
+
+    return sum;
+}
+
 fn main(argc: u32) -> u32 {
     let a: u32 = 100;
     a = max(1, 10);
-    let c1: bool = 100 > a;
-    let c2: bool = 0 > argc;
+    let c1: bool = 1000 > a;
+    let c2: bool = 10 > argc;
 
     if c1 {
         if c2 {
-            a = 1;
+            a = sum_range(0, 10);
         } else {
             a = 2;
         }

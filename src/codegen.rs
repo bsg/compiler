@@ -398,6 +398,34 @@ impl ModuleBuilder {
                     panic!("if stmt outside fn")
                 }
             },
+            Node::While { condition, body } => unsafe {
+                if let Some(fn_ident) = &self.current_func_ident {
+                    let current_func = (*self.env.get()).get_func(fn_ident).unwrap();
+
+                    // FIXME i hate the ordering of nested blocks in the IR. need to build depth first
+                    let bb_test = LLVMAppendBasicBlock(current_func.val, "".to_cstring().as_ptr());
+                    LLVMBuildBr(self.builder, bb_test);
+                    let bb_body = LLVMAppendBasicBlock(current_func.val, "".to_cstring().as_ptr());
+                    let bb_exit = LLVMAppendBasicBlock(current_func.val, "".to_cstring().as_ptr());
+
+                    LLVMPositionBuilderAtEnd(self.builder, bb_test);
+                    let cond = LLVMBuildCondBr(
+                        self.builder,
+                        self.build_expr(env.clone(), condition.clone(), false),
+                        bb_body,
+                        bb_exit,
+                    );
+
+                    LLVMPositionBuilderAtEnd(self.builder, bb_body);
+                    self.build_block(env.clone(), body.clone());
+                    LLVMBuildBr(self.builder, bb_test);
+
+                    LLVMPositionBuilderAtEnd(self.builder, bb_exit);
+                    cond
+                } else {
+                    panic!("while stmt outside fn")
+                }
+            }
             _ => self.build_expr(env, node, false),
         }
     }
