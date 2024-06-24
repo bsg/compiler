@@ -46,6 +46,7 @@ pub enum Token {
     False,
     If,
     Else,
+    While,
     Return,
 }
 
@@ -203,6 +204,7 @@ impl Tokens {
                         "if" => Token::If,
                         "else" => Token::Else,
                         "return" => Token::Return,
+                        "while" => Token::While,
                         _ => Token::Ident(ident),
                     };
                 }

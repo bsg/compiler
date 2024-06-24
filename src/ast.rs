@@ -114,6 +114,10 @@ pub enum Node {
         then_block: NodeRef,
         else_block: Option<NodeRef>,
     },
+    While {
+        condition: NodeRef,
+        body: NodeRef,
+    },
     Block {
         statements: Rc<[NodeRef]>,
     },
@@ -203,6 +207,9 @@ impl fmt::Debug for Node {
                             fmt_with_indent(then_block, indent_level + 1, true),
                         )
                     }
+                }
+                Node::While { condition, body } => {
+                    format!("while{}{}", fmt_with_indent(condition, indent_level + 1, true), fmt_with_indent(body, indent_level + 1, true))
                 }
                 Node::Block { statements } => {
                     let mut b = "block".to_string();

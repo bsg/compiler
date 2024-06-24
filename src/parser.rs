@@ -89,6 +89,31 @@ impl Parser {
         }
     }
 
+    /// caller must ensure current token is While
+    fn parse_while(&mut self) -> Option<NodeRef> {
+        assert_eq!(self.curr_token, Token::While);
+
+        match self.parse_expression(0) {
+            Some(cond) => {
+                assert_eq!(self.peek_token, Token::LBrace);
+                self.next_token();
+                let body = self.parse_block();
+
+                match body {
+                    Some(while_body) => Some(
+                        Node::While {
+                            condition: cond,
+                            body: while_body,
+                        }
+                        .into(),
+                    ),
+                    None => todo!(),
+                }
+            }
+            None => todo!(),
+        }
+    }
+
     // caller must ensure current token is Fn
     fn parse_fn(&mut self) -> Option<NodeRef> {
         let mut args: Vec<Arg> = Vec::new();
@@ -144,7 +169,7 @@ impl Parser {
                     self.next_token();
                     match self.curr_token.clone() {
                         Token::Ident(ret_ident) => ret_ident,
-                        _ => todo!()
+                        _ => todo!(),
                     }
                 }
                 _ => todo!(),
@@ -324,12 +349,10 @@ impl Parser {
             Token::Ident(_) => self.parse_ident()?,
             Token::True => Rc::new(Node::Bool { value: true }),
             Token::False => Rc::new(Node::Bool { value: false }),
-            Token::Minus => {
-                Rc::new(Node::UnOp {
-                    op: Op::Neg,
-                    rhs: self.parse_expression(Op::precedence(&Op::Neg))?,
-                })
-            }
+            Token::Minus => Rc::new(Node::UnOp {
+                op: Op::Neg,
+                rhs: self.parse_expression(Op::precedence(&Op::Neg))?,
+            }),
             Token::Bang => Rc::new(Node::UnOp {
                 op: Op::Not,
                 rhs: self.parse_expression(Op::precedence(&Op::Not))?,
@@ -345,6 +368,7 @@ impl Parser {
             Token::LBrace => self.parse_block()?,
             Token::Fn => self.parse_fn()?,
             Token::If => self.parse_if()?,
+            Token::While => self.parse_while()?,
             Token::Amp => Rc::new(Node::UnOp {
                 op: Op::Ref,
                 rhs: self.parse_expression(Op::precedence(&Op::Ref))?,
@@ -1002,6 +1026,25 @@ fn f(x: *u32) -> u32
     block
         return
             ident x
+"
+        );
+    }
+
+    #[test]
+    fn while_loop() {
+        assert_parse!(
+            "while x < 5 {x = x + 1}",
+            "\
+while
+    lt
+        ident x
+        5
+    block
+        assign
+            ident x
+            add
+                ident x
+                1
 "
         );
     }
