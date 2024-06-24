@@ -23,6 +23,40 @@ impl ToCStr for String {
     }
 }
 
+pub enum Type {
+    None,
+    Bool,
+    Int {
+        /// width in bits
+        width: usize,
+        signed: bool,
+    },
+    Ptr {
+        // TODO type id
+        pointee_ty: Rc<str>,
+    },
+}
+
+impl Type {
+    pub fn get_llvm_type(&self, env: &Env) -> LLVMTypeRef {
+        match self {
+            Type::None => unsafe { LLVMVoidType() },
+            Type::Bool => unsafe { LLVMInt1Type() },
+            Type::Int { width, .. } => match width {
+                8 => unsafe { LLVMInt8Type() },
+                16 => unsafe { LLVMInt16Type() },
+                32 => unsafe { LLVMInt32Type() },
+                64 => unsafe { LLVMInt64Type() },
+                128 => unsafe { LLVMInt128Type() },
+                _ => todo!(),
+            },
+            Type::Ptr { pointee_ty } => unsafe {
+                LLVMPointerType(env.get_type(pointee_ty).unwrap().get_llvm_type(env), 0)
+            },
+        }
+    }
+}
+
 pub struct Var {
     val: LLVMValueRef,
     ty: LLVMTypeRef,
@@ -38,37 +72,79 @@ pub struct Func {
 pub struct Env {
     parent: Option<Rc<UnsafeCell<Env>>>,
     vars: HashMap<String, Var>,
-    types: HashMap<String, LLVMTypeRef>,
+    types: HashMap<String, Type>,
     funcs: HashMap<String, Func>,
 }
 
 impl Env {
     pub fn new() -> Self {
-        let mut types = HashMap::new();
-        types.insert("void".to_owned(), unsafe { LLVMVoidType() });
-        types.insert("u8".to_owned(), unsafe { LLVMInt8Type() });
-        types.insert("i8".to_owned(), unsafe { LLVMInt8Type() });
-        types.insert("u32".to_owned(), unsafe { LLVMInt32Type() });
-        types.insert("i32".to_owned(), unsafe { LLVMInt32Type() });
-        types.insert("bool".to_owned(), unsafe { LLVMInt1Type() });
-        types.insert("*void".to_owned(), unsafe {
-            LLVMPointerType(LLVMVoidType(), 0)
-        });
-        types.insert("*u8".to_owned(), unsafe {
-            LLVMPointerType(LLVMInt8Type(), 0)
-        });
-        types.insert("*i8".to_owned(), unsafe {
-            LLVMPointerType(LLVMInt8Type(), 0)
-        });
-        types.insert("*u32".to_owned(), unsafe {
-            LLVMPointerType(LLVMInt32Type(), 0)
-        });
-        types.insert("*i32".to_owned(), unsafe {
-            LLVMPointerType(LLVMInt32Type(), 0)
-        });
-        types.insert("*bool".to_owned(), unsafe {
-            LLVMPointerType(LLVMInt1Type(), 0)
-        });
+        let mut types: HashMap<String, Type> = HashMap::new();
+        types.insert("void".to_owned(), Type::None);
+        types.insert(
+            "u8".to_owned(),
+            Type::Int {
+                width: 8,
+                signed: false,
+            },
+        );
+        types.insert(
+            "i8".to_owned(),
+            Type::Int {
+                width: 8,
+                signed: true,
+            },
+        );
+        types.insert(
+            "u32".to_owned(),
+            Type::Int {
+                width: 32,
+                signed: false,
+            },
+        );
+        types.insert(
+            "i32".to_owned(),
+            Type::Int {
+                width: 32,
+                signed: true,
+            },
+        );
+        types.insert("bool".to_owned(), Type::Bool);
+        types.insert(
+            "*void".to_owned(),
+            Type::Ptr {
+                pointee_ty: "void".into(),
+            },
+        );
+        types.insert(
+            "*u8".to_owned(),
+            Type::Ptr {
+                pointee_ty: "u8".into(),
+            },
+        );
+        types.insert(
+            "*i8".to_owned(),
+            Type::Ptr {
+                pointee_ty: "i8".into(),
+            },
+        );
+        types.insert(
+            "*u32".to_owned(),
+            Type::Ptr {
+                pointee_ty: "u32".into(),
+            },
+        );
+        types.insert(
+            "*i32".to_owned(),
+            Type::Ptr {
+                pointee_ty: "i32".into(),
+            },
+        );
+        types.insert(
+            "*bool".to_owned(),
+            Type::Ptr {
+                pointee_ty: "bool".into(),
+            },
+        );
 
         Env {
             parent: None,
@@ -88,13 +164,13 @@ impl Env {
         }
     }
 
-    pub fn insert_type(&mut self, ident: &str, ty: LLVMTypeRef) {
+    pub fn insert_type(&mut self, ident: &str, ty: Type) {
         self.types.insert(ident.to_string(), ty);
     }
 
-    pub fn get_type(&self, ident: &str) -> Option<LLVMTypeRef> {
+    pub fn get_type(&self, ident: &str) -> Option<&Type> {
         match self.types.get(ident) {
-            Some(ty) => Some(*ty),
+            Some(ty) => Some(ty),
             None => {
                 if let Some(parent) = &self.parent {
                     let p = unsafe { &*parent.get() };
@@ -149,6 +225,12 @@ impl Env {
             }
         }
     }
+}
+
+// TODO rename
+struct Val {
+    ty: Type,
+    llvm_val: LLVMValueRef,
 }
 
 pub struct ModuleBuilder {
@@ -352,12 +434,15 @@ impl ModuleBuilder {
                 if let Node::Ident { name } = &**lhs {
                     let reg = LLVMBuildAlloca(
                         self.builder,
-                        (*env.get()).get_type(ty).unwrap(),
+                        (*env.get())
+                            .get_type(ty)
+                            .unwrap()
+                            .get_llvm_type(&*(*env).get()),
                         "".to_cstring().as_ptr(),
                     );
                     let rhs = self.build_expr(env.clone(), rhs.clone(), false);
                     let ty = (*env.get()).get_type(ty).unwrap();
-                    (*env.get()).insert_var(name, reg, ty);
+                    (*env.get()).insert_var(name, reg, ty.get_llvm_type(&*(*env).get()));
                     LLVMBuildStore(self.builder, rhs, reg)
                 } else {
                     panic!()
@@ -425,7 +510,7 @@ impl ModuleBuilder {
                 } else {
                     panic!("while stmt outside fn")
                 }
-            }
+            },
             _ => self.build_expr(env, node, false),
         }
     }
@@ -455,7 +540,13 @@ impl ModuleBuilder {
 
             for (i, arg) in args.iter().enumerate() {
                 let ty = env.get_type(&arg.ty).unwrap();
-                let argp = unsafe { LLVMBuildAlloca(self.builder, ty, "".to_cstring().as_ptr()) };
+                let argp = unsafe {
+                    LLVMBuildAlloca(
+                        self.builder,
+                        ty.get_llvm_type(env),
+                        "".to_cstring().as_ptr(),
+                    )
+                };
                 unsafe {
                     LLVMBuildStore(
                         self.builder,
@@ -463,7 +554,7 @@ impl ModuleBuilder {
                         argp,
                     )
                 };
-                fn_env.insert_var(&arg.ident, argp, ty);
+                fn_env.insert_var(&arg.ident, argp, ty.get_llvm_type(env));
             }
 
             self.build_block(f.env.clone(), body.clone());
@@ -483,20 +574,20 @@ impl ModuleBuilder {
                 ..
             } = &**node
             {
-                let func_ty_str = env.get_type(ret_ty).unwrap();
+                let func_ty = env.get_type(ret_ty).unwrap();
                 let mut args: Vec<LLVMTypeRef> = Vec::new();
                 for arg in fn_args.iter() {
                     let arg_ty = env.get_type(&arg.ty);
 
                     if let Some(ty) = arg_ty {
-                        args.push(ty);
+                        args.push(ty.get_llvm_type(env));
                     } else {
                         panic!("unresolved type {}", &arg.ty);
                     }
                 }
                 let func_ty = unsafe {
                     LLVMFunctionType(
-                        func_ty_str,
+                        func_ty.get_llvm_type(env),
                         args.as_mut_slice().as_mut_ptr(),
                         args.len().try_into().unwrap(),
                         0,
