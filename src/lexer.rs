@@ -7,6 +7,7 @@ pub enum Token {
     Ident(Rc<str>),
     Int(Rc<str>),
     Str(Rc<str>),
+    Struct,
 
     // Operators
     Assign,
@@ -221,6 +222,7 @@ impl Tokens {
                         "else" => Token::Else,
                         "return" => Token::Return,
                         "while" => Token::While,
+                        "struct" => Token::Struct,
                         _ => Token::Ident(ident),
                     };
                 }

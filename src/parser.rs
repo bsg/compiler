@@ -275,6 +275,65 @@ impl Parser {
         Some(Node::Pair { key, value }.into())
     }
 
+    fn parse_struct(&mut self) -> Option<NodeRef> {
+        let mut fields: Vec<StructField> = Vec::new();
+
+        assert_eq!(Token::Struct, self.curr_token);
+        self.next_token();
+
+        if let Token::Ident(ident) = &self.curr_token.clone() {
+            self.next_token();
+            assert_eq!(self.curr_token, Token::LBrace);
+            self.next_token();
+
+            loop {
+                match &self.curr_token.clone() {
+                    Token::Ident(arg_ident) => {
+                        self.next_token();
+                        assert_eq!(Token::Colon, self.curr_token);
+                        self.next_token();
+
+                        match &self.curr_token {
+                            Token::Ident(ty_ident) => fields.push(StructField {
+                                ident: arg_ident.clone(),
+                                ty: ty_ident.clone(),
+                            }),
+                            Token::Star => {
+                                // FIXME duplicate code
+                                self.next_token();
+                                match &self.curr_token {
+                                    Token::Ident(ty_ident) => fields.push(StructField {
+                                        ident: arg_ident.clone(),
+                                        ty: ("*".to_string() + ty_ident).as_str().into(),
+                                    }),
+                                    _ => todo!(),
+                                }
+                            }
+                            _ => todo!(),
+                        };
+                        self.next_token();
+                        assert_eq!(Token::Semicolon, self.curr_token);
+                        self.next_token();
+                    }
+                    Token::RBrace => break,
+                    _ => todo!(),
+                }
+            }
+
+            assert_eq!(self.curr_token, Token::RBrace);
+
+            Some(
+                Node::Struct {
+                    ident: ident.clone(),
+                    fields: Rc::from(fields.as_slice()),
+                }
+                .into(),
+            )
+        } else {
+            todo!()
+        }
+    }
+
     fn parse_statement(&mut self) -> Option<NodeRef> {
         let node = match self.tokens.peek() {
             Some(Token::Let) => {
@@ -386,6 +445,7 @@ impl Parser {
                 op: Op::Deref,
                 rhs: self.parse_expression(Op::precedence(&Op::Deref))?,
             }),
+            Token::Struct => self.parse_struct()?,
             _ => return None,
         };
 
@@ -1054,6 +1114,19 @@ while
             add
                 ident x
                 1
+"
+        );
+    }
+
+    #[test]
+    fn struct_defn() {
+        assert_parse!(
+            "struct T {a: u32; b: u8; c: A;}",
+            "\
+struct T
+    a u32
+    b u8
+    c A
 "
         );
     }

@@ -78,6 +78,12 @@ pub struct Arg {
     pub ty: Rc<str>,
 }
 
+#[derive(PartialEq, Clone)]
+pub struct StructField {
+    pub ident: Rc<str>,
+    pub ty: Rc<str>,
+}
+
 #[derive(Clone, PartialEq)]
 pub enum Node {
     Ident {
@@ -138,9 +144,14 @@ pub enum Node {
         ident: Rc<str>,
         index: NodeRef,
     },
+    // TODO where is this used?
     Pair {
         key: NodeRef,
         value: NodeRef,
+    },
+    Struct {
+        ident: Rc<str>,
+        fields: Rc<[StructField]>,
     },
 }
 
@@ -256,6 +267,18 @@ impl fmt::Debug for Node {
                     format! {"index {}{}", ident, fmt_with_indent(index, indent_level + 1, true).as_str()}
                 }
                 Node::Pair { .. } => todo!(),
+                Node::Struct { ident, fields } => {
+                    let mut fields_str = fields.iter().fold(String::new(), |mut acc, field| {
+                        acc += "    ";
+                        acc += &field.ident;
+                        acc += " ";
+                        acc += &field.ty;
+                        acc += "\n";
+                        acc
+                });
+                    fields_str.pop(); // pop trailing \n
+                    format!("struct {}\n{}", ident, fields_str)
+                }
             }
             .as_str();
 
