@@ -49,10 +49,7 @@ fn main() {
     }
 
     let mut module = codegen::ModuleBuilder::new("hello");
-    module.build_symtable(ast.as_slice());
-    for node in ast {
-        module.build_func(node);
-    }
+    module.build(ast.as_slice());
 
     unsafe {
         LLVMPrintModuleToFile(

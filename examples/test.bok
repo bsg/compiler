@@ -1,3 +1,9 @@
+struct A {
+    a: u32;
+    b: u8;
+    c: u32;
+}
+
 fn add(a: u32, b: u32) -> u32 {
     return a + b;
 }
@@ -33,6 +39,8 @@ fn main(argc: u32) -> u32 {
     let c2: bool = 10 > argc;
     let p: *u32 = &argc;
     *p = max(1, 10);
+
+    let s: A;
 
     if c1 {
         if c2 {
