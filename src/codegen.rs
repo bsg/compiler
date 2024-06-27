@@ -334,7 +334,6 @@ struct Val {
 
 // TODO type_env accessors
 pub struct ModuleBuilder {
-    name: String,
     module: LLVMModuleRef,
     builder: LLVMBuilderRef,
     // because fuck it
@@ -350,7 +349,6 @@ impl ModuleBuilder {
         let builder = unsafe { LLVMCreateBuilder() };
 
         Self {
-            name: name.to_owned(),
             module,
             builder,
             type_env: Rc::new(UnsafeCell::new(TypeEnv::new())),
@@ -624,6 +622,7 @@ impl ModuleBuilder {
                 }
             }
             Node::Let { ty, lhs, rhs } => unsafe {
+                // TODO alloca the var and let assign do the rest?
                 if let Node::Ident { name } = &**lhs {
                     let reg = LLVMBuildAlloca(
                         self.builder,
@@ -633,14 +632,20 @@ impl ModuleBuilder {
                             .llvm_type(&*(*self.type_env).get()),
                         "".to_cstring().as_ptr(),
                     );
-                    let rhs = self.build_expr(env.clone(), rhs.clone(), false);
+                    
                     let ty = (*self.type_env.get()).get_type_by_name(ty).unwrap();
                     (*env.get()).insert_var(name, reg, ty.clone());
-                    let llvm_val = LLVMBuildStore(self.builder, rhs.llvm_val, reg);
 
+                    if let Some(rhs) = rhs {
+                        let rhs = self.build_expr(env.clone(), rhs.clone(), false);
+                        LLVMBuildStore(self.builder, rhs.llvm_val, reg);
+                    };
+                    
+                    
+                    // TODO llvm_val should be optional
                     Val {
-                        ty: ty.clone(),
-                        llvm_val,
+                        ty: Type::None,
+                        llvm_val: LLVMConstInt(LLVMInt1Type(), 0, 0),
                     }
                 } else {
                     panic!()

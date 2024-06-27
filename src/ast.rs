@@ -104,7 +104,7 @@ pub enum Node {
     Let {
         ty: Rc<str>,
         lhs: NodeRef,
-        rhs: NodeRef,
+        rhs: Option<NodeRef>,
     },
     Return {
         stmt: Option<NodeRef>,
@@ -176,7 +176,7 @@ impl fmt::Debug for Node {
                         "let {}{}{}",
                         ty,
                         fmt_with_indent(lhs, indent_level + 1, true),
-                        fmt_with_indent(rhs, indent_level + 1, true)
+                        if rhs.is_some() {fmt_with_indent(rhs.as_ref().unwrap(), indent_level + 1, true)} else {"".to_string()}
                     )
                 }
                 Node::Return { stmt } => match stmt {

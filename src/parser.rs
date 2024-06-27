@@ -302,7 +302,16 @@ impl Parser {
                                 ty
                             },
                             lhs: lhs?,
-                            rhs: self.parse_expression(0)?,
+                            rhs: Some(self.parse_expression(0)?),
+                        })),
+                        Token::Semicolon => Some(Rc::new(Node::Let {
+                            ty: if is_ptr {
+                                ("*".to_string() + &ty).into()
+                            } else {
+                                ty
+                            },
+                            lhs: lhs?,
+                            rhs: None,
                         })),
                         _ => todo!(),
                     }
