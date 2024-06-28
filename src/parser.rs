@@ -468,6 +468,7 @@ impl Parser {
                 Token::LParen => Op::Call,
                 Token::LBracket => Op::Index,
                 Token::Colon => Op::Colon,
+                Token::Dot => Op::Dot,
                 _ => break,
             };
 
@@ -1127,6 +1128,20 @@ struct T
     a u32
     b u8
     c A
+"
+        );
+    }
+
+    #[test]
+    fn dot_operator() {
+        assert_parse!(
+            "foo.bar.baz",
+            "\
+dot
+    ident foo
+    dot
+        ident bar
+        ident baz
 "
         );
     }

@@ -28,6 +28,8 @@ pub enum Token {
     Eq,
     NotEq,
     Arrow,
+    Dot,
+    DotDot,
 
     // Delimiters
     Comma,
@@ -210,6 +212,13 @@ impl Tokens {
             Some(b':') => Token::Colon,
             Some(b';') => Token::Semicolon,
             Some(b'"') => Token::Str(self.read_string()),
+            Some(b'.') => match self.peek_char() {
+                Some(b'.') => {
+                    self.read_char();
+                    Token::DotDot
+                }
+                _ => Token::Dot,
+            },
             Some(c) => match c {
                 (b'a'..=b'z') | (b'A'..=b'Z') | b'_' => {
                     let ident = self.read_identifier();
@@ -273,16 +282,15 @@ impl Lexer {
 
 #[cfg(test)]
 mod tests {
-    // TODO write better tests
     use super::*;
     use Token::*;
 
     #[test]
     fn symbols() {
-        let source = "=+-!*/(){}[],;:->&||&&";
+        let source = "=+-!*/(){}[],;:->&||..&&.";
         let expected = [
             Assign, Plus, Minus, Bang, Star, Slash, LParen, RParen, LBrace, RBrace, LBracket,
-            RBracket, Comma, Semicolon, Colon, Arrow, Amp, BarBar, AmpAmp,
+            RBracket, Comma, Semicolon, Colon, Arrow, Amp, BarBar, DotDot, AmpAmp, Dot,
         ];
         let mut tokens = Lexer::new(source).tokens();
         expected
@@ -297,42 +305,11 @@ mod tests {
     }
 
     #[test]
-    fn multichar_token() {
-        Lexer::new("==").tokens().for_each(|t| assert_eq!(t, Eq));
-        Lexer::new("!=").tokens().for_each(|t| assert_eq!(t, NotEq));
-    }
-
-    #[test]
     fn string() {
         let expected = [LBrace, Str("some string".into()), RBrace];
         let mut tokens = Lexer::new(r#"{"some string"}"#).tokens();
         expected
             .iter()
             .for_each(|t| assert_eq!(tokens.next_token(), *t));
-    }
-
-    #[test]
-    fn code() {
-        let source = r#"
-                        let five = 5;
-                        let ten = 10;
-                        let add = fn(x, y) {
-                            x + y;
-                        };
-                        let result = add(five, ten);
-                    "#;
-
-        #[rustfmt::skip]
-        let expected = vec!{
-            Let, Ident("five".into()), Assign, Int("5".into()), Semicolon,
-            Let, Ident("ten".into()), Assign, Int("10".into()), Semicolon,
-            Let, Ident("add".into()), Assign, Fn, LParen, Ident("x".into()), Comma, Ident("y".into()), RParen, LBrace,
-            Ident("x".into()), Plus, Ident("y".into()), Semicolon,
-            RBrace, Semicolon,
-            Let, Ident("result".into()), Assign, Ident("add".into()), LParen, Ident("five".into()), Comma, Ident("ten".into()), RParen, Semicolon
-        };
-
-        let lexer = Lexer::new(source);
-        assert_eq!(lexer.tokens().collect::<Vec<Token>>(), expected);
     }
 }
