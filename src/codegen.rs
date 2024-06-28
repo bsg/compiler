@@ -122,15 +122,15 @@ pub struct Func {
 }
 
 pub struct TypeEnv {
-    types: HashMap<usize, Type>,
+    types: UnsafeCell<HashMap<usize, Type>>,
     next_type_id: UnsafeCell<usize>,
     type_ids: UnsafeCell<HashMap<String, usize>>,
 }
 
 impl TypeEnv {
     pub fn new() -> Self {
-        let mut env = TypeEnv {
-            types: HashMap::new(),
+        let env = TypeEnv {
+            types: UnsafeCell::new(HashMap::new()),
             next_type_id: UnsafeCell::new(0),
             type_ids: UnsafeCell::new(HashMap::new()),
         };
@@ -233,8 +233,8 @@ impl TypeEnv {
         env
     }
 
-    pub fn insert_type_by_name(&mut self, name: &str, ty: Type) {
-        self.types.insert(self.get_type_id_by_name(name), ty);
+    pub fn insert_type_by_name(&self, name: &str, ty: Type) {
+        (unsafe { &mut *self.types.get() }).insert(self.get_type_id_by_name(name), ty);
     }
 
     // TODO make sure this is sound
@@ -253,11 +253,26 @@ impl TypeEnv {
     }
 
     pub fn get_type_by_id(&self, type_id: usize) -> Option<&Type> {
-        self.types.get(&type_id)
+        (unsafe { &mut *self.types.get() }).get(&type_id)
     }
 
     pub fn get_type_by_name(&self, name: &str) -> Option<&Type> {
-        self.get_type_by_id(self.get_type_id_by_name(name))
+        match self.get_type_by_id(self.get_type_id_by_name(name)) {
+            Some(ty) => Some(ty),
+            None => {
+                if name.starts_with('*') {
+                    self.insert_type_by_name(
+                        name,
+                        Type::Ptr {
+                            pointee_ty: self.get_type_id_by_name(name.strip_prefix('*').unwrap()),
+                        },
+                    );
+                    self.get_type_by_name(name)
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 
@@ -412,7 +427,7 @@ impl ModuleBuilder {
     }
 
     fn build_binop(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef, as_lvalue: bool) -> Val {
-        let type_env = unsafe { &*self.type_env.get() };
+        let type_env = unsafe { &mut *self.type_env.get() };
         if let Node::BinOp { op, lhs, rhs } = &*node {
             let (llvm_val, ty) = match op {
                 Op::Add => unsafe {
@@ -822,13 +837,13 @@ impl ModuleBuilder {
                     ret_ty,
                     ..
                 } => {
-                    let ret_ty = match (unsafe { &*self.type_env.get() }).get_type_by_name(ret_ty) {
+                    let ret_ty = match (unsafe { &mut *self.type_env.get() }).get_type_by_name(ret_ty) {
                         Some(ty) => ty,
                         None => panic!("unresolved type {}", ret_ty),
                     };
                     let mut args: Vec<LLVMTypeRef> = Vec::new();
                     for arg in fn_args.iter() {
-                        let arg_ty = (unsafe { &*self.type_env.get() }).get_type_by_name(&arg.ty);
+                        let arg_ty = (unsafe { &mut *self.type_env.get() }).get_type_by_name(&arg.ty);
 
                         if let Some(ty) = arg_ty {
                             args.push(ty.llvm_type(unsafe { &*self.type_env.get() }));
@@ -884,7 +899,7 @@ impl ModuleBuilder {
                     let fn_env = unsafe { &mut *f.env.get() };
 
                     for (i, arg) in args.iter().enumerate() {
-                        let ty = (unsafe { &*self.type_env.get() })
+                        let ty = (unsafe { &mut *self.type_env.get() })
                             .get_type_by_name(&arg.ty)
                             .unwrap();
                         let argp = unsafe {
