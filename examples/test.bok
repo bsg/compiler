@@ -40,7 +40,8 @@ fn main(argc: u32) -> u32 {
     let p: *u32 = &argc;
     *p = max(1, 10);
 
-    let s: A;
+    let foo: A;
+    foo.a = 1;
 
     if c1 {
         if c2 {

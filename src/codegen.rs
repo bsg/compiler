@@ -369,7 +369,7 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_unop(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef) -> Val {
+    fn build_unop(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef, as_lvalue: bool) -> Val {
         if let Node::UnOp { op, rhs } = &*node {
             match op {
                 Op::Ref => {
@@ -382,19 +382,23 @@ impl ModuleBuilder {
                 }
                 Op::Deref => unsafe {
                     let val = self.build_expr(env.clone(), rhs.clone(), false);
-                    let llvm_val = LLVMBuildLoad2(
-                        self.builder,
-                        LLVMInt32Type(),
-                        val.llvm_val,
-                        "".to_cstring().as_ptr(),
-                    );
-
                     let ty = match val.ty {
                         Type::Ptr { pointee_ty } => (*self.type_env.get())
                             .get_type_by_id(pointee_ty)
                             .unwrap()
                             .clone(),
                         _ => panic!("cannot deref"),
+                    };
+
+                    let llvm_val = if as_lvalue {
+                        val.llvm_val
+                    } else {
+                        LLVMBuildLoad2(
+                            self.builder,
+                            LLVMInt32Type(),
+                            val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        )
                     };
 
                     Val { ty, llvm_val }
@@ -484,28 +488,11 @@ impl ModuleBuilder {
                     )
                 },
                 Op::Assign => unsafe {
-                    match &**lhs {
-                        Node::Ident { .. } => {
-                            let lhs_val = self.build_expr(env.clone(), lhs.clone(), true);
-                            let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
-                            LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val)
-                        }
-                        Node::UnOp {
-                            op: Op::Deref,
-                            rhs: deref_rhs,
-                        } => match &**deref_rhs {
-                            Node::Ident { .. } => {
-                                let lhs_val =
-                                    self.build_expr(env.clone(), deref_rhs.clone(), false);
-                                let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
-                                LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val)
-                            }
-                            _ => todo!(),
-                        },
-                        _ => panic!("cannot assign to whatever this is"),
-                    }
+                    let lhs_val = self.build_expr(env.clone(), lhs.clone(), true);
+                    let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
+                    LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val)
                 },
-                _ => unimplemented!(),
+                _ => todo!(),
             };
 
             Val {
@@ -520,7 +507,7 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_expr(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef, ident_no_load: bool) -> Val {
+    fn build_expr(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef, as_lvalue: bool) -> Val {
         match &*node {
             Node::Int { value } => unsafe {
                 // FIXME int type
@@ -548,7 +535,7 @@ impl ModuleBuilder {
             },
             Node::Ident { name } => unsafe {
                 if let Some(var) = (*env.get()).get_var(name) {
-                    let llvm_val = if ident_no_load {
+                    let llvm_val = if as_lvalue {
                         var.val
                     } else {
                         LLVMBuildLoad2(
@@ -568,7 +555,7 @@ impl ModuleBuilder {
                 }
             },
             Node::UnOp { .. } => {
-                let val = self.build_unop(env, node.clone());
+                let val = self.build_unop(env, node.clone(), as_lvalue);
 
                 Val {
                     ty: val.ty,

@@ -1138,10 +1138,10 @@ struct T
             "foo.bar.baz",
             "\
 dot
-    ident foo
+    ident baz
     dot
         ident bar
-        ident baz
+        ident foo
 "
         );
     }
