@@ -171,20 +171,16 @@ impl Tokens {
                 _ => Token::Gt,
             },
             Some(b'/') => match self.peek_char() {
-                Some(b'/') => {
-                    let mut skip = true;
-                    while skip {
-                        self.read_char();
-                        match self.ch {
-                            Some(c) => if c == b'\n' {
-                                skip = false;
-                                self.read_char();
-                            },
-                            None => return Token::None
+                Some(b'/') => loop {
+                    self.read_char();
+                    if let Some(c) = self.ch {
+                        if c == b'\n' {
+                            return self.next_token();
                         }
+                    } else {
+                        return Token::None;
                     }
-                    self.next_token()
-                }
+                },
                 _ => Token::Slash,
             },
             Some(b'%') => Token::Percent,
@@ -311,5 +307,18 @@ mod tests {
         expected
             .iter()
             .for_each(|t| assert_eq!(tokens.next_token(), *t));
+    }
+
+    #[test]
+    fn comment() {
+        let source = "=+-!*/(){}[]// comment\n,;:->&||..&&.";
+        let expected = [
+            Assign, Plus, Minus, Bang, Star, Slash, LParen, RParen, LBrace, RBrace, LBracket,
+            RBracket, Comma, Semicolon, Colon, Arrow, Amp, BarBar, DotDot, AmpAmp, Dot,
+        ];
+        let mut tokens = Lexer::new(source).tokens();
+        expected
+            .iter()
+            .for_each(|t| assert_eq!(*t, tokens.next_token()));
     }
 }

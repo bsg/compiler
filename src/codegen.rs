@@ -544,12 +544,15 @@ impl ModuleBuilder {
                             if as_lvalue {
                                 (ptr, field_ty.clone())
                             } else {
-                                (LLVMBuildLoad2(
-                                    self.builder,
-                                    field_ty.llvm_type(type_env),
-                                    ptr,
-                                    "".to_cstring().as_ptr(),
-                                ), field_ty.clone())
+                                (
+                                    LLVMBuildLoad2(
+                                        self.builder,
+                                        field_ty.llvm_type(type_env),
+                                        ptr,
+                                        "".to_cstring().as_ptr(),
+                                    ),
+                                    field_ty.clone(),
+                                )
                             }
                         } else {
                             todo!()
@@ -686,16 +689,16 @@ impl ModuleBuilder {
             Node::Let { ty, lhs, rhs } => unsafe {
                 // TODO alloca the var and let assign do the rest?
                 if let Node::Ident { name } = &**lhs {
+                    let ty = match (*self.type_env.get()).get_type_by_name(ty) {
+                        Some(t) => t,
+                        None => panic!("unknown type {}", ty),
+                    };
                     let reg = LLVMBuildAlloca(
                         self.builder,
-                        (*self.type_env.get())
-                            .get_type_by_name(ty)
-                            .unwrap()
-                            .llvm_type(&*(*self.type_env).get()),
+                        ty.llvm_type(&*(*self.type_env).get()),
                         "".to_cstring().as_ptr(),
                     );
 
-                    let ty = (*self.type_env.get()).get_type_by_name(ty).unwrap();
                     (*env.get()).insert_var(name, reg, ty.clone());
 
                     if let Some(rhs) = rhs {

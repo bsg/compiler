@@ -47,7 +47,11 @@ fn main(argc: u32) -> u32 {
     let foo: B;
     foo.inner.a = 1;
     foo.inner.c = 10;
+
+    // this breaks shit
+
     *p = foo.inner.a + foo.inner.c;
+
 
     if c1 {
         if c2 {
