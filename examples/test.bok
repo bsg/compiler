@@ -49,7 +49,8 @@ fn main(argc: u32) -> u32 {
     foo.inner.c = 10;
 
     let sp: *B = &foo;
-    (*sp).inner.a = 5;
+    (*sp).inner.a = 1;
+    sp.inner.a = 5;
 
     *p = foo.inner.a + foo.inner.c;
 

@@ -181,54 +181,6 @@ impl TypeEnv {
             },
         );
         env.insert_type_by_name("bool", Type::Bool);
-        env.insert_type_by_name(
-            "*void",
-            Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("void"),
-            },
-        );
-        env.insert_type_by_name(
-            "*u8",
-            Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("u8"),
-            },
-        );
-        env.insert_type_by_name(
-            "*i8",
-            Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("i8"),
-            },
-        );
-        env.insert_type_by_name(
-            "*u16",
-            Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("u8"),
-            },
-        );
-        env.insert_type_by_name(
-            "*i16",
-            Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("i8"),
-            },
-        );
-        env.insert_type_by_name(
-            "*u32",
-            Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("u32"),
-            },
-        );
-        env.insert_type_by_name(
-            "*i32",
-            Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("i32"),
-            },
-        );
-        env.insert_type_by_name(
-            "*bool",
-            Type::Ptr {
-                pointee_ty: env.get_type_id_by_name("bool"),
-            },
-        );
 
         env
     }
@@ -385,6 +337,32 @@ impl ModuleBuilder {
         }
     }
 
+    fn deref_ptr(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef, as_lvalue: bool) -> Val {
+        unsafe {
+            let val = self.build_expr(env.clone(), node.clone(), false);
+            let ty = match val.ty {
+                Type::Ptr { pointee_ty } => (*self.type_env.get())
+                    .get_type_by_id(pointee_ty)
+                    .unwrap()
+                    .clone(),
+                _ => panic!("cannot deref"),
+            };
+
+            let llvm_val = if as_lvalue {
+                val.llvm_val
+            } else {
+                LLVMBuildLoad2(
+                    self.builder,
+                    LLVMInt32Type(),
+                    val.llvm_val,
+                    "".to_cstring().as_ptr(),
+                )
+            };
+
+            Val { ty, llvm_val }
+        }
+    }
+
     fn build_unop(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef, as_lvalue: bool) -> Val {
         if let Node::UnOp { op, rhs } = &*node {
             match op {
@@ -396,29 +374,7 @@ impl ModuleBuilder {
                         llvm_val: val.llvm_val,
                     }
                 }
-                Op::Deref => unsafe {
-                    let val = self.build_expr(env.clone(), rhs.clone(), false);
-                    let ty = match val.ty {
-                        Type::Ptr { pointee_ty } => (*self.type_env.get())
-                            .get_type_by_id(pointee_ty)
-                            .unwrap()
-                            .clone(),
-                        _ => panic!("cannot deref"),
-                    };
-
-                    let llvm_val = if as_lvalue {
-                        val.llvm_val
-                    } else {
-                        LLVMBuildLoad2(
-                            self.builder,
-                            LLVMInt32Type(),
-                            val.llvm_val,
-                            "".to_cstring().as_ptr(),
-                        )
-                    };
-
-                    Val { ty, llvm_val }
-                },
+                Op::Deref => self.deref_ptr(env, rhs.clone(), as_lvalue),
                 _ => todo!(),
             }
         } else {
@@ -535,45 +491,50 @@ impl ModuleBuilder {
                 },
                 Op::Dot => unsafe {
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), true);
-                    if let Type::Struct {
-                        field_indices,
-                        fields,
-                        ..
-                    } = lhs_val.ty.clone()
-                    {
-                        let type_env = &*self.type_env.get();
-                        if let Node::Ident { name } = &**rhs {
-                            let field_idx = match field_indices.get(&**name) {
-                                Some(idx) => idx,
-                                None => panic!("no member {}", name),
-                            };
-                            let field_ty = fields.get(*field_idx).unwrap();
-                            let ptr = LLVMBuildStructGEP2(
-                                self.builder,
-                                lhs_val.ty.llvm_type(type_env),
-                                lhs_val.llvm_val,
-                                *field_idx as u32,
-                                "".to_cstring().as_ptr(),
-                            );
+                    match lhs_val.ty.clone() {
+                        Type::Struct {
+                            field_indices,
+                            fields,
+                            ..
+                        } => {
+                            let type_env = &*self.type_env.get();
+                            if let Node::Ident { name } = &**rhs {
+                                let field_idx = match field_indices.get(&**name) {
+                                    Some(idx) => idx,
+                                    None => panic!("no member {}", name),
+                                };
+                                let field_ty = fields.get(*field_idx).unwrap();
+                                let ptr = LLVMBuildStructGEP2(
+                                    self.builder,
+                                    lhs_val.ty.llvm_type(type_env),
+                                    lhs_val.llvm_val,
+                                    *field_idx as u32,
+                                    "".to_cstring().as_ptr(),
+                                );
 
-                            if as_lvalue {
-                                (ptr, field_ty.clone())
+                                if as_lvalue {
+                                    (ptr, field_ty.clone())
+                                } else {
+                                    (
+                                        LLVMBuildLoad2(
+                                            self.builder,
+                                            field_ty.llvm_type(type_env),
+                                            ptr,
+                                            "".to_cstring().as_ptr(),
+                                        ),
+                                        field_ty.clone(),
+                                    )
+                                }
                             } else {
-                                (
-                                    LLVMBuildLoad2(
-                                        self.builder,
-                                        field_ty.llvm_type(type_env),
-                                        ptr,
-                                        "".to_cstring().as_ptr(),
-                                    ),
-                                    field_ty.clone(),
-                                )
+                                todo!()
                             }
-                        } else {
-                            todo!()
                         }
-                    } else {
-                        todo!()
+                        Type::Ptr { pointee_ty } => (
+                            // TODO deref pointer chains?
+                            self.deref_ptr(env, rhs.clone(), as_lvalue).llvm_val,
+                            type_env.get_type_by_id(pointee_ty).unwrap().clone(),
+                        ),
+                        _ => todo!(),
                     }
                 },
                 _ => todo!(),
@@ -837,13 +798,15 @@ impl ModuleBuilder {
                     ret_ty,
                     ..
                 } => {
-                    let ret_ty = match (unsafe { &mut *self.type_env.get() }).get_type_by_name(ret_ty) {
-                        Some(ty) => ty,
-                        None => panic!("unresolved type {}", ret_ty),
-                    };
+                    let ret_ty =
+                        match (unsafe { &mut *self.type_env.get() }).get_type_by_name(ret_ty) {
+                            Some(ty) => ty,
+                            None => panic!("unresolved type {}", ret_ty),
+                        };
                     let mut args: Vec<LLVMTypeRef> = Vec::new();
                     for arg in fn_args.iter() {
-                        let arg_ty = (unsafe { &mut *self.type_env.get() }).get_type_by_name(&arg.ty);
+                        let arg_ty =
+                            (unsafe { &mut *self.type_env.get() }).get_type_by_name(&arg.ty);
 
                         if let Some(ty) = arg_ty {
                             args.push(ty.llvm_type(unsafe { &*self.type_env.get() }));
