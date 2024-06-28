@@ -477,11 +477,19 @@ impl Parser {
                 Op::Index => lhs = self.parse_index(lhs)?,
                 Op::Colon => lhs = self.parse_pair(lhs)?,
                 op => {
-                    if op.precedence() < precedence {
+                    let mut op_precedence = op.precedence();
+                    if op_precedence < precedence {
                         break;
                     }
+                    
+                    // TODO feels hacky, test the shit out of this
+                    // make dot right-associative
+                    if op == Op::Dot {
+                        op_precedence += 1;
+                    }
+
                     self.next_token();
-                    let rhs = self.parse_expression(op.precedence())?;
+                    let rhs = self.parse_expression(op_precedence)?;
                     lhs = Rc::new(Node::BinOp { op, lhs, rhs });
                 }
             }
@@ -1135,13 +1143,18 @@ struct T
     #[test]
     fn dot_operator() {
         assert_parse!(
-            "foo.bar.baz",
+            "*foo.bar.baz * a.b",
             "\
-dot
-    ident baz
+mul
+    deref
+        dot
+            dot
+                ident foo
+                ident bar
+            ident baz
     dot
-        ident bar
-        ident foo
+        ident a
+        ident b
 "
         );
     }

@@ -410,7 +410,7 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_binop(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef) -> Val {
+    fn build_binop(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef, as_lvalue: bool) -> Val {
         if let Node::BinOp { op, lhs, rhs } = &*node {
             let llvm_val = match op {
                 Op::Add => unsafe {
@@ -492,6 +492,42 @@ impl ModuleBuilder {
                     let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
                     LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val)
                 },
+                Op::Dot => unsafe {
+                    let lhs_val = self.build_expr(env.clone(), lhs.clone(), true);
+                    if let Type::Struct {
+                        field_indices,
+                        fields,
+                    } = lhs_val.ty.clone()
+                    {
+                        let type_env = &*self.type_env.get();
+                        if let Node::Ident { name } = &**rhs {
+                            let field_idx = field_indices.get(&**name).unwrap();
+                            let field_ty = fields.get(*field_idx).unwrap();
+                            let ptr = LLVMBuildStructGEP2(
+                                self.builder,
+                                lhs_val.ty.llvm_type(type_env),
+                                lhs_val.llvm_val,
+                                *field_idx as u32,
+                                "".to_cstring().as_ptr(),
+                            );
+
+                            if as_lvalue {
+                                ptr
+                            } else {
+                                LLVMBuildLoad2(
+                                    self.builder,
+                                    field_ty.llvm_type(type_env),
+                                    ptr,
+                                    "".to_cstring().as_ptr(),
+                                )
+                            }
+                        } else {
+                            todo!()
+                        }
+                    } else {
+                        todo!()
+                    }
+                },
                 _ => todo!(),
             };
 
@@ -563,7 +599,7 @@ impl ModuleBuilder {
                 }
             }
             Node::BinOp { .. } => {
-                let val = self.build_binop(env, node.clone());
+                let val = self.build_binop(env, node.clone(), as_lvalue);
 
                 Val {
                     ty: val.ty,
