@@ -4,6 +4,10 @@ struct A {
     c: u32;
 }
 
+struct B {
+    inner: A;
+}
+
 fn add(a: u32, b: u32) -> u32 {
     return a + b;
 }
@@ -40,10 +44,10 @@ fn main(argc: u32) -> u32 {
     let p: *u32 = &argc;
     *p = max(1, 10);
 
-    let foo: A;
-    foo.a = 1;
-    foo.c = 10;
-    *p = foo.a + foo.c;
+    let foo: B;
+    foo.inner.a = 1;
+    foo.inner.c = 10;
+    *p = foo.inner.a + foo.inner.c;
 
     if c1 {
         if c2 {

@@ -36,6 +36,7 @@ pub enum Type {
         pointee_ty: usize,
     },
     Struct {
+        type_id: usize,
         field_indices: HashMap<String, usize>,
         fields: Vec<Type>,
     },
@@ -96,7 +97,7 @@ impl Type {
                 _ => todo!(),
             },
             Type::Ptr { .. } => todo!(),
-            Type::Struct { .. } => todo!(),
+            Type::Struct { type_id, .. } => *type_id,
         }
     }
 
@@ -411,97 +412,126 @@ impl ModuleBuilder {
     }
 
     fn build_binop(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef, as_lvalue: bool) -> Val {
+        let type_env = unsafe { &*self.type_env.get() };
         if let Node::BinOp { op, lhs, rhs } = &*node {
-            let llvm_val = match op {
+            let (llvm_val, ty) = match op {
                 Op::Add => unsafe {
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), false);
                     let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
-                    LLVMBuildAdd(
-                        self.builder,
-                        lhs_val.llvm_val,
-                        rhs_val.llvm_val,
-                        "".to_cstring().as_ptr(),
+                    (
+                        LLVMBuildAdd(
+                            self.builder,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("u32").unwrap().clone(),
                     )
                 },
                 Op::Sub => unsafe {
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), false);
                     let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
-                    LLVMBuildSub(
-                        self.builder,
-                        lhs_val.llvm_val,
-                        rhs_val.llvm_val,
-                        "".to_cstring().as_ptr(),
+                    (
+                        LLVMBuildSub(
+                            self.builder,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("u32").unwrap().clone(),
                     )
                 },
                 Op::Mul => unsafe {
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), false);
                     let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
-                    LLVMBuildMul(
-                        self.builder,
-                        lhs_val.llvm_val,
-                        rhs_val.llvm_val,
-                        "".to_cstring().as_ptr(),
+                    (
+                        LLVMBuildMul(
+                            self.builder,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("u32").unwrap().clone(),
                     )
                 },
                 Op::Div => unsafe {
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), false);
                     let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
                     // TODO
-                    LLVMBuildUDiv(
-                        self.builder,
-                        lhs_val.llvm_val,
-                        rhs_val.llvm_val,
-                        "".to_cstring().as_ptr(),
+                    (
+                        LLVMBuildUDiv(
+                            self.builder,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("u32").unwrap().clone(),
                     )
                 },
                 Op::Eq => unsafe {
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), false);
                     let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
-                    LLVMBuildICmp(
-                        self.builder,
-                        llvm_sys::LLVMIntPredicate::LLVMIntEQ,
-                        lhs_val.llvm_val,
-                        rhs_val.llvm_val,
-                        "".to_cstring().as_ptr(),
+                    (
+                        LLVMBuildICmp(
+                            self.builder,
+                            llvm_sys::LLVMIntPredicate::LLVMIntEQ,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("bool").unwrap().clone(),
                     )
                 },
                 Op::Gt => unsafe {
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), false);
                     let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
-                    LLVMBuildICmp(
-                        self.builder,
-                        llvm_sys::LLVMIntPredicate::LLVMIntSGT, // TODO
-                        lhs_val.llvm_val,
-                        rhs_val.llvm_val,
-                        "".to_cstring().as_ptr(),
+                    (
+                        LLVMBuildICmp(
+                            self.builder,
+                            llvm_sys::LLVMIntPredicate::LLVMIntSGT, // TODO
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("bool").unwrap().clone(),
                     )
                 },
                 Op::Lt => unsafe {
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), false);
                     let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
-                    LLVMBuildICmp(
-                        self.builder,
-                        llvm_sys::LLVMIntPredicate::LLVMIntSLT, // TODO
-                        lhs_val.llvm_val,
-                        rhs_val.llvm_val,
-                        "".to_cstring().as_ptr(),
+                    (
+                        LLVMBuildICmp(
+                            self.builder,
+                            llvm_sys::LLVMIntPredicate::LLVMIntSLT, // TODO
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("bool").unwrap().clone(),
                     )
                 },
                 Op::Assign => unsafe {
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), true);
                     let rhs_val = self.build_expr(env.clone(), rhs.clone(), false);
-                    LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val)
+                    (
+                        LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val),
+                        type_env.get_type_by_name("void").unwrap().clone(),
+                    )
                 },
                 Op::Dot => unsafe {
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), true);
                     if let Type::Struct {
                         field_indices,
                         fields,
+                        ..
                     } = lhs_val.ty.clone()
                     {
                         let type_env = &*self.type_env.get();
                         if let Node::Ident { name } = &**rhs {
-                            let field_idx = field_indices.get(&**name).unwrap();
+                            let field_idx = match field_indices.get(&**name) {
+                                Some(idx) => idx,
+                                None => panic!("no member {}", name),
+                            };
                             let field_ty = fields.get(*field_idx).unwrap();
                             let ptr = LLVMBuildStructGEP2(
                                 self.builder,
@@ -512,14 +542,14 @@ impl ModuleBuilder {
                             );
 
                             if as_lvalue {
-                                ptr
+                                (ptr, field_ty.clone())
                             } else {
-                                LLVMBuildLoad2(
+                                (LLVMBuildLoad2(
                                     self.builder,
                                     field_ty.llvm_type(type_env),
                                     ptr,
                                     "".to_cstring().as_ptr(),
-                                )
+                                ), field_ty.clone())
                             }
                         } else {
                             todo!()
@@ -532,10 +562,7 @@ impl ModuleBuilder {
             };
 
             Val {
-                ty: (unsafe { &*self.type_env.get() })
-                    .get_type_by_name("u32")
-                    .unwrap()
-                    .clone(), // TODO
+                ty, // TODO
                 llvm_val,
             }
         } else {
@@ -886,9 +913,11 @@ impl ModuleBuilder {
                         field_types.push(type_env.get_type_by_name(&field.ty).unwrap().clone());
                         field_indices.insert(field.ident.to_string(), idx);
                     }
+                    let type_id = type_env.get_type_id_by_name(ident);
                     type_env.insert_type_by_name(
                         ident,
                         Type::Struct {
+                            type_id,
                             field_indices,
                             fields: field_types,
                         },
