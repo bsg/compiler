@@ -15,7 +15,7 @@ impl A {
     }
 
     fn get_a(self: *Self) -> u32 {
-        return 100;
+        return (*self).a;
     }
 }
 
