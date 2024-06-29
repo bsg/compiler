@@ -337,7 +337,7 @@ impl ModuleBuilder {
         }
     }
 
-    fn deref_ptr(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef, as_lvalue: bool) -> Val {
+    fn build_deref_ptr(&mut self, env: Rc<UnsafeCell<Env>>, node: NodeRef, as_lvalue: bool) -> Val {
         unsafe {
             let val = self.build_expr(env.clone(), node.clone(), false);
             let ty = match val.ty {
@@ -374,7 +374,7 @@ impl ModuleBuilder {
                         llvm_val: val.llvm_val,
                     }
                 }
-                Op::Deref => self.deref_ptr(env, rhs.clone(), as_lvalue),
+                Op::Deref => self.build_deref_ptr(env, rhs.clone(), as_lvalue),
                 _ => todo!(),
             }
         } else {
@@ -490,6 +490,7 @@ impl ModuleBuilder {
                     )
                 },
                 Op::Dot => unsafe {
+                    let type_env = &*self.type_env.get();
                     let lhs_val = self.build_expr(env.clone(), lhs.clone(), true);
                     match lhs_val.ty.clone() {
                         Type::Struct {
@@ -497,7 +498,6 @@ impl ModuleBuilder {
                             fields,
                             ..
                         } => {
-                            let type_env = &*self.type_env.get();
                             if let Node::Ident { name } = &**rhs {
                                 let field_idx = match field_indices.get(&**name) {
                                     Some(idx) => idx,
@@ -529,11 +529,6 @@ impl ModuleBuilder {
                                 todo!()
                             }
                         }
-                        Type::Ptr { pointee_ty } => (
-                            // TODO deref pointer chains?
-                            self.deref_ptr(env, rhs.clone(), as_lvalue).llvm_val,
-                            type_env.get_type_by_id(pointee_ty).unwrap().clone(),
-                        ),
                         _ => todo!(),
                     }
                 },

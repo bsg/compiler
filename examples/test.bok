@@ -8,15 +8,17 @@ struct B {
     inner: A;
 }
 
+
 impl A {
     fn get_static() -> u32 {
         return 100;
     }
 
-    fn get_a(self) -> u32 {
+    fn get_a(self: A) -> u32 {
         return self.a;
     }
 }
+
 
 fn add(a: u32, b: u32) -> u32 {
     return a + b;
@@ -60,7 +62,6 @@ fn main(argc: u32) -> u32 {
 
     let sp: *B = &foo;
     (*sp).inner.a = 1;
-    sp.inner.a = 5;
 
     *p = foo.inner.a + foo.inner.c;
 
