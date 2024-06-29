@@ -3,11 +3,10 @@ use std::{rc::Rc, str};
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
     None,
-    Illegal,
+    Illegal, // TODO do we have a use for this?
     Ident(Rc<str>),
     Int(Rc<str>),
     Str(Rc<str>),
-    Struct,
 
     // Operators
     Assign,
@@ -51,6 +50,8 @@ pub enum Token {
     Else,
     While,
     Return,
+    Struct,
+    Impl
 }
 
 impl std::fmt::Display for Token {
@@ -228,6 +229,7 @@ impl Tokens {
                         "return" => Token::Return,
                         "while" => Token::While,
                         "struct" => Token::Struct,
+                        "impl" => Token::Impl,
                         _ => Token::Ident(ident),
                     };
                 }

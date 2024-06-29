@@ -155,6 +155,10 @@ pub enum Node {
         ident: Rc<str>,
         fields: Rc<[StructField]>,
     },
+    Impl {
+        ident: Rc<str>,
+        methods: Rc<[NodeRef]>
+    }
 }
 
 impl fmt::Debug for Node {
@@ -270,16 +274,24 @@ impl fmt::Debug for Node {
                 }
                 Node::Pair { .. } => todo!(),
                 Node::Struct { ident, fields } => {
-                    let mut fields_str = fields.iter().fold(String::new(), |mut acc, field| {
+                    let fields_str = fields.iter().fold(String::new(), |mut acc, field| {
+                        acc += "\n";
                         acc += "    ";
                         acc += &field.ident;
                         acc += " ";
                         acc += &field.ty;
-                        acc += "\n";
                         acc
                 });
-                    fields_str.pop(); // pop trailing \n
-                    format!("struct {}\n{}", ident, fields_str)
+                    format!("struct {}{}", ident, fields_str)
+                }
+                Node::Impl { ident, methods } => {
+                    let methods_str = methods.iter().fold(String::new(), |mut acc, method| {
+                        acc += "\n";
+                        acc += fmt_with_indent(&method, indent_level + 1, false).as_str();
+                        acc
+                    });
+
+                    format!("impl {}{}", ident, methods_str)
                 }
             }
             .as_str();

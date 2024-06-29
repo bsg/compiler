@@ -8,6 +8,16 @@ struct B {
     inner: A;
 }
 
+impl A {
+    fn get_static() -> u32 {
+        return 100;
+    }
+
+    fn get_a(self) -> u32 {
+        return self.a;
+    }
+}
+
 fn add(a: u32, b: u32) -> u32 {
     return a + b;
 }

@@ -118,7 +118,7 @@ impl Parser {
     fn parse_fn(&mut self) -> Option<NodeRef> {
         let mut args: Vec<Arg> = Vec::new();
 
-        assert_eq!(self.curr_token, Token::Fn);
+        assert_eq!(Token::Fn, self.curr_token);
         self.next_token();
 
         if let Token::Ident(ident) = &self.curr_token.clone() {
@@ -130,7 +130,7 @@ impl Parser {
                 match &self.curr_token.clone() {
                     Token::Ident(arg_ident) => {
                         self.next_token();
-                        assert_eq!(self.curr_token, Token::Colon);
+                        assert_eq!(Token::Colon, self.curr_token);
                         self.next_token();
 
                         match &self.curr_token {
@@ -395,6 +395,42 @@ impl Parser {
         node
     }
 
+    fn parse_impl(&mut self) -> Option<NodeRef> {
+        let mut methods: Vec<NodeRef> = Vec::new();
+
+        assert_eq!(Token::Impl, self.curr_token);
+        self.next_token();
+
+        if let Token::Ident(ident) = &self.curr_token.clone() {
+            self.next_token();
+            assert_eq!(self.curr_token, Token::LBrace);
+            self.next_token();
+
+            while let Token::Fn = self.curr_token {
+                if let Some(fn_node) = self.parse_fn() {
+                    methods.push(fn_node);
+                } else {
+                    todo!()
+                }
+
+                assert_eq!(self.curr_token, Token::RBrace);
+                self.next_token();
+            }
+
+            assert_eq!(self.curr_token, Token::RBrace);
+
+            Some(
+                Node::Impl {
+                    ident: ident.clone(),
+                    methods: Rc::from(methods.as_slice()),
+                }
+                .into(),
+            )
+        } else {
+            todo!()
+        }
+    }
+
     fn parse_ident(&self) -> Option<NodeRef> {
         match &self.curr_token {
             Token::Ident(name) => Some(Node::Ident { name: name.clone() }.into()),
@@ -446,6 +482,7 @@ impl Parser {
                 rhs: self.parse_expression(Op::precedence(&Op::Deref))?,
             }),
             Token::Struct => self.parse_struct()?,
+            Token::Impl => self.parse_impl()?,
             _ => return None,
         };
 
@@ -481,7 +518,7 @@ impl Parser {
                     if op_precedence < precedence {
                         break;
                     }
-                    
+
                     // TODO feels hacky, test the shit out of this
                     // make dot right-associative
                     if op == Op::Dot {
@@ -1155,6 +1192,27 @@ mul
     dot
         ident a
         ident b
+"
+        );
+    }
+
+    #[test]
+    fn impl_defn() {
+        assert_parse!(
+            "impl T {\
+fn a() -> u32 {return 0;}
+fn b() -> u8 {return 0;}
+}",
+            "\
+impl T
+    fn a() -> u32
+        block
+            return
+                0
+    fn b() -> u8
+        block
+            return
+                0
 "
         );
     }
