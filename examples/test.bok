@@ -14,7 +14,11 @@ impl A {
         return 100;
     }
 
-    fn get_a(self: *Self) -> u32 {
+    fn get_a(self: Self) -> u32 {
+        return self.a;
+    }
+
+    fn get_a_by_ref(self: *Self) -> u32 {
         return (*self).a;
     }
 }
@@ -63,7 +67,9 @@ fn main(argc: u32) -> u32 {
     let sp: *B = &foo;
     (*sp).inner.a = 1;
 
-    *p = foo.inner.a + foo.inner.c;
+    *p = foo.inner.get_a() + foo.inner.c;
+    // TODO this generates garbage
+    //*p = foo.inner.get_a_by_ref() + foo.inner.c;
 
 
     if c1 {

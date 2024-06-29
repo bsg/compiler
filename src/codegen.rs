@@ -1,4 +1,5 @@
 // TODO see all those Rc<UnsafeCell<_> in fn signatures. maybe pass references instead?
+// TODO Scope!
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -25,7 +26,7 @@ impl ToCStr for String {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Type {
     None,
     Bool,
@@ -40,7 +41,7 @@ pub enum Type {
     Struct {
         type_id: usize,
         field_indices: HashMap<String, usize>,
-        fields: Vec<Type>,
+        field_type_ids: Vec<usize>,
         static_methods: HashMap<String, String>,
         member_methods: HashMap<String, String>,
     },
@@ -62,11 +63,11 @@ impl Type {
             Type::Ptr { pointee_ty } => unsafe {
                 LLVMPointerType(env.get_type_by_id(*pointee_ty).unwrap().llvm_type(env), 0)
             },
-            Type::Struct { fields, .. } => unsafe {
+            Type::Struct { field_type_ids, .. } => unsafe {
                 let mut llvm_types: Vec<LLVMTypeRef> =
-                    fields.iter().map(|f| f.llvm_type(env)).collect();
+                    field_type_ids.iter().map(|f| env.get_type_by_id(*f).unwrap().llvm_type(env)).collect();
                 // TODO packed
-                LLVMStructType(llvm_types.as_mut_ptr(), fields.len() as u32, 0)
+                LLVMStructType(llvm_types.as_mut_ptr(), field_type_ids.len() as u32, 0)
             },
         }
     }
@@ -112,11 +113,13 @@ impl Type {
     }
 }
 
+#[derive(Debug)]
 pub struct Var {
     val: LLVMValueRef,
     ty: Type,
 }
 
+#[derive(Debug)]
 pub struct Func {
     val: LLVMValueRef,
     ty: LLVMTypeRef, // TODO remove if this is the llvm return type and use ret_ty
@@ -221,13 +224,25 @@ impl TypeEnv {
     }
 
     pub fn get_type_by_id(&self, type_id: usize) -> Option<&Type> {
-        // This is only for local types, do not traverse the parent chain
-        (unsafe { &mut *self.types.get() }).get(&type_id)
+        match (unsafe { &mut *self.types.get() }).get(&type_id) {
+            Some(t) => Some(t),
+            None => if let Some(parent) = self.parent.clone() {
+                (unsafe { &*parent.get() }).get_type_by_id(type_id)
+            } else {
+                None
+            }
+        }
     }
 
     pub fn get_type_by_id_mut(&self, type_id: usize) -> Option<&mut Type> {
-        // This is only for local types, do not traverse the parent chain
-        (unsafe { &mut *self.types.get() }).get_mut(&type_id)
+        match (unsafe { &mut *self.types.get() }).get_mut(&type_id) {
+            Some(t) => Some(t),
+            None => if let Some(parent) = self.parent.clone() {
+                (unsafe { &*parent.get() }).get_type_by_id_mut(type_id)
+            } else {
+                None
+            }
+        }
     }
 
     pub fn get_type_by_name(&self, name: &str) -> Option<&Type> {
@@ -278,11 +293,19 @@ impl TypeEnv {
     }
 }
 
+impl std::fmt::Debug for TypeEnv {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TypeEnv").field("parent", &self.parent.clone().map(|p| unsafe { &*p.get() })).field("types", unsafe { &*self.types.get() }).field("type_ids", &self.type_ids).finish()
+    }
+}
+
+#[derive(Debug)]
 pub struct ImplEnv {
     env: Rc<UnsafeCell<Env>>,
     type_env: Rc<UnsafeCell<TypeEnv>>,
 }
 
+#[derive(Debug)]
 pub struct Env {
     parent: Option<Rc<UnsafeCell<Env>>>,
     vars: HashMap<String, Var>,
@@ -406,7 +429,13 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_deref_ptr(&mut self, env: Rc<UnsafeCell<Env>>, type_env: Rc<UnsafeCell<TypeEnv>>, node: NodeRef, as_lvalue: bool) -> Val {
+    fn build_deref_ptr(
+        &mut self,
+        env: Rc<UnsafeCell<Env>>,
+        type_env: Rc<UnsafeCell<TypeEnv>>,
+        node: NodeRef,
+        as_lvalue: bool,
+    ) -> Val {
         unsafe {
             let val = self.build_expr(env.clone(), type_env.clone(), node.clone(), false);
             let ty = match val.ty {
@@ -432,7 +461,13 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_unop(&mut self, env: Rc<UnsafeCell<Env>>, type_env: Rc<UnsafeCell<TypeEnv>>, node: NodeRef, as_lvalue: bool) -> Val {
+    fn build_unop(
+        &mut self,
+        env: Rc<UnsafeCell<Env>>,
+        type_env: Rc<UnsafeCell<TypeEnv>>,
+        node: NodeRef,
+        as_lvalue: bool,
+    ) -> Val {
         if let Node::UnOp { op, rhs } = &*node {
             match op {
                 Op::Ref => {
@@ -451,13 +486,21 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_binop(&mut self, env: Rc<UnsafeCell<Env>>, type_env: Rc<UnsafeCell<TypeEnv>>, node: NodeRef, as_lvalue: bool) -> Val {
+    fn build_binop(
+        &mut self,
+        env: Rc<UnsafeCell<Env>>,
+        type_env: Rc<UnsafeCell<TypeEnv>>,
+        node: NodeRef,
+        as_lvalue: bool,
+    ) -> Val {
         let type_env_ref = unsafe { &mut *type_env.get() };
         if let Node::BinOp { op, lhs, rhs } = &*node {
             let (llvm_val, ty) = match op {
                 Op::Add => unsafe {
-                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
-                    let rhs_val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                     (
                         LLVMBuildAdd(
                             self.builder,
@@ -469,8 +512,10 @@ impl ModuleBuilder {
                     )
                 },
                 Op::Sub => unsafe {
-                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
-                    let rhs_val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                     (
                         LLVMBuildSub(
                             self.builder,
@@ -482,8 +527,10 @@ impl ModuleBuilder {
                     )
                 },
                 Op::Mul => unsafe {
-                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
-                    let rhs_val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                     (
                         LLVMBuildMul(
                             self.builder,
@@ -495,8 +542,10 @@ impl ModuleBuilder {
                     )
                 },
                 Op::Div => unsafe {
-                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
-                    let rhs_val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                     // TODO
                     (
                         LLVMBuildUDiv(
@@ -509,8 +558,10 @@ impl ModuleBuilder {
                     )
                 },
                 Op::Eq => unsafe {
-                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
-                    let rhs_val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                     (
                         LLVMBuildICmp(
                             self.builder,
@@ -523,8 +574,10 @@ impl ModuleBuilder {
                     )
                 },
                 Op::Gt => unsafe {
-                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
-                    let rhs_val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                     (
                         LLVMBuildICmp(
                             self.builder,
@@ -537,8 +590,10 @@ impl ModuleBuilder {
                     )
                 },
                 Op::Lt => unsafe {
-                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
-                    let rhs_val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                     (
                         LLVMBuildICmp(
                             self.builder,
@@ -552,7 +607,8 @@ impl ModuleBuilder {
                 },
                 Op::Assign => unsafe {
                     let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
-                    let rhs_val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                     (
                         LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val),
                         type_env_ref.get_type_by_name("void").unwrap().clone(),
@@ -563,15 +619,16 @@ impl ModuleBuilder {
                     match lhs_val.ty.clone() {
                         Type::Struct {
                             field_indices,
-                            fields,
+                            field_type_ids: fields,
+                            member_methods,
                             ..
-                        } => {
-                            if let Node::Ident { name } = &**rhs {
+                        } => match &**rhs {
+                            Node::Ident { name } => {
                                 let field_idx = match field_indices.get(&**name) {
                                     Some(idx) => idx,
                                     None => panic!("no member {}", name),
                                 };
-                                let field_ty = fields.get(*field_idx).unwrap();
+                                let field_ty = type_env_ref.get_type_by_id(*fields.get(*field_idx).unwrap()).unwrap();
                                 let ptr = LLVMBuildStructGEP2(
                                     self.builder,
                                     lhs_val.ty.llvm_type(type_env_ref),
@@ -593,10 +650,20 @@ impl ModuleBuilder {
                                         field_ty.clone(),
                                     )
                                 }
-                            } else {
-                                todo!()
                             }
-                        }
+                            Node::Call { ident, args } => {
+                                let func_ident = member_methods.get(&ident.to_string()).unwrap();
+                                let mut args = args.to_vec();
+                                args.insert(0, lhs.clone());
+                                return self.build_call(
+                                    env.clone(),
+                                    type_env.clone(),
+                                    func_ident,
+                                    args.into(),
+                                );
+                            }
+                            _ => todo!(),
+                        },
                         _ => todo!(),
                     }
                 },
@@ -612,7 +679,46 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_expr(&mut self, env: Rc<UnsafeCell<Env>>, type_env: Rc<UnsafeCell<TypeEnv>>, node: NodeRef, as_lvalue: bool) -> Val {
+    fn build_call(
+        &mut self,
+        env: Rc<UnsafeCell<Env>>,
+        type_env: Rc<UnsafeCell<TypeEnv>>,
+        ident: &str,
+        arg_exprs: Rc<[NodeRef]>,
+    ) -> Val {
+        // TODO LLVMGetNamedFunction for extern fns
+        let func = (unsafe { &*env.get() }).get_func(ident).unwrap();
+        let mut args: Vec<LLVMValueRef> = Vec::new();
+        for arg in arg_exprs.iter() {
+            args.push(
+                self.build_expr(env.clone(), type_env.clone(), arg.clone(), false)
+                    .llvm_val,
+            );
+        }
+        let llvm_val = unsafe {
+            LLVMBuildCall2(
+                self.builder,
+                func.ty,
+                func.val,
+                args.as_mut_slice().as_mut_ptr(),
+                args.len().try_into().unwrap(),
+                "".to_cstring().as_ptr(),
+            )
+        };
+
+        Val {
+            ty: func.ret_ty.clone(),
+            llvm_val,
+        }
+    }
+
+    fn build_expr(
+        &mut self,
+        env: Rc<UnsafeCell<Env>>,
+        type_env: Rc<UnsafeCell<TypeEnv>>,
+        node: NodeRef,
+        as_lvalue: bool,
+    ) -> Val {
         match &*node {
             Node::Int { value } => unsafe {
                 // FIXME int type
@@ -620,10 +726,7 @@ impl ModuleBuilder {
                 let llvm_val = LLVMConstInt(LLVMInt32Type(), (*value).try_into().unwrap(), 0);
 
                 Val {
-                    ty: (*type_env.get())
-                        .get_type_by_name("u32")
-                        .unwrap()
-                        .clone(),
+                    ty: (*type_env.get()).get_type_by_name("u32").unwrap().clone(),
                     llvm_val,
                 }
             },
@@ -631,10 +734,7 @@ impl ModuleBuilder {
                 let llvm_val = LLVMConstInt(LLVMInt1Type(), if *value { 1 } else { 0 }, 0);
 
                 Val {
-                    ty: (*type_env.get())
-                        .get_type_by_name("bool")
-                        .unwrap()
-                        .clone(),
+                    ty: (*type_env.get()).get_type_by_name("bool").unwrap().clone(),
                     llvm_val,
                 }
             },
@@ -675,31 +775,8 @@ impl ModuleBuilder {
                     llvm_val: val.llvm_val,
                 }
             }
-            Node::Call {
-                ident,
-                args: arg_exprs,
-            } => {
-                // TODO LLVMGetNamedFunction for extern fns
-                let func = (unsafe { &*env.get() }).get_func(ident).unwrap();
-                let mut args: Vec<LLVMValueRef> = Vec::new();
-                for arg in arg_exprs.iter() {
-                    args.push(self.build_expr(env.clone(), type_env.clone(), arg.clone(), false).llvm_val);
-                }
-                let llvm_val = unsafe {
-                    LLVMBuildCall2(
-                        self.builder,
-                        func.ty,
-                        func.val,
-                        args.as_mut_slice().as_mut_ptr(),
-                        args.len().try_into().unwrap(),
-                        "".to_cstring().as_ptr(),
-                    )
-                };
-
-                Val {
-                    ty: func.ret_ty.clone(),
-                    llvm_val,
-                }
+            Node::Call { ident, args } => {
+                self.build_call(env.clone(), type_env.clone(), ident, args.clone())
             }
             _ => panic!("unimplemented!\n {:?}", node),
         }
@@ -721,12 +798,7 @@ impl ModuleBuilder {
                 };
 
                 Val {
-                    ty: unsafe {
-                        (*type_env.get())
-                            .get_type_by_name("void")
-                            .unwrap()
-                            .clone()
-                    },
+                    ty: unsafe { (*type_env.get()).get_type_by_name("void").unwrap().clone() },
                     llvm_val,
                 }
             }
@@ -746,7 +818,8 @@ impl ModuleBuilder {
                     (*env.get()).insert_var(name, reg, ty.clone());
 
                     if let Some(rhs) = rhs {
-                        let rhs = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                        let rhs =
+                            self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                         LLVMBuildStore(self.builder, rhs.llvm_val, reg);
                     };
 
@@ -857,11 +930,9 @@ impl ModuleBuilder {
         env: Rc<UnsafeCell<Env>>,
         type_env: Rc<UnsafeCell<TypeEnv>>,
         ident: &str,
-        mangled_name: Option<&str>,
         args: Rc<[Arg]>,
         ret_ty: Rc<str>,
     ) {
-        let env_ref = unsafe { &mut *env.get() };
         let type_env_ref = unsafe { &*type_env.get() };
         let ret_ty = match type_env_ref.get_type_by_name(&ret_ty) {
             Some(ty) => ty,
@@ -888,13 +959,14 @@ impl ModuleBuilder {
         let val = unsafe {
             LLVMAddFunction(
                 self.module,
-                mangled_name.unwrap_or(ident).to_cstring().as_ptr(),
+                ident.to_cstring().as_ptr(),
                 func_ty,
             )
         };
 
         let fn_env = Env::make_child(env.clone());
-        env_ref.insert_func(
+        // this needs to be global
+        (unsafe { &mut *self.env.get() }).insert_func(
             ident,
             val,
             func_ty,
@@ -960,7 +1032,6 @@ impl ModuleBuilder {
                     self.env.clone(),
                     self.type_env.clone(),
                     ident,
-                    None,
                     args.clone(),
                     ret_ty.clone(),
                 ),
@@ -992,9 +1063,9 @@ impl ModuleBuilder {
                 Node::Struct { ident, fields } => {
                     // TODO build a dependency tree and gen structs depth first
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
-                    let mut field_types: Vec<Type> = Vec::new();
+                    let mut field_types: Vec<usize> = Vec::new();
                     for (idx, field) in fields.iter().enumerate() {
-                        field_types.push(type_env.get_type_by_name(&field.ty).unwrap().clone());
+                        field_types.push(type_env.get_type_id_by_name(&field.ty).clone());
                         field_indices.insert(field.ident.to_string(), idx);
                     }
                     let type_id = type_env.get_type_id_by_name(ident);
@@ -1003,7 +1074,7 @@ impl ModuleBuilder {
                         Type::Struct {
                             type_id,
                             field_indices,
-                            fields: field_types,
+                            field_type_ids: field_types,
                             static_methods: HashMap::new(),
                             member_methods: HashMap::new(),
                         },
@@ -1062,8 +1133,7 @@ impl ModuleBuilder {
                             self.build_fn_1(
                                 local_env.clone(),
                                 local_type_env.clone(),
-                                method_name,
-                                Some(&mangled_name),
+                                &mangled_name,
                                 args.clone(),
                                 ret_ty.clone(),
                             );
@@ -1090,17 +1160,18 @@ impl ModuleBuilder {
         let env_ref = unsafe { &mut *env.get() };
 
         for node in ast.iter() {
-            if let Node::Impl { ident, methods } = &**node {
-                let impl_env = env_ref.get_impl_env_mut(ident).unwrap();
+            if let Node::Impl { ident: impl_ty, methods } = &**node {
+                let impl_env = env_ref.get_impl_env_mut(impl_ty).unwrap();
                 for method in methods.iter() {
                     if let Node::Fn {
                         ident, args, body, ..
                     } = &**method
                     {
+                        let mangled_name = format!("__{}_{}", impl_ty, ident);
                         self.build_fn_2(
                             impl_env.env.clone(),
                             impl_env.type_env.clone(),
-                            ident.clone(),
+                            mangled_name.into(),
                             args.clone(),
                             body.clone(),
                         )

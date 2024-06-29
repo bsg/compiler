@@ -287,7 +287,7 @@ impl fmt::Debug for Node {
                 Node::Impl { ident, methods } => {
                     let methods_str = methods.iter().fold(String::new(), |mut acc, method| {
                         acc += "\n";
-                        acc += fmt_with_indent(&method, indent_level + 1, false).as_str();
+                        acc += fmt_with_indent(method, indent_level + 1, false).as_str();
                         acc
                     });
 
