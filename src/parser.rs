@@ -1201,7 +1201,7 @@ mul
         assert_parse!(
             "impl T {\
 fn a() -> u32 {return 0;}
-fn b() -> u8 {return 0;}
+fn b(self: *Self) -> u8 {return 0;}
 }",
             "\
 impl T
@@ -1209,7 +1209,7 @@ impl T
         block
             return
                 0
-    fn b() -> u8
+    fn b(self: *Self) -> u8
         block
             return
                 0

@@ -39,6 +39,8 @@ pub enum Type {
         type_id: usize,
         field_indices: HashMap<String, usize>,
         fields: Vec<Type>,
+        static_methods: HashMap<String, String>,
+        member_methods: HashMap<String, String>,
     },
 }
 
@@ -121,17 +123,19 @@ pub struct Func {
     body: LLVMBasicBlockRef,
 }
 
+static mut NEXT_TYPE_ID: usize = 0;
+
 pub struct TypeEnv {
+    parent: Option<Rc<UnsafeCell<TypeEnv>>>,
     types: UnsafeCell<HashMap<usize, Type>>,
-    next_type_id: UnsafeCell<usize>,
     type_ids: UnsafeCell<HashMap<String, usize>>,
 }
 
 impl TypeEnv {
     pub fn new() -> Self {
         let env = TypeEnv {
+            parent: None,
             types: UnsafeCell::new(HashMap::new()),
-            next_type_id: UnsafeCell::new(0),
             type_ids: UnsafeCell::new(HashMap::new()),
         };
 
@@ -185,18 +189,28 @@ impl TypeEnv {
         env
     }
 
+    pub fn make_child(parent: Rc<UnsafeCell<TypeEnv>>) -> Self {
+        TypeEnv {
+            parent: Some(parent),
+            types: UnsafeCell::new(HashMap::new()),
+            type_ids: UnsafeCell::new(HashMap::new()),
+        }
+    }
+
     pub fn insert_type_by_name(&self, name: &str, ty: Type) {
+        // This should not mutate parents at all. Types are resolvable only within and below the scope they are defined in
         (unsafe { &mut *self.types.get() }).insert(self.get_type_id_by_name(name), ty);
     }
 
     // TODO make sure this is sound
     /// reserves id for ident if it's not registered
     fn get_type_id_by_name(&self, type_ident: &str) -> usize {
+        // This should not mutate parents at all. Types are resolvable only within and below the scope they are defined in
         match (unsafe { &*self.type_ids.get() }).get(type_ident) {
             Some(type_id) => *type_id,
             None => {
-                let type_id = *(unsafe { &*self.next_type_id.get() });
-                *(unsafe { &mut *self.next_type_id.get() }) += 1;
+                let type_id = unsafe { NEXT_TYPE_ID };
+                unsafe { NEXT_TYPE_ID += 1 };
 
                 (unsafe { &mut *self.type_ids.get() }).insert(type_ident.into(), type_id);
                 type_id
@@ -205,7 +219,13 @@ impl TypeEnv {
     }
 
     pub fn get_type_by_id(&self, type_id: usize) -> Option<&Type> {
+        // This is only for local types, do not traverse the parent chain
         (unsafe { &mut *self.types.get() }).get(&type_id)
+    }
+
+    pub fn get_type_by_id_mut(&self, type_id: usize) -> Option<&mut Type> {
+        // This is only for local types, do not traverse the parent chain
+        (unsafe { &mut *self.types.get() }).get_mut(&type_id)
     }
 
     pub fn get_type_by_name(&self, name: &str) -> Option<&Type> {
@@ -220,6 +240,34 @@ impl TypeEnv {
                         },
                     );
                     self.get_type_by_name(name)
+                } else if name == "Self" || name == "*Self" {
+                    None
+                } else if let Some(parent) = &self.parent {
+                    (unsafe { &*parent.get() }).get_type_by_name(name)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    // TODO duplicate code
+    pub fn get_type_by_name_mut(&self, name: &str) -> Option<&mut Type> {
+        match self.get_type_by_id_mut(self.get_type_id_by_name(name)) {
+            Some(ty) => Some(ty),
+            None => {
+                if name.starts_with('*') {
+                    self.insert_type_by_name(
+                        name,
+                        Type::Ptr {
+                            pointee_ty: self.get_type_id_by_name(name.strip_prefix('*').unwrap()),
+                        },
+                    );
+                    self.get_type_by_name_mut(name)
+                } else if name == "Self" || name == "*Self" {
+                    None
+                } else if let Some(parent) = &self.parent {
+                    (unsafe { &*parent.get() }).get_type_by_name_mut(name)
                 } else {
                     None
                 }
@@ -228,10 +276,17 @@ impl TypeEnv {
     }
 }
 
+pub struct ImplEnv {
+    env: Env,
+    type_env: TypeEnv,
+}
+
 pub struct Env {
     parent: Option<Rc<UnsafeCell<Env>>>,
     vars: HashMap<String, Var>,
     funcs: HashMap<String, Func>,
+    // TODO this probably has no business being in here since it's only used to pass info to subsequent passes
+    impl_envs: HashMap<String, ImplEnv>,
 }
 
 impl Env {
@@ -240,6 +295,7 @@ impl Env {
             parent: None,
             vars: HashMap::new(),
             funcs: HashMap::new(),
+            impl_envs: HashMap::new(),
         }
     }
 
@@ -249,6 +305,7 @@ impl Env {
             parent: Some(parent),
             vars: HashMap::new(),
             funcs: HashMap::new(),
+            impl_envs: HashMap::new(),
         }
     }
 
@@ -303,6 +360,16 @@ impl Env {
                 }
             }
         }
+    }
+
+    // impls are top level statements for now
+    pub fn insert_impl_env(&mut self, impl_ident: &str, env: ImplEnv) {
+        self.impl_envs.insert(impl_ident.to_string(), env);
+    }
+
+    // impls are top level statements for now
+    pub fn get_impl_env_mut(&mut self, impl_ident: &str) -> Option<&mut ImplEnv> {
+        self.impl_envs.get_mut(impl_ident)
     }
 }
 
@@ -779,7 +846,91 @@ impl ModuleBuilder {
         }
     }
 
-    pub fn pass1(&mut self, ast: &[NodeRef]) {
+    // TODO rename
+    fn build_fn_1(
+        &mut self,
+        env: &mut Env,
+        type_env: &TypeEnv,
+        ident: &str,
+        mangled_name: Option<&str>,
+        args: Rc<[Arg]>,
+        ret_ty: Rc<str>,
+    ) {
+        let ret_ty = match type_env.get_type_by_name(&ret_ty) {
+            Some(ty) => ty,
+            None => panic!("unresolved type {}", ret_ty),
+        };
+        let mut arg_vals: Vec<LLVMTypeRef> = Vec::new();
+        for arg in args.iter() {
+            let arg_ty = type_env.get_type_by_name(&arg.ty);
+
+            if let Some(ty) = arg_ty {
+                arg_vals.push(ty.llvm_type(type_env));
+            } else {
+                panic!("unresolved type {}", &arg.ty);
+            }
+        }
+        let func_ty = unsafe {
+            LLVMFunctionType(
+                ret_ty.llvm_type(&*self.type_env.get()),
+                arg_vals.as_mut_slice().as_mut_ptr(),
+                arg_vals.len().try_into().unwrap(),
+                0,
+            )
+        };
+        let val = unsafe { LLVMAddFunction(self.module, mangled_name.unwrap_or(ident).to_cstring().as_ptr(), func_ty) };
+
+        let fn_env = Env::make_child(self.env.clone());
+        env.insert_func(
+            ident,
+            val,
+            func_ty,
+            ret_ty.clone(),
+            Rc::new(UnsafeCell::new(fn_env)),
+            unsafe { LLVMAppendBasicBlock(val, "".to_string().to_cstring().as_ptr()) },
+        );
+    }
+
+    // TODO rename
+    fn build_fn_2(
+        &mut self,
+        env: &mut Env,
+        type_env: &TypeEnv,
+        ident: Rc<str>,
+        args: Rc<[Arg]>,
+        body: NodeRef,
+    ) {
+        let func = env.get_func(&ident).unwrap();
+        self.current_func_ident = Some(ident.clone());
+        unsafe { LLVMPositionBuilderAtEnd(self.builder, func.body) };
+
+        let fn_env = unsafe { &mut *func.env.get() };
+
+        for (i, arg) in args.iter().enumerate() {
+            let ty = type_env.get_type_by_name(&arg.ty).unwrap();
+            let argp = unsafe {
+                LLVMBuildAlloca(
+                    self.builder,
+                    ty.llvm_type(type_env),
+                    "".to_cstring().as_ptr(),
+                )
+            };
+            unsafe {
+                LLVMBuildStore(
+                    self.builder,
+                    LLVMGetParam(func.val, i.try_into().unwrap()),
+                    argp,
+                )
+            };
+            fn_env.insert_var(&arg.ident, argp, ty.clone());
+        }
+
+        self.build_block(func.env.clone(), body.clone());
+        unsafe { LLVMBuildRetVoid(self.builder) }; // TODO
+        self.current_func_ident = None;
+    }
+
+    fn pass1(&mut self, ast: &[NodeRef]) {
         let env = self.env.clone();
         let env = unsafe { &mut *env.get() };
         let type_env = self.type_env.clone();
@@ -789,48 +940,10 @@ impl ModuleBuilder {
             match &**node {
                 Node::Fn {
                     ident,
-                    args: fn_args,
+                    args,
                     ret_ty,
                     ..
-                } => {
-                    let ret_ty =
-                        match (unsafe { &mut *self.type_env.get() }).get_type_by_name(ret_ty) {
-                            Some(ty) => ty,
-                            None => panic!("unresolved type {}", ret_ty),
-                        };
-                    let mut args: Vec<LLVMTypeRef> = Vec::new();
-                    for arg in fn_args.iter() {
-                        let arg_ty =
-                            (unsafe { &mut *self.type_env.get() }).get_type_by_name(&arg.ty);
-
-                        if let Some(ty) = arg_ty {
-                            args.push(ty.llvm_type(unsafe { &*self.type_env.get() }));
-                        } else {
-                            panic!("unresolved type {}", &arg.ty);
-                        }
-                    }
-                    let func_ty = unsafe {
-                        LLVMFunctionType(
-                            ret_ty.llvm_type(&*self.type_env.get()),
-                            args.as_mut_slice().as_mut_ptr(),
-                            args.len().try_into().unwrap(),
-                            0,
-                        )
-                    };
-                    let val = unsafe {
-                        LLVMAddFunction(self.module, ident.to_cstring().as_ptr(), func_ty)
-                    };
-
-                    let fn_env = Env::make_child(self.env.clone());
-                    env.insert_func(
-                        ident,
-                        val,
-                        func_ty,
-                        ret_ty.clone(),
-                        Rc::new(UnsafeCell::new(fn_env)),
-                        unsafe { LLVMAppendBasicBlock(val, "".to_string().to_cstring().as_ptr()) },
-                    );
-                }
+                } => self.build_fn_1(env, type_env, ident, None, args.clone(), ret_ty.clone()),
                 Node::Struct { ident, .. } => {
                     type_env.get_type_id_by_name(ident);
                 }
@@ -839,9 +952,9 @@ impl ModuleBuilder {
         }
     }
 
-    pub fn pass2(&mut self, ast: &[NodeRef]) {
+    fn pass2(&mut self, ast: &[NodeRef]) {
         let env = self.env.clone();
-        let env = unsafe { &*env.get() };
+        let env = unsafe { &mut *env.get() };
         let type_env = self.type_env.clone();
         let type_env = unsafe { &mut *type_env.get() };
 
@@ -849,38 +962,7 @@ impl ModuleBuilder {
             match &**node {
                 Node::Fn {
                     ident, body, args, ..
-                } => {
-                    let f = env.get_func(ident).unwrap();
-                    self.current_func_ident = Some(ident.clone());
-                    unsafe { LLVMPositionBuilderAtEnd(self.builder, f.body) };
-
-                    let fn_env = unsafe { &mut *f.env.get() };
-
-                    for (i, arg) in args.iter().enumerate() {
-                        let ty = (unsafe { &mut *self.type_env.get() })
-                            .get_type_by_name(&arg.ty)
-                            .unwrap();
-                        let argp = unsafe {
-                            LLVMBuildAlloca(
-                                self.builder,
-                                ty.llvm_type(&*self.type_env.get()),
-                                "".to_cstring().as_ptr(),
-                            )
-                        };
-                        unsafe {
-                            LLVMBuildStore(
-                                self.builder,
-                                LLVMGetParam(f.val, i.try_into().unwrap()),
-                                argp,
-                            )
-                        };
-                        fn_env.insert_var(&arg.ident, argp, ty.clone());
-                    }
-
-                    self.build_block(f.env.clone(), body.clone());
-                    unsafe { LLVMBuildRetVoid(self.builder) }; // TODO
-                    self.current_func_ident = None;
-                }
+                } => self.build_fn_2(env, type_env, ident.clone(), args.clone(), body.clone()),
                 Node::Struct { ident, fields } => {
                     // TODO build a dependency tree and gen structs depth first
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
@@ -896,10 +978,107 @@ impl ModuleBuilder {
                             type_id,
                             field_indices,
                             fields: field_types,
+                            static_methods: HashMap::new(),
+                            member_methods: HashMap::new(),
                         },
                     );
                 }
+                Node::Impl {
+                    ident: impl_ty,
+                    methods,
+                } => {
+                    let mut local_env = Env::make_child(self.env.clone());
+                    let local_type_env = TypeEnv::make_child(self.type_env.clone());
+                    local_type_env.insert_type_by_name(
+                        "Self",
+                        type_env.get_type_by_name(impl_ty).unwrap().clone(),
+                    );
+
+                    let (static_methods, member_methods) = if let Some(Type::Struct {
+                        static_methods,
+                        member_methods,
+                        ..
+                    }) =
+                        type_env.get_type_by_name_mut(impl_ty)
+                    {
+                        (static_methods, member_methods)
+                    } else {
+                        todo!();
+                    };
+
+                    for method in methods.iter() {
+                        if let Node::Fn {
+                            ident: method_name,
+                            args,
+                            ret_ty,
+                            ..
+                        } = &**method
+                        {
+                            let is_static = if let Some(arg) = args.first() {
+                                !(&*arg.ty != "Self" || &*arg.ty != "*Self")
+                            } else {
+                                true
+                            };
+
+                            let mangled_name = format!("__{}_{}", impl_ty, method_name);
+
+                            if is_static {
+                                static_methods
+                                    .insert(method_name.to_string(), mangled_name.clone());
+                            } else {
+                                member_methods
+                                    .insert(method_name.to_string(), mangled_name.clone());
+                            }
+
+                            self.build_fn_1(
+                                &mut local_env,
+                                &local_type_env,
+                                method_name,
+                                Some(&mangled_name),
+                                args.clone(),
+                                ret_ty.clone(),
+                            );
+                        } else {
+                            todo!()
+                        }
+                    }
+
+                    env.insert_impl_env(
+                        impl_ty,
+                        ImplEnv {
+                            env: local_env,
+                            type_env: local_type_env,
+                        },
+                    )
+                }
                 _ => (),
+            }
+        }
+    }
+
+    fn pass3(&mut self, ast: &[NodeRef]) {
+        let env = self.env.clone();
+        let env = unsafe { &mut *env.get() };
+
+        for node in ast.iter() {
+            if let Node::Impl { ident, methods } = &**node {
+                let impl_env = env.get_impl_env_mut(ident).unwrap();
+                for method in methods.iter() {
+                    if let Node::Fn {
+                        ident, args, body, ..
+                    } = &**method
+                    {
+                        self.build_fn_2(
+                            &mut impl_env.env,
+                            &impl_env.type_env,
+                            ident.clone(),
+                            args.clone(),
+                            body.clone(),
+                        )
+                    } else {
+                        todo!()
+                    }
+                }
             }
         }
     }
@@ -907,6 +1086,7 @@ impl ModuleBuilder {
     pub fn build(&mut self, ast: &[NodeRef]) {
         self.pass1(ast);
         self.pass2(ast);
+        self.pass3(ast);
     }
 
     pub unsafe fn get_llvm_module_ref(&mut self) -> LLVMModuleRef {
