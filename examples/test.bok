@@ -68,8 +68,7 @@ fn main(argc: u32) -> u32 {
     (*sp).inner.a = 1;
 
     *p = foo.inner.get_a() + foo.inner.c;
-    // TODO this generates garbage
-    //*p = foo.inner.get_a_by_ref() + foo.inner.c;
+    *p = foo.inner.get_a_by_ref() + foo.inner.c;
 
 
     if c1 {

@@ -1,5 +1,6 @@
 // TODO see all those Rc<UnsafeCell<_> in fn signatures. maybe pass references instead?
 // TODO Scope!
+// TODO impl type aliasing and make 'Self' a type alias instead of a new type
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -26,7 +27,7 @@ impl ToCStr for String {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     None,
     Bool,
@@ -64,8 +65,10 @@ impl Type {
                 LLVMPointerType(env.get_type_by_id(*pointee_ty).unwrap().llvm_type(env), 0)
             },
             Type::Struct { field_type_ids, .. } => unsafe {
-                let mut llvm_types: Vec<LLVMTypeRef> =
-                    field_type_ids.iter().map(|f| env.get_type_by_id(*f).unwrap().llvm_type(env)).collect();
+                let mut llvm_types: Vec<LLVMTypeRef> = field_type_ids
+                    .iter()
+                    .map(|f| env.get_type_by_id(*f).unwrap().llvm_type(env))
+                    .collect();
                 // TODO packed
                 LLVMStructType(llvm_types.as_mut_ptr(), field_type_ids.len() as u32, 0)
             },
@@ -121,10 +124,11 @@ pub struct Var {
 
 #[derive(Debug)]
 pub struct Func {
-    val: LLVMValueRef,
-    ty: LLVMTypeRef, // TODO remove if this is the llvm return type and use ret_ty
-    ret_ty: Type,
     env: Rc<UnsafeCell<Env>>,
+    arg_tys: Vec<Type>,
+    ret_ty: Type,
+    val: LLVMValueRef,
+    llvm_ty: LLVMTypeRef, // TODO remove if this is the llvm return type and use ret_ty
     body: LLVMBasicBlockRef,
 }
 
@@ -226,10 +230,12 @@ impl TypeEnv {
     pub fn get_type_by_id(&self, type_id: usize) -> Option<&Type> {
         match (unsafe { &mut *self.types.get() }).get(&type_id) {
             Some(t) => Some(t),
-            None => if let Some(parent) = self.parent.clone() {
-                (unsafe { &*parent.get() }).get_type_by_id(type_id)
-            } else {
-                None
+            None => {
+                if let Some(parent) = self.parent.clone() {
+                    (unsafe { &*parent.get() }).get_type_by_id(type_id)
+                } else {
+                    None
+                }
             }
         }
     }
@@ -237,10 +243,12 @@ impl TypeEnv {
     pub fn get_type_by_id_mut(&self, type_id: usize) -> Option<&mut Type> {
         match (unsafe { &mut *self.types.get() }).get_mut(&type_id) {
             Some(t) => Some(t),
-            None => if let Some(parent) = self.parent.clone() {
-                (unsafe { &*parent.get() }).get_type_by_id_mut(type_id)
-            } else {
-                None
+            None => {
+                if let Some(parent) = self.parent.clone() {
+                    (unsafe { &*parent.get() }).get_type_by_id_mut(type_id)
+                } else {
+                    None
+                }
             }
         }
     }
@@ -258,6 +266,7 @@ impl TypeEnv {
                     );
                     self.get_type_by_name(name)
                 } else if name == "Self" || name == "*Self" {
+                    // don't ask parents for Self if it's not defined in the current scope
                     None
                 } else if let Some(parent) = &self.parent {
                     (unsafe { &*parent.get() }).get_type_by_name(name)
@@ -282,6 +291,7 @@ impl TypeEnv {
                     );
                     self.get_type_by_name_mut(name)
                 } else if name == "Self" || name == "*Self" {
+                    // don't ask parents for Self if it's not defined in the current scope
                     None
                 } else if let Some(parent) = &self.parent {
                     (unsafe { &*parent.get() }).get_type_by_name_mut(name)
@@ -295,7 +305,11 @@ impl TypeEnv {
 
 impl std::fmt::Debug for TypeEnv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TypeEnv").field("parent", &self.parent.clone().map(|p| unsafe { &*p.get() })).field("types", unsafe { &*self.types.get() }).field("type_ids", &self.type_ids).finish()
+        f.debug_struct("TypeEnv")
+            .field("parent", &self.parent.clone().map(|p| unsafe { &*p.get() }))
+            .field("types", unsafe { &*self.types.get() })
+            .field("type_ids", &self.type_ids)
+            .finish()
     }
 }
 
@@ -352,11 +366,14 @@ impl Env {
         }
     }
 
+    // TODO clippy
+    #[allow(clippy::too_many_arguments)]
     pub fn insert_func(
         &mut self,
         ident: &str,
         val: LLVMValueRef,
         ty: LLVMTypeRef,
+        arg_tys: Vec<Type>,
         ret_ty: Type,
         env: Rc<UnsafeCell<Env>>,
         body: LLVMBasicBlockRef,
@@ -365,10 +382,11 @@ impl Env {
             ident.to_string(),
             Func {
                 val,
-                ty,
+                llvm_ty: ty,
                 ret_ty,
                 env,
                 body,
+                arg_tys,
             },
         );
     }
@@ -493,6 +511,7 @@ impl ModuleBuilder {
         node: NodeRef,
         as_lvalue: bool,
     ) -> Val {
+        let env_ref = unsafe { &mut *env.get() };
         let type_env_ref = unsafe { &mut *type_env.get() };
         if let Node::BinOp { op, lhs, rhs } = &*node {
             let (llvm_val, ty) = match op {
@@ -621,6 +640,7 @@ impl ModuleBuilder {
                             field_indices,
                             field_type_ids: fields,
                             member_methods,
+                            type_id: struct_type_id,
                             ..
                         } => match &**rhs {
                             Node::Ident { name } => {
@@ -628,7 +648,9 @@ impl ModuleBuilder {
                                     Some(idx) => idx,
                                     None => panic!("no member {}", name),
                                 };
-                                let field_ty = type_env_ref.get_type_by_id(*fields.get(*field_idx).unwrap()).unwrap();
+                                let field_ty = type_env_ref
+                                    .get_type_by_id(*fields.get(*field_idx).unwrap())
+                                    .unwrap();
                                 let ptr = LLVMBuildStructGEP2(
                                     self.builder,
                                     lhs_val.ty.llvm_type(type_env_ref),
@@ -653,8 +675,23 @@ impl ModuleBuilder {
                             }
                             Node::Call { ident, args } => {
                                 let func_ident = member_methods.get(&ident.to_string()).unwrap();
+                                let func = env_ref.get_func(func_ident).unwrap();
+                                let self_by_ref =
+                                    if let Some(Type::Ptr { .. }) = func.arg_tys.first() {
+                                        // TODO type checking
+                                        true
+                                    } else {
+                                        false
+                                    };
+
                                 let mut args = args.to_vec();
-                                args.insert(0, lhs.clone());
+                                if self_by_ref {
+                                    // hacky but works, dunno?
+                                    args.insert(0, Node::UnOp { op: Op::Ref, rhs: lhs.clone() }.into())
+                                } else {
+                                    args.insert(0, lhs.clone());
+                                }
+
                                 return self.build_call(
                                     env.clone(),
                                     type_env.clone(),
@@ -698,7 +735,7 @@ impl ModuleBuilder {
         let llvm_val = unsafe {
             LLVMBuildCall2(
                 self.builder,
-                func.ty,
+                func.llvm_ty,
                 func.val,
                 args.as_mut_slice().as_mut_ptr(),
                 args.len().try_into().unwrap(),
@@ -938,11 +975,13 @@ impl ModuleBuilder {
             Some(ty) => ty,
             None => panic!("unresolved type {}", ret_ty),
         };
+        let mut arg_tys: Vec<Type> = Vec::new();
         let mut arg_vals: Vec<LLVMTypeRef> = Vec::new();
         for arg in args.iter() {
             let arg_ty = type_env_ref.get_type_by_name(&arg.ty);
 
             if let Some(ty) = arg_ty {
+                arg_tys.push(ty.clone());
                 arg_vals.push(ty.llvm_type(type_env_ref));
             } else {
                 panic!("unresolved type {}", &arg.ty);
@@ -956,13 +995,7 @@ impl ModuleBuilder {
                 0,
             )
         };
-        let val = unsafe {
-            LLVMAddFunction(
-                self.module,
-                ident.to_cstring().as_ptr(),
-                func_ty,
-            )
-        };
+        let val = unsafe { LLVMAddFunction(self.module, ident.to_cstring().as_ptr(), func_ty) };
 
         let fn_env = Env::make_child(env.clone());
         // this needs to be global
@@ -970,6 +1003,7 @@ impl ModuleBuilder {
             ident,
             val,
             func_ty,
+            arg_tys,
             ret_ty.clone(),
             Rc::new(UnsafeCell::new(fn_env)),
             unsafe { LLVMAppendBasicBlock(val, "".to_string().to_cstring().as_ptr()) },
@@ -1160,7 +1194,11 @@ impl ModuleBuilder {
         let env_ref = unsafe { &mut *env.get() };
 
         for node in ast.iter() {
-            if let Node::Impl { ident: impl_ty, methods } = &**node {
+            if let Node::Impl {
+                ident: impl_ty,
+                methods,
+            } = &**node
+            {
                 let impl_env = env_ref.get_impl_env_mut(impl_ty).unwrap();
                 for method in methods.iter() {
                     if let Node::Fn {
