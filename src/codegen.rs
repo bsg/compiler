@@ -640,7 +640,6 @@ impl ModuleBuilder {
                             field_indices,
                             field_type_ids: fields,
                             member_methods,
-                            type_id: struct_type_id,
                             ..
                         } => match &**rhs {
                             Node::Ident { name } => {
