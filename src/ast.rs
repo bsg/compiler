@@ -157,7 +157,7 @@ pub enum Node {
         ident: Rc<str>,
         methods: Rc<[NodeRef]>
     },
-    SliceDecl {
+    ArrayDecl {
         ty: Rc<str>,
         len: usize,
     }
@@ -288,7 +288,7 @@ impl fmt::Debug for Node {
 
                     format!("impl {}{}", ident, methods_str)
                 }
-                Node::SliceDecl { ty, len } => {
+                Node::ArrayDecl { ty, len } => {
                     todo!()
                 }
             }
