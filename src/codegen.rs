@@ -1,6 +1,7 @@
 // TODO see all those Rc<UnsafeCell<_> in fn signatures. maybe pass references instead?
 // TODO Scope!
 // TODO impl type aliasing and make 'Self' a type alias instead of a new type
+// TODO struct literals
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -39,6 +40,9 @@ pub enum Type {
     Ptr {
         pointee_ty: usize,
     },
+    Ref {
+        pointee_ty: usize,
+    },
     Struct {
         type_id: usize,
         field_indices: HashMap<String, usize>,
@@ -46,6 +50,10 @@ pub enum Type {
         static_methods: HashMap<String, String>,
         member_methods: HashMap<String, String>,
     },
+    Array {
+        type_id: usize,
+        len: usize,
+    }
 }
 
 impl Type {
@@ -61,9 +69,10 @@ impl Type {
                 128 => unsafe { LLVMInt128Type() },
                 _ => todo!(),
             },
-            Type::Ptr { pointee_ty } => unsafe {
+            Type::Ref { pointee_ty } => unsafe {
                 LLVMPointerType(env.get_type_by_id(*pointee_ty).unwrap().llvm_type(env), 0)
             },
+            Type::Ptr { pointee_ty } => todo!(),
             Type::Struct { field_type_ids, .. } => unsafe {
                 let mut llvm_types: Vec<LLVMTypeRef> = field_type_ids
                     .iter()
@@ -72,6 +81,7 @@ impl Type {
                 // TODO packed
                 LLVMStructType(llvm_types.as_mut_ptr(), field_type_ids.len() as u32, 0)
             },
+            Type::Array { type_id, len } => todo!()
         }
     }
 
@@ -104,13 +114,15 @@ impl Type {
                 }
                 _ => todo!(),
             },
+            Type::Ref { .. } => todo!(),
             Type::Ptr { .. } => todo!(),
             Type::Struct { type_id, .. } => *type_id,
+            Type::Array { .. } => todo!()
         }
     }
 
     pub fn to_ref_type(&self, env: &TypeEnv) -> Type {
-        Type::Ptr {
+        Type::Ref {
             pointee_ty: self.id(env),
         }
     }
@@ -260,7 +272,7 @@ impl TypeEnv {
                 if name.starts_with('&') {
                     self.insert_type_by_name(
                         name,
-                        Type::Ptr {
+                        Type::Ref {
                             pointee_ty: self.get_type_id_by_name(name.strip_prefix('&').unwrap()),
                         },
                     );
@@ -285,7 +297,7 @@ impl TypeEnv {
                 if name.starts_with('*') {
                     self.insert_type_by_name(
                         name,
-                        Type::Ptr {
+                        Type::Ref {
                             pointee_ty: self.get_type_id_by_name(name.strip_prefix('&').unwrap()),
                         },
                     );
@@ -457,7 +469,7 @@ impl ModuleBuilder {
         unsafe {
             let val = self.build_expr(env.clone(), type_env.clone(), node.clone(), false);
             let ty = match val.ty {
-                Type::Ptr { pointee_ty } => (*type_env.get())
+                Type::Ref { pointee_ty } => (*type_env.get())
                     .get_type_by_id(pointee_ty)
                     .unwrap()
                     .clone(),
@@ -676,7 +688,7 @@ impl ModuleBuilder {
                                 let func_ident = member_methods.get(&ident.to_string()).unwrap();
                                 let func = env_ref.get_func(func_ident).unwrap();
                                 let self_by_ref =
-                                    if let Some(Type::Ptr { .. }) = func.arg_tys.first() {
+                                    if let Some(Type::Ref { .. }) = func.arg_tys.first() {
                                         // TODO type checking
                                         true
                                     } else {
@@ -1068,7 +1080,7 @@ impl ModuleBuilder {
                     args.clone(),
                     ret_ty.clone(),
                 ),
-                Node::Struct { ident, .. } => {
+                Node::StructDecl { ident, .. } => {
                     type_env.get_type_id_by_name(ident);
                 }
                 _ => (),
@@ -1093,7 +1105,7 @@ impl ModuleBuilder {
                     args.clone(),
                     body.clone(),
                 ),
-                Node::Struct { ident, fields } => {
+                Node::StructDecl { ident, fields } => {
                     // TODO build a dependency tree and gen structs depth first
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
                     let mut field_types: Vec<usize> = Vec::new();

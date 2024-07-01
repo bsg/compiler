@@ -239,26 +239,6 @@ impl Parser {
         )
     }
 
-    fn parse_array(&mut self) -> Option<NodeRef> {
-        assert_eq!(self.curr_token, Token::LBracket);
-
-        let mut arr: Vec<Rc<Node>> = Vec::new();
-
-        if self.peek_token != Token::RBracket {
-            while let Some(node) = self.parse_expression(0) {
-                arr.push(node.clone());
-                match self.peek_token {
-                    Token::Comma => self.next_token(),
-                    _ => break,
-                }
-            }
-        }
-        assert_eq!(self.peek_token, Token::RBracket);
-        self.next_token();
-
-        Some(Node::Array { value: arr }.into())
-    }
-
     fn parse_index(&mut self, lhs: NodeRef) -> Option<NodeRef> {
         assert_eq!(self.peek_token, Token::LBracket);
 
@@ -335,7 +315,7 @@ impl Parser {
             assert_eq!(self.curr_token, Token::RBrace);
 
             Some(
-                Node::Struct {
+                Node::StructDecl {
                     ident: ident.clone(),
                     fields: Rc::from(fields.as_slice()),
                 }
@@ -346,57 +326,104 @@ impl Parser {
         }
     }
 
+    // TODO this is fucked
+    fn parse_type(&mut self) -> Option<Rc<str>> {
+        fn get_ident_str(ident: &Token) -> Option<&str> {
+            if let Token::Ident(name) = ident {
+                Some(name)
+            } else {
+                None
+            }
+        }
+
+        let ty = match self.curr_token.clone() {
+            Token::Ident(ident) => Some(ident),
+            Token::Star => {
+                self.next_token();
+                if let Some(ty) = get_ident_str(&self.curr_token) {
+                    Some(("*".to_owned() + ty).into())
+                } else {
+                    todo!()
+                }
+            }
+            Token::Amp => {
+                self.next_token();
+                if let Some(ty) = get_ident_str(&self.curr_token) {
+                    Some(("&".to_owned() + ty).into())
+                } else {
+                    todo!()
+                }
+            }
+            Token::LBracket => {
+                self.next_token();
+                let ty = match self.curr_token.clone() {
+                    Token::Ident(ty) => Some(ty),
+                    Token::LBracket => self.parse_type(),
+                    _ => todo!(),
+                };
+
+                if let Some(ty) = ty {
+                    if self.peek_token == Token::Semicolon {
+                        self.next_token();
+                        self.next_token();
+                        if let Token::Int(len) = &self.curr_token.clone() {
+                            self.next_token();
+                            assert_eq!(Token::RBracket, self.curr_token);
+                            Some(format!("[{}; {}]", ty, len).as_str().into())
+                        } else {
+                            todo!()
+                        }
+                    } else if self.peek_token == Token::RBracket {
+                        Some(format!("[{}]", ty).as_str().into())
+                    } else {
+                        todo!()
+                    }
+                } else {
+                    todo!()
+                }
+            }
+            _ => todo!(),
+        };
+
+        ty
+    }
+
     fn parse_statement(&mut self) -> Option<NodeRef> {
         let node = match self.tokens.peek() {
             Some(Token::Let) => {
                 self.next_token();
                 self.next_token(); // eat 'let'
 
-                let lhs = self.parse_ident();
-                self.next_token();
-                assert_eq!(self.curr_token, Token::Colon);
-                self.next_token();
-
-                let mut is_ptr = false;
-                let mut is_ref = false;
-                if let Token::Star = self.curr_token {
-                    self.next_token();
-                    is_ptr = true;
-                } else if let Token::Amp = self.curr_token {
-                    self.next_token();
-                    is_ref = true;
+                let lhs = if let Some(ident) = self.parse_ident() {
+                    ident
+                } else {
+                    todo!()
                 };
 
-                if let Token::Ident(ty) = self.curr_token.clone() {
+                self.next_token();
+                assert_eq!(Token::Colon, self.curr_token);
+                self.next_token();
+
+                let ty = if let Some(ty) = self.parse_type() {
                     self.next_token();
-                    match self.curr_token {
-                        Token::Assign => Some(Rc::new(Node::Let {
-                            ty: if is_ptr {
-                                ("*".to_string() + &ty).into()
-                            } else if is_ref {
-                                ("&".to_string() + &ty).into()
-                            } else {
-                                ty
-                            },
-                            lhs: lhs?,
-                            rhs: Some(self.parse_expression(0)?),
-                        })),
-                        Token::Semicolon => Some(Rc::new(Node::Let {
-                            ty: if is_ptr {
-                                ("*".to_string() + &ty).into()
-                            } else if is_ref {
-                                ("&".to_string() + &ty).into()
-                            } else {
-                                ty
-                            },
-                            lhs: lhs?,
-                            rhs: None,
-                        })),
-                        _ => todo!(),
-                    }
+                    ty
                 } else {
-                    panic!()
-                }
+                    todo!()
+                };
+
+                let rhs = match self.curr_token {
+                    Token::Assign => {
+                        let rhs = Some(self.parse_expression(0)?);
+                        self.next_token();
+                        rhs
+                    }
+                    Token::Semicolon => None,
+                    _ => todo!(),
+                };
+
+                assert_eq!(Token::Semicolon, self.curr_token);
+
+                Some(Rc::new(Node::Let { ty, lhs, rhs }))
             }
             Some(Token::Return) => {
                 self.next_token();
@@ -488,7 +515,6 @@ impl Parser {
                 self.next_token();
                 node
             }
-            Token::LBracket => self.parse_array()?,
             Token::LBrace => self.parse_block()?,
             Token::Fn => self.parse_fn()?,
             Token::If => self.parse_if()?,
@@ -827,7 +853,7 @@ add
     #[test]
     fn let_statement() {
         assert_parse!(
-            "let x: i32 = 1 + 2",
+            "let x: i32 = 1 + 2;",
             "\
 let i32
     ident x
@@ -1064,27 +1090,21 @@ add
     }
 
     #[test]
-    fn parse_array() {
+    fn parse_array_decl() {
         assert_parse!(
-            "[]", "\
-array
-"
-        );
-        assert_parse!(
-            "[1, 2, x]",
+            "let arr: [u8; 5];",
             "\
-array
-    1
-    2
-    ident x
+let [u8; 5]
+    ident arr
 "
         );
-    }
-
-    #[test]
-    #[should_panic]
-    fn parse_invalid_array() {
-        assert_parse!("[1, 2, x", "");
+        assert_parse!(
+            "let arr: [[u8; 5]; 2];",
+            "\
+let [[u8; 5]; 2]
+    ident arr
+"
+        );
     }
 
     #[test]

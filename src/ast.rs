@@ -139,9 +139,7 @@ pub enum Node {
         ident: Rc<str>,
         args: Rc<[NodeRef]>,
     },
-    Array {
-        value: Vec<NodeRef>,
-    },
+    // TODO make this a binop
     Index {
         ident: Rc<str>,
         index: NodeRef,
@@ -151,13 +149,17 @@ pub enum Node {
         key: NodeRef,
         value: NodeRef,
     },
-    Struct {
+    StructDecl {
         ident: Rc<str>,
         fields: Rc<[StructField]>,
     },
     Impl {
         ident: Rc<str>,
         methods: Rc<[NodeRef]>
+    },
+    SliceDecl {
+        ty: Rc<str>,
+        len: usize,
     }
 }
 
@@ -262,18 +264,11 @@ impl fmt::Debug for Node {
                     }
                     c
                 }
-                Node::Array { value } => {
-                    let mut s = "array".to_string();
-                    for val in value.iter() {
-                        s += fmt_with_indent(val, indent_level + 1, true).as_str();
-                    }
-                    s
-                }
                 Node::Index { ident, index } => {
                     format! {"index {}{}", ident, fmt_with_indent(index, indent_level + 1, true).as_str()}
                 }
                 Node::Pair { .. } => todo!(),
-                Node::Struct { ident, fields } => {
+                Node::StructDecl { ident, fields } => {
                     let fields_str = fields.iter().fold(String::new(), |mut acc, field| {
                         acc += "\n";
                         acc += "    ";
@@ -292,6 +287,9 @@ impl fmt::Debug for Node {
                     });
 
                     format!("impl {}{}", ident, methods_str)
+                }
+                Node::SliceDecl { ty, len } => {
+                    todo!()
                 }
             }
             .as_str();
