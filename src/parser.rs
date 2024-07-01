@@ -1,4 +1,5 @@
 // TODO we need a ParseResult -- do we? why not just panic?
+// TODO pointer/ref related stuff in here is ugly
 
 use std::iter::Peekable;
 use std::rc::Rc;
@@ -145,6 +146,17 @@ impl Parser {
                                     Token::Ident(ty_ident) => args.push(Arg {
                                         ident: arg_ident.clone(),
                                         ty: ("*".to_string() + ty_ident).as_str().into(),
+                                    }),
+                                    _ => todo!(),
+                                }
+                            }
+                            Token::Amp => {
+                                // FIXME duplicate code
+                                self.next_token();
+                                match &self.curr_token {
+                                    Token::Ident(ty_ident) => args.push(Arg {
+                                        ident: arg_ident.clone(),
+                                        ty: ("&".to_string() + ty_ident).as_str().into(),
                                     }),
                                     _ => todo!(),
                                 }
@@ -346,9 +358,13 @@ impl Parser {
                 self.next_token();
 
                 let mut is_ptr = false;
+                let mut is_ref = false;
                 if let Token::Star = self.curr_token {
                     self.next_token();
                     is_ptr = true;
+                } else if let Token::Amp = self.curr_token {
+                    self.next_token();
+                    is_ref = true;
                 };
 
                 if let Token::Ident(ty) = self.curr_token.clone() {
@@ -357,6 +373,8 @@ impl Parser {
                         Token::Assign => Some(Rc::new(Node::Let {
                             ty: if is_ptr {
                                 ("*".to_string() + &ty).into()
+                            } else if is_ref {
+                                ("&".to_string() + &ty).into()
                             } else {
                                 ty
                             },
@@ -366,6 +384,8 @@ impl Parser {
                         Token::Semicolon => Some(Rc::new(Node::Let {
                             ty: if is_ptr {
                                 ("*".to_string() + &ty).into()
+                            } else if is_ref {
+                                ("&".to_string() + &ty).into()
                             } else {
                                 ty
                             },
@@ -1201,7 +1221,7 @@ mul
         assert_parse!(
             "impl T {\
 fn a() -> u32 {return 0;}
-fn b(self: *Self) -> u8 {return 0;}
+fn b(self: &Self, other: *T) -> u8 {return 0;}
 }",
             "\
 impl T
@@ -1209,7 +1229,7 @@ impl T
         block
             return
                 0
-    fn b(self: *Self) -> u8
+    fn b(self: &Self, other: *T) -> u8
         block
             return
                 0

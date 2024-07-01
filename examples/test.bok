@@ -18,7 +18,7 @@ impl A {
         return self.a;
     }
 
-    fn get_a_by_ref(self: *Self) -> u32 {
+    fn get_a_by_ref(self: &Self) -> u32 {
         return (*self).a;
     }
 }
@@ -28,7 +28,7 @@ fn add(a: u32, b: u32) -> u32 {
     return a + b;
 }
 
-fn add_by_ref(a: *u32, b: *u32) -> u32 {
+fn add_by_ref(a: &u32, b: &u32) -> u32 {
     return *a + *b;
 }
 
@@ -57,14 +57,14 @@ fn main(argc: u32) -> u32 {
     a = 100;
     let c1: bool = 1000 > a;
     let c2: bool = 10 > argc;
-    let p: *u32 = &argc;
+    let p: &u32 = &argc;
     *p = max(1, 10);
 
     let foo: B;
     foo.inner.a = 1;
     foo.inner.c = 10;
 
-    let sp: *B = &foo;
+    let sp: &B = &foo;
     (*sp).inner.a = 1;
 
     *p = foo.inner.get_a() + foo.inner.c;

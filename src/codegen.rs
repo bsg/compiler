@@ -257,15 +257,15 @@ impl TypeEnv {
         match self.get_type_by_id(self.get_type_id_by_name(name)) {
             Some(ty) => Some(ty),
             None => {
-                if name.starts_with('*') {
+                if name.starts_with('&') {
                     self.insert_type_by_name(
                         name,
                         Type::Ptr {
-                            pointee_ty: self.get_type_id_by_name(name.strip_prefix('*').unwrap()),
+                            pointee_ty: self.get_type_id_by_name(name.strip_prefix('&').unwrap()),
                         },
                     );
                     self.get_type_by_name(name)
-                } else if name == "Self" || name == "*Self" {
+                } else if name == "Self" || name == "&Self" {
                     // don't ask parents for Self if it's not defined in the current scope
                     None
                 } else if let Some(parent) = &self.parent {
@@ -286,11 +286,11 @@ impl TypeEnv {
                     self.insert_type_by_name(
                         name,
                         Type::Ptr {
-                            pointee_ty: self.get_type_id_by_name(name.strip_prefix('*').unwrap()),
+                            pointee_ty: self.get_type_id_by_name(name.strip_prefix('&').unwrap()),
                         },
                     );
                     self.get_type_by_name_mut(name)
-                } else if name == "Self" || name == "*Self" {
+                } else if name == "Self" || name == "&Self" {
                     // don't ask parents for Self if it's not defined in the current scope
                     None
                 } else if let Some(parent) = &self.parent {
