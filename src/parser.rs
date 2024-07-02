@@ -44,7 +44,7 @@ impl Parser {
                 if let Some(ty) = get_ident_str(&self.curr_token) {
                     Some(("*".to_owned() + ty).into())
                 } else {
-                    todo!()
+                    Some(("*".to_owned() + &self.parse_type().unwrap()).into())
                 }
             }
             Token::Amp => {
@@ -52,7 +52,7 @@ impl Parser {
                 if let Some(ty) = get_ident_str(&self.curr_token) {
                     Some(("&".to_owned() + ty).into())
                 } else {
-                    todo!()
+                    Some(("&".to_owned() + &self.parse_type().unwrap()).into())
                 }
             }
             Token::LBracket => {

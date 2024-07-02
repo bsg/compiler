@@ -824,7 +824,9 @@ impl ModuleBuilder {
                                 )
                             };
                             (
-                                if !matches!(elem_ty, Type::Array { .. }) {
+                                if as_lvalue {
+                                    ptr
+                                } else {
                                     unsafe {
                                         LLVMBuildLoad2(
                                             self.builder,
@@ -833,8 +835,6 @@ impl ModuleBuilder {
                                             "".to_cstring().as_ptr(),
                                         )
                                     }
-                                } else {
-                                    ptr
                                 },
                                 elem_ty.clone(),
                             )

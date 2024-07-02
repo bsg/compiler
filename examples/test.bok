@@ -51,6 +51,15 @@ fn sum_range(start: u32, end: u32) -> u32 {
     return sum;
 }
 
+fn first(arr: [u32; 4]) -> u32 {
+    return arr[0];
+}
+
+fn first_by_ref(arr: &[u32; 4]) -> u32 {
+    return (*arr)[0];
+}
+
+
 fn main(argc: u32) -> u32 {
     let a: u32;
     a = 100;
@@ -82,8 +91,10 @@ fn main(argc: u32) -> u32 {
         }
     }
 
+    let arr_ref: &[u32; 4] = &arr[0];    
+
     // return add_by_ref(&argc, &a);
-    return argc + arr[1][0];
+    return first_by_ref(&arr[0]) + arr[0][3];
 }
 
 // fn add_different_types(a: u32, b: u8) -> u16 {
