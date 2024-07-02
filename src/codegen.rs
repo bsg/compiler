@@ -268,23 +268,45 @@ impl TypeEnv {
         }
     }
 
-    pub fn insert_type_by_name(&self, name: &str, ty: Type) {
+    pub fn insert_type_by_name(&self, name: &str, ty: Type) -> usize {
         // This should not mutate parents at all. Types are resolvable only within and below the scope they are defined in
-        (unsafe { &mut *self.types.get() }).insert(self.get_type_id_by_name(name), ty);
+        let type_id = self.get_type_id_by_name(name);
+        (unsafe { &mut *self.types.get() }).insert(type_id, ty);
+        type_id
     }
 
     // TODO make sure this is sound
     /// reserves id for ident if it's not registered
-    fn get_type_id_by_name(&self, type_ident: &str) -> usize {
+    fn get_type_id_by_name(&self, name: &str) -> usize {
         // This should not mutate parents at all. Types are resolvable only within and below the scope they are defined in
-        match (unsafe { &*self.type_ids.get() }).get(type_ident) {
+        match (unsafe { &*self.type_ids.get() }).get(name) {
             Some(type_id) => *type_id,
             None => {
-                let type_id = unsafe { NEXT_TYPE_ID };
-                unsafe { NEXT_TYPE_ID += 1 };
+                // FIXME FUCKING HATE THIS
+                if name.starts_with('[') {
+                    if let Some((elem_ty, len)) = name[1..name.len() - 1].rsplit_once(';') {
+                        let type_id = unsafe { NEXT_TYPE_ID };
+                        unsafe { NEXT_TYPE_ID += 1 };
 
-                (unsafe { &mut *self.type_ids.get() }).insert(type_ident.into(), type_id);
-                type_id
+                        (unsafe { &mut *self.type_ids.get() }).insert(name.into(), type_id);
+
+                        self.insert_type_by_name(
+                            name,
+                            Type::Array {
+                                elem_type_id: self.get_type_id_by_name(elem_ty),
+                                len: str::parse(&len[1..]).unwrap(),
+                            },
+                        )
+                    } else {
+                        todo!()
+                    }
+                } else {
+                    let type_id = unsafe { NEXT_TYPE_ID };
+                    unsafe { NEXT_TYPE_ID += 1 };
+
+                    (unsafe { &mut *self.type_ids.get() }).insert(name.into(), type_id);
+                    type_id
+                }
             }
         }
     }
@@ -328,20 +350,6 @@ impl TypeEnv {
                         },
                     );
                     self.get_type_by_name(name)
-                } else if name.starts_with('[') {
-                    // TODO should not be parsing shit here
-                    if let Some((ty, len)) = name[1..name.len() - 1].split_once(';') {
-                        self.insert_type_by_name(
-                            name,
-                            Type::Array {
-                                elem_type_id: self.get_type_id_by_name(ty),
-                                len: str::parse(&len[1..]).unwrap(),
-                            },
-                        );
-                        self.get_type_by_name(name)
-                    } else {
-                        todo!()
-                    }
                 } else if name == "Self" || name == "&Self" {
                     // don't ask parents for Self if it's not defined in the current scope
                     None
@@ -368,19 +376,6 @@ impl TypeEnv {
                         },
                     );
                     self.get_type_by_name_mut(name)
-                } else if name.starts_with('[') {
-                    if let Some((ty, len)) = name[1..name.len() - 1].split_once(';') {
-                        self.insert_type_by_name(
-                            name,
-                            Type::Array {
-                                elem_type_id: self.get_type_id_by_name(ty),
-                                len: str::parse(&len[1..]).unwrap(),
-                            },
-                        );
-                        self.get_type_by_name_mut(name)
-                    } else {
-                        todo!()
-                    }
                 } else if name == "Self" || name == "&Self" {
                     // don't ask parents for Self if it's not defined in the current scope
                     None
@@ -828,15 +823,18 @@ impl ModuleBuilder {
                                     "".to_cstring().as_ptr(),
                                 )
                             };
-
                             (
-                                unsafe {
-                                    LLVMBuildLoad2(
-                                        self.builder,
-                                        elem_ty.llvm_type(type_env_ref),
-                                        ptr,
-                                        "".to_cstring().as_ptr(),
-                                    )
+                                if !matches!(elem_ty, Type::Array { .. }) {
+                                    unsafe {
+                                        LLVMBuildLoad2(
+                                            self.builder,
+                                            elem_ty.llvm_type(type_env_ref),
+                                            ptr,
+                                            "".to_cstring().as_ptr(),
+                                        )
+                                    }
+                                } else {
+                                    ptr
                                 },
                                 elem_ty.clone(),
                             )
