@@ -1080,7 +1080,7 @@ impl ModuleBuilder {
                     args.clone(),
                     ret_ty.clone(),
                 ),
-                Node::StructDecl { ident, .. } => {
+                Node::Struct { ident, .. } => {
                     type_env.get_type_id_by_name(ident);
                 }
                 _ => (),
@@ -1105,7 +1105,7 @@ impl ModuleBuilder {
                     args.clone(),
                     body.clone(),
                 ),
-                Node::StructDecl { ident, fields } => {
+                Node::Struct { ident, fields } => {
                     // TODO build a dependency tree and gen structs depth first
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
                     let mut field_types: Vec<usize> = Vec::new();

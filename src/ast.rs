@@ -149,7 +149,7 @@ pub enum Node {
         key: NodeRef,
         value: NodeRef,
     },
-    StructDecl {
+    Struct {
         ident: Rc<str>,
         fields: Rc<[StructField]>,
     },
@@ -157,9 +157,8 @@ pub enum Node {
         ident: Rc<str>,
         methods: Rc<[NodeRef]>
     },
-    ArrayDecl {
-        ty: Rc<str>,
-        len: usize,
+    Array {
+        elems: Rc<[NodeRef]>
     }
 }
 
@@ -268,7 +267,7 @@ impl fmt::Debug for Node {
                     format! {"index {}{}", ident, fmt_with_indent(index, indent_level + 1, true).as_str()}
                 }
                 Node::Pair { .. } => todo!(),
-                Node::StructDecl { ident, fields } => {
+                Node::Struct { ident, fields } => {
                     let fields_str = fields.iter().fold(String::new(), |mut acc, field| {
                         acc += "\n";
                         acc += "    ";
@@ -288,8 +287,14 @@ impl fmt::Debug for Node {
 
                     format!("impl {}{}", ident, methods_str)
                 }
-                Node::ArrayDecl { ty, len } => {
-                    todo!()
+                Node::Array { elems } => {
+                    let elems_str = elems.iter().fold(String::new(), |mut acc, method| {
+                        acc += "\n";
+                        acc += fmt_with_indent(method, indent_level + 1, false).as_str();
+                        acc
+                    });
+
+                    format!("array{}", elems_str)
                 }
             }
             .as_str();

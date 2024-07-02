@@ -345,7 +345,7 @@ impl Parser {
             assert_eq!(self.curr_token, Token::RBrace);
 
             Some(
-                Node::StructDecl {
+                Node::Struct {
                     ident: ident.clone(),
                     fields: Rc::from(fields.as_slice()),
                 }
@@ -354,6 +354,31 @@ impl Parser {
         } else {
             todo!()
         }
+    }
+
+    fn parse_array(&mut self) -> Option<NodeRef> {
+        let mut elems: Vec<NodeRef> = Vec::new();
+
+        assert_eq!(Token::LBracket, self.curr_token);
+
+        loop {
+            if let Some(elem) = self.parse_expression(0) {
+                elems.push(elem);
+                self.next_token();
+            } else {
+                todo!()
+            }
+
+            match self.curr_token {
+                Token::Comma => (),
+                Token::RBracket => break,
+                _ => todo!()
+            }
+        }
+
+        Some(Rc::new(Node::Array {
+            elems: elems.as_slice().into(),
+        }))
     }
 
     fn parse_statement(&mut self) -> Option<NodeRef> {
@@ -453,6 +478,7 @@ impl Parser {
         }
     }
 
+    /// This skips over the current token. On return, current token is the last token of the expr.
     fn parse_expression(&mut self, precedence: i32) -> Option<NodeRef> {
         self.next_token();
         let mut lhs = match &self.curr_token {
@@ -497,6 +523,7 @@ impl Parser {
             }),
             Token::Struct => self.parse_struct()?,
             Token::Impl => self.parse_impl()?,
+            Token::LBracket => self.parse_array()?,
             _ => return None,
         };
 
@@ -1058,7 +1085,7 @@ add
     }
 
     #[test]
-    fn parse_array_decl() {
+    fn parse_array_type() {
         assert_parse!(
             "let arr: [u8; 5];",
             "\
@@ -1221,6 +1248,33 @@ impl T
         block
             return
                 0
+"
+        );
+    }
+
+    #[test]
+    fn array_literal() {
+        assert_parse!(
+            "[1, 2, 3, x]",
+            "\
+array
+    1
+    2
+    3
+    ident x
+"
+        );
+
+        assert_parse!(
+            "[[1, 2], [3, x]]",
+            "\
+array
+    array
+        1
+        2
+    array
+        3
+        ident x
 "
         );
     }
