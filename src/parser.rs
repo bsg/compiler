@@ -1,5 +1,4 @@
 // TODO we need a ParseResult -- do we? why not just panic?
-// TODO pointer/ref related stuff in here is ugly
 
 use std::iter::Peekable;
 use std::rc::Rc;
@@ -26,6 +25,68 @@ impl Parser {
     fn next_token(&mut self) {
         self.curr_token = self.tokens.next().unwrap_or(Token::None);
         self.peek_token = self.tokens.peek().cloned().unwrap_or(Token::None);
+    }
+
+    // TODO this is fucked
+    fn parse_type(&mut self) -> Option<Rc<str>> {
+        fn get_ident_str(ident: &Token) -> Option<&str> {
+            if let Token::Ident(name) = ident {
+                Some(name)
+            } else {
+                None
+            }
+        }
+
+        let ty = match self.curr_token.clone() {
+            Token::Ident(ident) => Some(ident),
+            Token::Star => {
+                self.next_token();
+                if let Some(ty) = get_ident_str(&self.curr_token) {
+                    Some(("*".to_owned() + ty).into())
+                } else {
+                    todo!()
+                }
+            }
+            Token::Amp => {
+                self.next_token();
+                if let Some(ty) = get_ident_str(&self.curr_token) {
+                    Some(("&".to_owned() + ty).into())
+                } else {
+                    todo!()
+                }
+            }
+            Token::LBracket => {
+                self.next_token();
+                let ty = match self.curr_token.clone() {
+                    Token::Ident(ty) => Some(ty),
+                    Token::LBracket => self.parse_type(),
+                    _ => todo!(),
+                };
+
+                if let Some(ty) = ty {
+                    if self.peek_token == Token::Semicolon {
+                        self.next_token();
+                        self.next_token();
+                        if let Token::Int(len) = &self.curr_token.clone() {
+                            self.next_token();
+                            assert_eq!(Token::RBracket, self.curr_token);
+                            Some(format!("[{}; {}]", ty, len).as_str().into())
+                        } else {
+                            todo!()
+                        }
+                    } else if self.peek_token == Token::RBracket {
+                        Some(format!("[{}]", ty).as_str().into())
+                    } else {
+                        todo!()
+                    }
+                } else {
+                    todo!()
+                }
+            }
+            _ => todo!(),
+        };
+
+        ty
     }
 
     fn parse_block(&mut self) -> Option<NodeRef> {
@@ -134,34 +195,13 @@ impl Parser {
                         assert_eq!(Token::Colon, self.curr_token);
                         self.next_token();
 
-                        match &self.curr_token {
-                            Token::Ident(ty_ident) => args.push(Arg {
+                        if let Some(ty) = self.parse_type() {
+                            args.push(Arg {
                                 ident: arg_ident.clone(),
-                                ty: ty_ident.clone(),
-                            }),
-                            Token::Star => {
-                                // FIXME duplicate code
-                                self.next_token();
-                                match &self.curr_token {
-                                    Token::Ident(ty_ident) => args.push(Arg {
-                                        ident: arg_ident.clone(),
-                                        ty: ("*".to_string() + ty_ident).as_str().into(),
-                                    }),
-                                    _ => todo!(),
-                                }
-                            }
-                            Token::Amp => {
-                                // FIXME duplicate code
-                                self.next_token();
-                                match &self.curr_token {
-                                    Token::Ident(ty_ident) => args.push(Arg {
-                                        ident: arg_ident.clone(),
-                                        ty: ("&".to_string() + ty_ident).as_str().into(),
-                                    }),
-                                    _ => todo!(),
-                                }
-                            }
-                            _ => todo!(),
+                                ty,
+                            });
+                        } else {
+                            todo!()
                         }
                     }
                     Token::Comma => (),
@@ -177,7 +217,6 @@ impl Parser {
             let return_type = match self.curr_token.clone() {
                 Token::Ident(ret_ident) => ret_ident,
                 Token::Star => {
-                    // FIXME duplicate code
                     self.next_token();
                     match self.curr_token.clone() {
                         Token::Ident(ret_ident) => ret_ident,
@@ -285,24 +324,15 @@ impl Parser {
                         assert_eq!(Token::Colon, self.curr_token);
                         self.next_token();
 
-                        match &self.curr_token {
-                            Token::Ident(ty_ident) => fields.push(StructField {
+                        if let Some(ty) = self.parse_type() {
+                            fields.push(StructField {
                                 ident: arg_ident.clone(),
-                                ty: ty_ident.clone(),
-                            }),
-                            Token::Star => {
-                                // FIXME duplicate code
-                                self.next_token();
-                                match &self.curr_token {
-                                    Token::Ident(ty_ident) => fields.push(StructField {
-                                        ident: arg_ident.clone(),
-                                        ty: ("*".to_string() + ty_ident).as_str().into(),
-                                    }),
-                                    _ => todo!(),
-                                }
-                            }
-                            _ => todo!(),
-                        };
+                                ty,
+                            });
+                        } else {
+                            todo!()
+                        }
+
                         self.next_token();
                         assert_eq!(Token::Semicolon, self.curr_token);
                         self.next_token();
@@ -324,68 +354,6 @@ impl Parser {
         } else {
             todo!()
         }
-    }
-
-    // TODO this is fucked
-    fn parse_type(&mut self) -> Option<Rc<str>> {
-        fn get_ident_str(ident: &Token) -> Option<&str> {
-            if let Token::Ident(name) = ident {
-                Some(name)
-            } else {
-                None
-            }
-        }
-
-        let ty = match self.curr_token.clone() {
-            Token::Ident(ident) => Some(ident),
-            Token::Star => {
-                self.next_token();
-                if let Some(ty) = get_ident_str(&self.curr_token) {
-                    Some(("*".to_owned() + ty).into())
-                } else {
-                    todo!()
-                }
-            }
-            Token::Amp => {
-                self.next_token();
-                if let Some(ty) = get_ident_str(&self.curr_token) {
-                    Some(("&".to_owned() + ty).into())
-                } else {
-                    todo!()
-                }
-            }
-            Token::LBracket => {
-                self.next_token();
-                let ty = match self.curr_token.clone() {
-                    Token::Ident(ty) => Some(ty),
-                    Token::LBracket => self.parse_type(),
-                    _ => todo!(),
-                };
-
-                if let Some(ty) = ty {
-                    if self.peek_token == Token::Semicolon {
-                        self.next_token();
-                        self.next_token();
-                        if let Token::Int(len) = &self.curr_token.clone() {
-                            self.next_token();
-                            assert_eq!(Token::RBracket, self.curr_token);
-                            Some(format!("[{}; {}]", ty, len).as_str().into())
-                        } else {
-                            todo!()
-                        }
-                    } else if self.peek_token == Token::RBracket {
-                        Some(format!("[{}]", ty).as_str().into())
-                    } else {
-                        todo!()
-                    }
-                } else {
-                    todo!()
-                }
-            }
-            _ => todo!(),
-        };
-
-        ty
     }
 
     fn parse_statement(&mut self) -> Option<NodeRef> {
@@ -566,7 +534,7 @@ impl Parser {
                     }
 
                     // TODO feels hacky, test the shit out of this
-                    // make dot right-associative
+                    // this makes dot right-associative?
                     if op == Op::Dot {
                         op_precedence += 1;
                     }
