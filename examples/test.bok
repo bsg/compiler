@@ -69,6 +69,10 @@ fn main(argc: u32) -> u32 {
     *p = foo.inner.get_a() + foo.inner.c;
     *p = foo.inner.get_a_by_ref() + foo.inner.c;
 
+    let arr: [[u32; 4]; 2] = [
+        [1, 2, a + 1, 4], 
+        [2, 4, a + 1, 4]
+    ];
 
     if c1 {
         if c2 {
@@ -78,7 +82,9 @@ fn main(argc: u32) -> u32 {
         }
     }
 
-    return add_by_ref(&argc, &a);
+    // return add_by_ref(&argc, &a);
+    // return argc + arr[1][0];
+    return 0;
 }
 
 // fn add_different_types(a: u32, b: u8) -> u16 {

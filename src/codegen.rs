@@ -38,10 +38,10 @@ pub enum Type {
         signed: bool,
     },
     Ptr {
-        pointee_ty: usize,
+        pointee_type_id: usize,
     },
     Ref {
-        pointee_ty: usize,
+        pointee_type_id: usize,
     },
     Struct {
         type_id: usize,
@@ -51,13 +51,13 @@ pub enum Type {
         member_methods: HashMap<String, String>,
     },
     Array {
-        type_id: usize,
+        elem_type_id: usize,
         len: usize,
-    }
+    },
 }
 
 impl Type {
-    pub fn llvm_type(&self, env: &TypeEnv) -> LLVMTypeRef {
+    pub fn llvm_type(&self, type_env: &TypeEnv) -> LLVMTypeRef {
         match self {
             Type::None => unsafe { LLVMVoidType() },
             Type::Bool => unsafe { LLVMInt1Type() },
@@ -69,47 +69,63 @@ impl Type {
                 128 => unsafe { LLVMInt128Type() },
                 _ => todo!(),
             },
-            Type::Ref { pointee_ty } => unsafe {
-                LLVMPointerType(env.get_type_by_id(*pointee_ty).unwrap().llvm_type(env), 0)
+            Type::Ref {
+                pointee_type_id: pointee_ty,
+            } => unsafe {
+                LLVMPointerType(
+                    type_env
+                        .get_type_by_id(*pointee_ty)
+                        .unwrap()
+                        .llvm_type(type_env),
+                    0,
+                )
             },
-            Type::Ptr { pointee_ty } => todo!(),
+            Type::Ptr { .. } => todo!(),
             Type::Struct { field_type_ids, .. } => unsafe {
                 let mut llvm_types: Vec<LLVMTypeRef> = field_type_ids
                     .iter()
-                    .map(|f| env.get_type_by_id(*f).unwrap().llvm_type(env))
+                    .map(|f| type_env.get_type_by_id(*f).unwrap().llvm_type(type_env))
                     .collect();
                 // TODO packed
                 LLVMStructType(llvm_types.as_mut_ptr(), field_type_ids.len() as u32, 0)
             },
-            Type::Array { type_id, len } => todo!()
+            Type::Array { elem_type_id, len } => unsafe {
+                LLVMArrayType2(
+                    type_env
+                        .get_type_by_id(*elem_type_id)
+                        .unwrap()
+                        .llvm_type(type_env),
+                    *len as u64,
+                )
+            },
         }
     }
 
     // TODO numeric id
-    pub fn id(&self, env: &TypeEnv) -> usize {
+    pub fn id(&self, type_env: &TypeEnv) -> usize {
         match self {
-            Type::None => env.get_type_id_by_name("void"),
-            Type::Bool => env.get_type_id_by_name("bool"),
+            Type::None => type_env.get_type_id_by_name("void"),
+            Type::Bool => type_env.get_type_id_by_name("bool"),
             Type::Int { width, signed } => match width {
                 8 => {
                     if *signed {
-                        env.get_type_id_by_name("u8")
+                        type_env.get_type_id_by_name("u8")
                     } else {
-                        env.get_type_id_by_name("i8")
+                        type_env.get_type_id_by_name("i8")
                     }
                 }
                 16 => {
                     if *signed {
-                        env.get_type_id_by_name("u16")
+                        type_env.get_type_id_by_name("u16")
                     } else {
-                        env.get_type_id_by_name("i16")
+                        type_env.get_type_id_by_name("i16")
                     }
                 }
                 32 => {
                     if *signed {
-                        env.get_type_id_by_name("u32")
+                        type_env.get_type_id_by_name("u32")
                     } else {
-                        env.get_type_id_by_name("i32")
+                        type_env.get_type_id_by_name("i32")
                     }
                 }
                 _ => todo!(),
@@ -117,13 +133,47 @@ impl Type {
             Type::Ref { .. } => todo!(),
             Type::Ptr { .. } => todo!(),
             Type::Struct { type_id, .. } => *type_id,
-            Type::Array { .. } => todo!()
+            Type::Array { elem_type_id, len } => {
+                let elem_ty = type_env.get_type_by_id(*elem_type_id).unwrap();
+                type_env.get_type_id_by_name(&format!("[{}; {}]", elem_ty.name(type_env), len))
+            }
         }
     }
 
-    pub fn to_ref_type(&self, env: &TypeEnv) -> Type {
+    pub fn to_ref_type(&self, type_env: &TypeEnv) -> Type {
         Type::Ref {
-            pointee_ty: self.id(env),
+            pointee_type_id: self.id(type_env),
+        }
+    }
+
+    pub fn name(&self, type_env: &TypeEnv) -> Rc<str> {
+        // TODO impl missing
+        match self {
+            Type::None => "void".into(),
+            Type::Bool => "bool".into(),
+            Type::Int { width, signed } => match (width, signed) {
+                (8, true) => "i8".into(),
+                (8, false) => "u8".into(),
+                (16, true) => "i16".into(),
+                (16, false) => "u16".into(),
+                (32, true) => "i32".into(),
+                (32, false) => "u32".into(),
+                _ => todo!(),
+            },
+            Type::Ptr { .. } => todo!(),
+            Type::Ref { .. } => todo!(),
+            Type::Struct { type_id, .. } => {
+                type_env.get_type_by_id(*type_id).unwrap().name(type_env)
+            }
+            Type::Array { elem_type_id, len } => format!(
+                "[{}; {}]",
+                type_env
+                    .get_type_by_id(*elem_type_id)
+                    .unwrap()
+                    .name(type_env),
+                len
+            )
+            .into(),
         }
     }
 }
@@ -273,10 +323,25 @@ impl TypeEnv {
                     self.insert_type_by_name(
                         name,
                         Type::Ref {
-                            pointee_ty: self.get_type_id_by_name(name.strip_prefix('&').unwrap()),
+                            pointee_type_id: self
+                                .get_type_id_by_name(name.strip_prefix('&').unwrap()),
                         },
                     );
                     self.get_type_by_name(name)
+                } else if name.starts_with('[') {
+                    // TODO should not be parsing shit here
+                    if let Some((ty, len)) = name[1..name.len() - 1].split_once(';') {
+                        self.insert_type_by_name(
+                            name,
+                            Type::Array {
+                                elem_type_id: self.get_type_id_by_name(ty),
+                                len: str::parse(&len[1..]).unwrap(),
+                            },
+                        );
+                        self.get_type_by_name(name)
+                    } else {
+                        todo!()
+                    }
                 } else if name == "Self" || name == "&Self" {
                     // don't ask parents for Self if it's not defined in the current scope
                     None
@@ -298,10 +363,24 @@ impl TypeEnv {
                     self.insert_type_by_name(
                         name,
                         Type::Ref {
-                            pointee_ty: self.get_type_id_by_name(name.strip_prefix('&').unwrap()),
+                            pointee_type_id: self
+                                .get_type_id_by_name(name.strip_prefix('&').unwrap()),
                         },
                     );
                     self.get_type_by_name_mut(name)
+                } else if name.starts_with('[') {
+                    if let Some((ty, len)) = name[1..name.len() - 1].split_once(';') {
+                        self.insert_type_by_name(
+                            name,
+                            Type::Array {
+                                elem_type_id: self.get_type_id_by_name(ty),
+                                len: str::parse(&len[1..]).unwrap(),
+                            },
+                        );
+                        self.get_type_by_name_mut(name)
+                    } else {
+                        todo!()
+                    }
                 } else if name == "Self" || name == "&Self" {
                     // don't ask parents for Self if it's not defined in the current scope
                     None
@@ -430,7 +509,7 @@ impl Env {
 
 // TODO rename
 struct Val {
-    ty: Type,
+    ty: Type, // TODO this needs to be typeid
     llvm_val: LLVMValueRef,
 }
 
@@ -469,7 +548,9 @@ impl ModuleBuilder {
         unsafe {
             let val = self.build_expr(env.clone(), type_env.clone(), node.clone(), false);
             let ty = match val.ty {
-                Type::Ref { pointee_ty } => (*type_env.get())
+                Type::Ref {
+                    pointee_type_id: pointee_ty,
+                } => (*type_env.get())
                     .get_type_by_id(pointee_ty)
                     .unwrap()
                     .clone(),
@@ -698,7 +779,14 @@ impl ModuleBuilder {
                                 let mut args = args.to_vec();
                                 if self_by_ref {
                                     // hacky but works, dunno?
-                                    args.insert(0, Node::UnOp { op: Op::Ref, rhs: lhs.clone() }.into())
+                                    args.insert(
+                                        0,
+                                        Node::UnOp {
+                                            op: Op::Ref,
+                                            rhs: lhs.clone(),
+                                        }
+                                        .into(),
+                                    )
                                 } else {
                                     args.insert(0, lhs.clone());
                                 }
@@ -715,6 +803,47 @@ impl ModuleBuilder {
                         _ => todo!(),
                     }
                 },
+                Op::Index => {
+                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+
+                    match (lhs_val.ty.clone(), rhs_val.ty) {
+                        (Type::Array { elem_type_id, len }, Type::Int { signed, .. }) => {
+                            // TODO this and bounds check
+                            // if !signed {
+                            //     panic!("cannot index with signed int");
+                            // }
+
+                            let elem_ty = type_env_ref.get_type_by_id(elem_type_id).unwrap();
+
+                            let ptr = unsafe {
+                                LLVMBuildInBoundsGEP2(
+                                    self.builder,
+                                    lhs_val.ty.llvm_type(type_env_ref),
+                                    lhs_val.llvm_val,
+                                    [LLVMConstInt(LLVMInt64Type(), 0, 0), rhs_val.llvm_val]
+                                        .as_mut_ptr(),
+                                    2,
+                                    "".to_cstring().as_ptr(),
+                                )
+                            };
+
+                            (
+                                unsafe {
+                                    LLVMBuildLoad2(
+                                        self.builder,
+                                        elem_ty.llvm_type(type_env_ref),
+                                        ptr,
+                                        "".to_cstring().as_ptr(),
+                                    )
+                                },
+                                elem_ty.clone(),
+                            )
+                        }
+                        _ => todo!(),
+                    }
+                }
                 _ => todo!(),
             };
 
@@ -825,6 +954,30 @@ impl ModuleBuilder {
             }
             Node::Call { ident, args } => {
                 self.build_call(env.clone(), type_env.clone(), ident, args.clone())
+            }
+            Node::Array { elems } => {
+                let elem_vals: Vec<Val> = elems
+                    .iter()
+                    .map(|elem| self.build_expr(env.clone(), type_env.clone(), elem.clone(), false))
+                    .collect();
+                let elem_ty = elem_vals.first().unwrap().ty.clone();
+                let mut elem_vals: Vec<LLVMValueRef> =
+                    elem_vals.iter().map(|elem| elem.llvm_val).collect();
+                let llvm_val = unsafe {
+                    LLVMConstArray2(
+                        elem_ty.llvm_type(&*type_env.get()),
+                        elem_vals.as_mut_slice().as_mut_ptr(),
+                        elem_vals.len() as u64,
+                    )
+                };
+
+                Val {
+                    ty: Type::Array {
+                        elem_type_id: elem_ty.id(unsafe { &*type_env.get() }),
+                        len: elem_vals.len(),
+                    },
+                    llvm_val,
+                }
             }
             _ => panic!("unimplemented!\n {:?}", node),
         }

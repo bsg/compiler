@@ -139,11 +139,6 @@ pub enum Node {
         ident: Rc<str>,
         args: Rc<[NodeRef]>,
     },
-    // TODO make this a binop
-    Index {
-        ident: Rc<str>,
-        index: NodeRef,
-    },
     // TODO where is this used?
     Pair {
         key: NodeRef,
@@ -155,11 +150,11 @@ pub enum Node {
     },
     Impl {
         ident: Rc<str>,
-        methods: Rc<[NodeRef]>
+        methods: Rc<[NodeRef]>,
     },
     Array {
-        elems: Rc<[NodeRef]>
-    }
+        elems: Rc<[NodeRef]>,
+    },
 }
 
 impl fmt::Debug for Node {
@@ -194,7 +189,11 @@ impl fmt::Debug for Node {
                         "let {}{}{}",
                         ty,
                         fmt_with_indent(lhs, indent_level + 1, true),
-                        if rhs.is_some() {fmt_with_indent(rhs.as_ref().unwrap(), indent_level + 1, true)} else {"".to_string()}
+                        if rhs.is_some() {
+                            fmt_with_indent(rhs.as_ref().unwrap(), indent_level + 1, true)
+                        } else {
+                            "".to_string()
+                        }
                     )
                 }
                 Node::Return { stmt } => match stmt {
@@ -227,7 +226,11 @@ impl fmt::Debug for Node {
                     }
                 }
                 Node::While { condition, body } => {
-                    format!("while{}{}", fmt_with_indent(condition, indent_level + 1, true), fmt_with_indent(body, indent_level + 1, true))
+                    format!(
+                        "while{}{}",
+                        fmt_with_indent(condition, indent_level + 1, true),
+                        fmt_with_indent(body, indent_level + 1, true)
+                    )
                 }
                 Node::Block { statements } => {
                     let mut b = "block".to_string();
@@ -263,9 +266,6 @@ impl fmt::Debug for Node {
                     }
                     c
                 }
-                Node::Index { ident, index } => {
-                    format! {"index {}{}", ident, fmt_with_indent(index, indent_level + 1, true).as_str()}
-                }
                 Node::Pair { .. } => todo!(),
                 Node::Struct { ident, fields } => {
                     let fields_str = fields.iter().fold(String::new(), |mut acc, field| {
@@ -275,7 +275,7 @@ impl fmt::Debug for Node {
                         acc += " ";
                         acc += &field.ty;
                         acc
-                });
+                    });
                     format!("struct {}{}", ident, fields_str)
                 }
                 Node::Impl { ident, methods } => {

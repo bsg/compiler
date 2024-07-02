@@ -281,17 +281,13 @@ impl Parser {
     fn parse_index(&mut self, lhs: NodeRef) -> Option<NodeRef> {
         assert_eq!(self.peek_token, Token::LBracket);
 
-        let ident = match &*lhs {
-            Node::Ident { name } => name.clone(),
-            _ => todo!(),
-        };
         self.next_token();
 
-        let index = self.parse_expression(0)?;
+        let rhs = self.parse_expression(0)?;
         assert_eq!(self.peek_token, Token::RBracket);
         self.next_token();
 
-        Some(Node::Index { ident, index }.into())
+        Some(Node::BinOp { op: Op::Index, lhs, rhs }.into())
     }
 
     fn parse_pair(&mut self, key: NodeRef) -> Option<NodeRef> {
@@ -1107,21 +1103,24 @@ let [[u8; 5]; 2]
         assert_parse!(
             "arr[2]",
             "\
-index arr
+index
+    ident arr
     2
 "
         );
         assert_parse!(
             "arr[x]",
             "\
-index arr
+index
+    ident arr
     ident x
 "
         );
         assert_parse!(
             "arr[x + 2]",
             "\
-index arr
+index
+    ident arr
     add
         ident x
         2
@@ -1131,9 +1130,11 @@ index arr
             "arr[1] + arr[2]",
             "\
 add
-    index arr
+    index
+        ident arr
         1
-    index arr
+    index
+        ident arr
         2
 "
         );
