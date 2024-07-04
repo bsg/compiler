@@ -480,41 +480,17 @@ impl Env {
     }
 
     pub fn get_var(&self, ident: &str) -> Option<&Var> {
-        match (unsafe { &*self.vars.get() }).get(ident) {
-            v @ Some(_) => v,
-            None => {
-                if let Some(parent) = &self.parent {
-                    parent.get_var(ident)
-                } else {
-                    None
-                }
+        (unsafe { &*self.vars.get() }).get(ident).or({
+            if let Some(parent) = &self.parent {
+                parent.get_var(ident)
+            } else {
+                None
             }
-        }
+        })
     }
 
-    // TODO clippy
-    #[allow(clippy::too_many_arguments)]
-    pub fn insert_func(
-        &self,
-        ident: &str,
-        val: LLVMValueRef,
-        ty: LLVMTypeRef,
-        arg_tys: Vec<Type>,
-        ret_ty: Type,
-        env: Rc<Env>,
-        body: LLVMBasicBlockRef,
-    ) {
-        (unsafe { &mut *self.funcs.get() }).insert(
-            ident.to_string(),
-            Func {
-                val,
-                llvm_ty: ty,
-                ret_ty,
-                env,
-                body,
-                arg_tys,
-            },
-        );
+    pub fn insert_func(&self, ident: &str, func: Func) {
+        (unsafe { &mut *self.funcs.get() }).insert(ident.to_string(), func);
     }
 
     pub fn get_func(&self, ident: &str) -> Option<&Func> {
@@ -869,7 +845,7 @@ impl ModuleBuilder {
                                     env.clone(),
                                     type_env.clone(),
                                     func_ident,
-                                    args.into(),
+                                    &args,
                                 );
                             }
                             _ => todo!(),
@@ -935,12 +911,7 @@ impl ModuleBuilder {
                         {
                             let mangled_name = static_methods.get(&**fn_ident).unwrap();
 
-                            return self.build_call(
-                                env,
-                                type_env.clone(),
-                                mangled_name,
-                                fn_args.clone(),
-                            );
+                            return self.build_call(env, type_env.clone(), mangled_name, fn_args);
                         } else {
                             todo!()
                         }
@@ -964,7 +935,7 @@ impl ModuleBuilder {
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
         ident: &str,
-        arg_exprs: Rc<[NodeRef]>,
+        arg_exprs: &[NodeRef],
     ) -> Val {
         // TODO LLVMGetNamedFunction for extern fns
         let func = env.get_func(ident).unwrap();
@@ -988,6 +959,30 @@ impl ModuleBuilder {
 
         Val {
             ty: func.ret_ty.clone(),
+            llvm_val,
+        }
+    }
+
+    fn build_array(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, elems: &[NodeRef]) -> Val {
+        let elem_vals: Vec<Val> = elems
+            .iter()
+            .map(|elem| self.build_expr(env.clone(), type_env.clone(), elem.clone(), false))
+            .collect();
+        let elem_ty = elem_vals.first().unwrap().ty.clone();
+        let mut elem_vals: Vec<LLVMValueRef> = elem_vals.iter().map(|elem| elem.llvm_val).collect();
+        let llvm_val = unsafe {
+            LLVMConstArray2(
+                elem_ty.llvm_type(type_env.clone()),
+                elem_vals.as_mut_slice().as_mut_ptr(),
+                elem_vals.len() as u64,
+            )
+        };
+
+        Val {
+            ty: Type::Array {
+                elem_type_id: elem_ty.id(type_env.clone()),
+                len: elem_vals.len(),
+            },
             llvm_val,
         }
     }
@@ -1039,49 +1034,10 @@ impl ModuleBuilder {
                     panic!("unresolved ident {}", name)
                 }
             },
-            Node::UnOp { .. } => {
-                let val = self.build_unop(env, type_env, node.clone(), as_lvalue);
-
-                Val {
-                    ty: val.ty,
-                    llvm_val: val.llvm_val,
-                }
-            }
-            Node::BinOp { .. } => {
-                let val = self.build_binop(env, type_env.clone(), node.clone(), as_lvalue);
-
-                Val {
-                    ty: val.ty,
-                    llvm_val: val.llvm_val,
-                }
-            }
-            Node::Call { ident, args } => {
-                self.build_call(env.clone(), type_env.clone(), ident, args.clone())
-            }
-            Node::Array { elems } => {
-                let elem_vals: Vec<Val> = elems
-                    .iter()
-                    .map(|elem| self.build_expr(env.clone(), type_env.clone(), elem.clone(), false))
-                    .collect();
-                let elem_ty = elem_vals.first().unwrap().ty.clone();
-                let mut elem_vals: Vec<LLVMValueRef> =
-                    elem_vals.iter().map(|elem| elem.llvm_val).collect();
-                let llvm_val = unsafe {
-                    LLVMConstArray2(
-                        elem_ty.llvm_type(type_env.clone()),
-                        elem_vals.as_mut_slice().as_mut_ptr(),
-                        elem_vals.len() as u64,
-                    )
-                };
-
-                Val {
-                    ty: Type::Array {
-                        elem_type_id: elem_ty.id(type_env.clone()),
-                        len: elem_vals.len(),
-                    },
-                    llvm_val,
-                }
-            }
+            Node::UnOp { .. } => self.build_unop(env, type_env, node, as_lvalue),
+            Node::BinOp { .. } => self.build_binop(env, type_env, node, as_lvalue),
+            Node::Call { ident, args } => self.build_call(env, type_env, ident, args),
+            Node::Array { elems } => self.build_array(env, type_env, elems),
             _ => panic!("unimplemented!\n {:?}", node),
         }
     }
@@ -1257,12 +1213,14 @@ impl ModuleBuilder {
         // this needs to be global
         self.env.insert_func(
             ident,
-            val,
-            func_ty,
-            arg_tys,
-            ret_ty.clone(),
-            Rc::new(fn_env),
-            unsafe { LLVMAppendBasicBlock(val, "".to_string().to_cstring().as_ptr()) },
+            Func {
+                env: Rc::new(fn_env),
+                arg_tys,
+                ret_ty: ret_ty.clone(),
+                val,
+                llvm_ty: func_ty,
+                body: unsafe { LLVMAppendBasicBlock(val, "".to_string().to_cstring().as_ptr()) },
+            },
         );
     }
 
