@@ -1,4 +1,3 @@
-// TODO Env/TypeEnv are still passed around in Rc. don't.
 // TODO Scope!
 // TODO impl type aliasing and make 'Self' a type alias instead of a new type
 // TODO struct literals
