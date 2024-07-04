@@ -52,7 +52,8 @@ pub enum Token {
     While,
     Return,
     Struct,
-    Impl
+    Impl,
+    NullPtr
 }
 
 impl std::fmt::Display for Token {
@@ -237,6 +238,7 @@ impl Tokens {
                         "while" => Token::While,
                         "struct" => Token::Struct,
                         "impl" => Token::Impl,
+                        "nullptr" => Token::NullPtr,
                         _ => Token::Ident(ident),
                     };
                 }

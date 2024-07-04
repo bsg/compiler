@@ -5,7 +5,6 @@
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
-use std::any::type_name;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -42,7 +41,7 @@ pub enum Type {
         pointee_type_id: usize,
     },
     Ref {
-        pointee_type_id: usize,
+        referent_type_id: usize,
     },
     Struct {
         type_id: usize,
@@ -70,18 +69,24 @@ impl Type {
                 128 => unsafe { LLVMInt128Type() },
                 _ => todo!(),
             },
-            Type::Ref {
-                pointee_type_id: pointee_ty,
-            } => unsafe {
+            Type::Ref { referent_type_id } => unsafe {
                 LLVMPointerType(
                     type_env
-                        .get_type_by_id(*pointee_ty)
+                        .get_type_by_id(*referent_type_id)
                         .unwrap()
                         .llvm_type(type_env),
                     0,
                 )
             },
-            Type::Ptr { .. } => todo!(),
+            Type::Ptr { pointee_type_id } => unsafe {
+                LLVMPointerType(
+                    type_env
+                        .get_type_by_id(*pointee_type_id)
+                        .unwrap()
+                        .llvm_type(type_env),
+                    0,
+                )
+            },
             Type::Struct { field_type_ids, .. } => unsafe {
                 let mut llvm_types: Vec<LLVMTypeRef> = field_type_ids
                     .iter()
@@ -102,7 +107,6 @@ impl Type {
         }
     }
 
-    // TODO numeric id
     pub fn id(&self, type_env: &TypeEnv) -> usize {
         match self {
             Type::None => type_env.get_type_id_by_name("void"),
@@ -143,7 +147,7 @@ impl Type {
 
     pub fn to_ref_type(&self, type_env: &TypeEnv) -> Type {
         Type::Ref {
-            pointee_type_id: self.id(type_env),
+            referent_type_id: self.id(type_env),
         }
     }
 
@@ -161,8 +165,21 @@ impl Type {
                 (32, false) => "u32".into(),
                 _ => todo!(),
             },
-            Type::Ptr { .. } => todo!(),
-            Type::Ref { .. } => todo!(),
+            Type::Ptr { pointee_type_id } => format!(
+                "*{}",
+                type_env
+                    .get_type_by_id(*pointee_type_id)
+                    .unwrap()
+                    .name(type_env)
+            )
+            .into(),
+            Type::Ref { referent_type_id  } => format!(
+                "&{}",
+                type_env
+                    .get_type_by_id(*referent_type_id)
+                    .unwrap()
+                    .name(type_env)
+            ).into(),
             Type::Struct { type_id, .. } => {
                 type_env.get_type_by_id(*type_id).unwrap().name(type_env)
             }
@@ -346,7 +363,7 @@ impl TypeEnv {
                     self.insert_type_by_name(
                         name,
                         Type::Ref {
-                            pointee_type_id: self
+                            referent_type_id: self
                                 .get_type_id_by_name(name.strip_prefix('&').unwrap()),
                         },
                     );
@@ -372,7 +389,7 @@ impl TypeEnv {
                     self.insert_type_by_name(
                         name,
                         Type::Ref {
-                            pointee_type_id: self
+                            referent_type_id: self
                                 .get_type_id_by_name(name.strip_prefix('&').unwrap()),
                         },
                     );
@@ -544,10 +561,8 @@ impl ModuleBuilder {
         unsafe {
             let val = self.build_expr(env.clone(), type_env.clone(), node.clone(), false);
             let ty = match val.ty {
-                Type::Ref {
-                    pointee_type_id: pointee_ty,
-                } => (*type_env.get())
-                    .get_type_by_id(pointee_ty)
+                Type::Ref { referent_type_id } => (*type_env.get())
+                    .get_type_by_id(referent_type_id)
                     .unwrap()
                     .clone(),
                 _ => panic!("cannot deref"),
