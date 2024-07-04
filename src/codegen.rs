@@ -934,6 +934,13 @@ impl ModuleBuilder {
                                 todo!()
                             }
                         }
+                        (Type::Ptr { pointee_type_id }, Type::Ref { referent_type_id }) => {
+                            if *referent_type_id == pointee_type_id {
+                                (lhs_val.llvm_val, ty.clone())
+                            } else {
+                                todo!()
+                            }
+                        }
                         _ => todo!(),
                     }
                 }
