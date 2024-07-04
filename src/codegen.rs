@@ -644,31 +644,16 @@ impl ModuleBuilder {
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
 
                     match (&lhs_val.ty, rhs_val.ty) {
-                        (
-                            Type::Int {
-                                width: width_a,
-                                signed: signed_a,
-                            },
-                            Type::Int {
-                                width: width_b,
-                                signed: signed_b,
-                            },
-                        ) => (
+                        (Type::Int { .. }, Type::Int { .. }) => (
                             LLVMBuildAdd(
                                 self.builder,
                                 lhs_val.llvm_val,
                                 rhs_val.llvm_val,
                                 "".to_cstring().as_ptr(),
                             ),
-                            lhs_val.ty
+                            lhs_val.ty,
                         ),
-                        (
-                            Type::Ptr { pointee_type_id },
-                            Type::Int {
-                                width: width_a,
-                                signed: signed_a,
-                            },
-                        ) => {
+                        (Type::Ptr { pointee_type_id }, Type::Int { .. }) => {
                             // TODO type check and sext
                             let pointee_ty = type_env_ref.get_type_by_id(*pointee_type_id).unwrap();
                             (
@@ -691,49 +676,38 @@ impl ModuleBuilder {
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                        match (&lhs_val.ty, rhs_val.ty) {
+                    match (&lhs_val.ty, rhs_val.ty) {
+                        (Type::Int { .. }, Type::Int { .. }) => (
+                            LLVMBuildSub(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        (Type::Ptr { pointee_type_id }, Type::Int { .. }) => {
+                            // TODO type check and sext
+                            let pointee_ty = type_env_ref.get_type_by_id(*pointee_type_id).unwrap();
+                            let offset = LLVMBuildNeg(
+                                self.builder,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            );
                             (
-                                Type::Int {
-                                    width: width_a,
-                                    signed: signed_a,
-                                },
-                                Type::Int {
-                                    width: width_b,
-                                    signed: signed_b,
-                                },
-                            ) => (
-                                LLVMBuildSub(
+                                LLVMBuildGEP2(
                                     self.builder,
+                                    pointee_ty.llvm_type(type_env_ref),
                                     lhs_val.llvm_val,
-                                    rhs_val.llvm_val,
+                                    [offset].as_mut_ptr(),
+                                    1,
                                     "".to_cstring().as_ptr(),
                                 ),
-                                lhs_val.ty
-                            ),
-                            (
-                                Type::Ptr { pointee_type_id },
-                                Type::Int {
-                                    width: width_a,
-                                    signed: signed_a,
-                                },
-                            ) => {
-                                // TODO type check and sext
-                                let pointee_ty = type_env_ref.get_type_by_id(*pointee_type_id).unwrap();
-                                let offset = LLVMBuildNeg(self.builder, rhs_val.llvm_val, "".to_cstring().as_ptr());
-                                (
-                                    LLVMBuildGEP2(
-                                        self.builder,
-                                        pointee_ty.llvm_type(type_env_ref),
-                                        lhs_val.llvm_val,
-                                        [offset].as_mut_ptr(),
-                                        1,
-                                        "".to_cstring().as_ptr(),
-                                    ),
-                                    lhs_val.ty,
-                                )
-                            }
-                            _ => todo!(),
+                                lhs_val.ty,
+                            )
                         }
+                        _ => todo!(),
+                    }
                 },
                 Op::Mul => unsafe {
                     let lhs_val =
@@ -906,7 +880,7 @@ impl ModuleBuilder {
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
 
                     match (lhs_val.ty.clone(), rhs_val.ty) {
-                        (Type::Array { elem_type_id, len }, Type::Int { signed, .. }) => {
+                        (Type::Array { elem_type_id, .. }, Type::Int { .. }) => {
                             // TODO this and bounds check
                             // if !signed {
                             //     panic!("cannot index with signed int");
@@ -1384,7 +1358,7 @@ impl ModuleBuilder {
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
                     let mut field_types: Vec<usize> = Vec::new();
                     for (idx, field) in fields.iter().enumerate() {
-                        field_types.push(type_env.get_type_id_by_name(&field.ty).clone());
+                        field_types.push(type_env.get_type_id_by_name(&field.ty));
                         field_indices.insert(field.ident.to_string(), idx);
                     }
                     let type_id = type_env.get_type_id_by_name(ident);
