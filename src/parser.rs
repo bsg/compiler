@@ -287,7 +287,14 @@ impl Parser {
         assert_eq!(self.peek_token, Token::RBracket);
         self.next_token();
 
-        Some(Node::BinOp { op: Op::Index, lhs, rhs }.into())
+        Some(
+            Node::BinOp {
+                op: Op::Index,
+                lhs,
+                rhs,
+            }
+            .into(),
+        )
     }
 
     fn parse_pair(&mut self, key: NodeRef) -> Option<NodeRef> {
@@ -368,7 +375,7 @@ impl Parser {
             match self.curr_token {
                 Token::Comma => (),
                 Token::RBracket => break,
-                _ => todo!()
+                _ => todo!(),
             }
         }
 
@@ -544,30 +551,40 @@ impl Parser {
                 Token::Colon => Op::Colon,
                 Token::Dot => Op::Dot,
                 Token::ColonColon => Op::ScopeRes,
+                Token::As => Op::Cast,
                 _ => break,
             };
 
-            match op {
-                Op::Call => lhs = self.parse_call(lhs)?,
-                Op::Index => lhs = self.parse_index(lhs)?,
-                Op::Colon => lhs = self.parse_pair(lhs)?,
-                op => {
-                    let mut op_precedence = op.precedence();
-                    if op_precedence < precedence {
-                        break;
-                    }
+            let mut op_precedence = op.precedence();
+            if op_precedence < precedence {
+                break;
+            }
 
+            lhs = match op {
+                Op::Call => self.parse_call(lhs)?,
+                Op::Index => self.parse_index(lhs)?,
+                Op::Colon => self.parse_pair(lhs)?,
+                Op::Cast => {
+                    self.next_token();
+                    self.next_token();
+                    let type_ident = self.parse_type()?;
+                    Rc::new(Node::BinOp {
+                        op: Op::Cast,
+                        lhs,
+                        rhs: Node::Ident { name: type_ident }.into(),
+                    })
+                }
+                op => {
                     // TODO feels hacky, test the shit out of this
-                    // this makes dot right-associative?
                     if op == Op::Dot {
                         op_precedence += 1;
                     }
 
                     self.next_token();
                     let rhs = self.parse_expression(op_precedence)?;
-                    lhs = Rc::new(Node::BinOp { op, lhs, rhs });
+                    Rc::new(Node::BinOp { op, lhs, rhs })
                 }
-            }
+            };
         }
         Some(lhs)
     }
@@ -1291,6 +1308,24 @@ mul
     scoperes
         ident A
         call foo
+"
+        );
+    }
+
+    #[test]
+    fn cast_operator() {
+        assert_parse!(
+            "1 * A::foo() as *u32 * 5",
+            "\
+mul
+    1
+    mul
+        cast
+            scoperes
+                ident A
+                call foo
+            ident *u32
+        5
 "
         );
     }

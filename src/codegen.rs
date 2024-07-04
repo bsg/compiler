@@ -122,23 +122,23 @@ impl Type {
             Type::Int { width, signed } => match width {
                 8 => {
                     if *signed {
-                        type_env.get_type_id_by_name("u8")
-                    } else {
                         type_env.get_type_id_by_name("i8")
+                    } else {
+                        type_env.get_type_id_by_name("u8")
                     }
                 }
                 16 => {
                     if *signed {
-                        type_env.get_type_id_by_name("u16")
-                    } else {
                         type_env.get_type_id_by_name("i16")
+                    } else {
+                        type_env.get_type_id_by_name("u16")
                     }
                 }
                 32 => {
                     if *signed {
-                        type_env.get_type_id_by_name("u32")
-                    } else {
                         type_env.get_type_id_by_name("i32")
+                    } else {
+                        type_env.get_type_id_by_name("u32")
                     }
                 }
                 _ => todo!(),
@@ -918,6 +918,25 @@ impl ModuleBuilder {
                     }
                     _ => todo!(),
                 },
+                Op::Cast => {
+                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
+                    let ty = if let Node::Ident { name } = &**rhs {
+                        type_env.get_type_by_name(name).unwrap()
+                    } else {
+                        todo!()
+                    };
+
+                    match (lhs_val.ty, ty) {
+                        (Type::Ref { referent_type_id }, Type::Ptr { pointee_type_id }) => {
+                            if referent_type_id == *pointee_type_id {
+                                (lhs_val.llvm_val, ty.clone())
+                            } else {
+                                todo!()
+                            }
+                        }
+                        _ => todo!(),
+                    }
+                }
                 _ => todo!(),
             };
 
