@@ -92,9 +92,11 @@ fn main(argc: u32) -> u32 {
     }
 
     let arr_ref: &[u32; 4] = &arr[0];
+    let ptr: *u32 = &arr[0];
+    let p2: *u32 = ptr + 1;
 
     // return add_by_ref(&argc, &a);
-    return first_by_ref(&arr[0]) + arr[0][3] + A::get_static();
+    return first_by_ref(&arr[0]) + arr[0][3] + A::get_static() + *(p2 - 1);
 }
 
 // fn add_different_types(a: u32, b: u8) -> u16 {

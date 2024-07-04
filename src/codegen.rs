@@ -38,12 +38,15 @@ pub enum Type {
         signed: bool,
     },
     Ptr {
+        // TODO make this an Rc<Type>
         pointee_type_id: usize,
     },
     Ref {
+        // TODO make this an Rc<Type>
         referent_type_id: usize,
     },
     Struct {
+        // TODO make this an Rc<Type>
         type_id: usize,
         field_indices: HashMap<String, usize>,
         field_type_ids: Vec<usize>,
@@ -51,6 +54,7 @@ pub enum Type {
         member_methods: HashMap<String, String>,
     },
     Array {
+        // TODO make this an Rc<Type>
         elem_type_id: usize,
         len: usize,
     },
@@ -173,13 +177,14 @@ impl Type {
                     .name(type_env)
             )
             .into(),
-            Type::Ref { referent_type_id  } => format!(
+            Type::Ref { referent_type_id } => format!(
                 "&{}",
                 type_env
                     .get_type_by_id(*referent_type_id)
                     .unwrap()
                     .name(type_env)
-            ).into(),
+            )
+            .into(),
             Type::Struct { type_id, .. } => {
                 type_env.get_type_by_id(*type_id).unwrap().name(type_env)
             }
@@ -365,6 +370,15 @@ impl TypeEnv {
                         Type::Ref {
                             referent_type_id: self
                                 .get_type_id_by_name(name.strip_prefix('&').unwrap()),
+                        },
+                    );
+                    self.get_type_by_name(name)
+                } else if name.starts_with('*') {
+                    self.insert_type_by_name(
+                        name,
+                        Type::Ptr {
+                            pointee_type_id: self
+                                .get_type_id_by_name(name.strip_prefix('*').unwrap()),
                         },
                     );
                     self.get_type_by_name(name)
@@ -565,6 +579,10 @@ impl ModuleBuilder {
                     .get_type_by_id(referent_type_id)
                     .unwrap()
                     .clone(),
+                Type::Ptr { pointee_type_id } => (*type_env.get())
+                    .get_type_by_id(pointee_type_id)
+                    .unwrap()
+                    .clone(),
                 _ => panic!("cannot deref"),
             };
 
@@ -624,30 +642,98 @@ impl ModuleBuilder {
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    (
-                        LLVMBuildAdd(
-                            self.builder,
-                            lhs_val.llvm_val,
-                            rhs_val.llvm_val,
-                            "".to_cstring().as_ptr(),
+
+                    match (&lhs_val.ty, rhs_val.ty) {
+                        (
+                            Type::Int {
+                                width: width_a,
+                                signed: signed_a,
+                            },
+                            Type::Int {
+                                width: width_b,
+                                signed: signed_b,
+                            },
+                        ) => (
+                            LLVMBuildAdd(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty
                         ),
-                        type_env_ref.get_type_by_name("u32").unwrap().clone(),
-                    )
+                        (
+                            Type::Ptr { pointee_type_id },
+                            Type::Int {
+                                width: width_a,
+                                signed: signed_a,
+                            },
+                        ) => {
+                            // TODO type check and sext
+                            let pointee_ty = type_env_ref.get_type_by_id(*pointee_type_id).unwrap();
+                            (
+                                LLVMBuildGEP2(
+                                    self.builder,
+                                    pointee_ty.llvm_type(type_env_ref),
+                                    lhs_val.llvm_val,
+                                    [rhs_val.llvm_val].as_mut_ptr(),
+                                    1,
+                                    "".to_cstring().as_ptr(),
+                                ),
+                                lhs_val.ty,
+                            )
+                        }
+                        _ => todo!(),
+                    }
                 },
                 Op::Sub => unsafe {
                     let lhs_val =
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    (
-                        LLVMBuildSub(
-                            self.builder,
-                            lhs_val.llvm_val,
-                            rhs_val.llvm_val,
-                            "".to_cstring().as_ptr(),
-                        ),
-                        type_env_ref.get_type_by_name("u32").unwrap().clone(),
-                    )
+                        match (&lhs_val.ty, rhs_val.ty) {
+                            (
+                                Type::Int {
+                                    width: width_a,
+                                    signed: signed_a,
+                                },
+                                Type::Int {
+                                    width: width_b,
+                                    signed: signed_b,
+                                },
+                            ) => (
+                                LLVMBuildSub(
+                                    self.builder,
+                                    lhs_val.llvm_val,
+                                    rhs_val.llvm_val,
+                                    "".to_cstring().as_ptr(),
+                                ),
+                                lhs_val.ty
+                            ),
+                            (
+                                Type::Ptr { pointee_type_id },
+                                Type::Int {
+                                    width: width_a,
+                                    signed: signed_a,
+                                },
+                            ) => {
+                                // TODO type check and sext
+                                let pointee_ty = type_env_ref.get_type_by_id(*pointee_type_id).unwrap();
+                                let offset = LLVMBuildNeg(self.builder, rhs_val.llvm_val, "".to_cstring().as_ptr());
+                                (
+                                    LLVMBuildGEP2(
+                                        self.builder,
+                                        pointee_ty.llvm_type(type_env_ref),
+                                        lhs_val.llvm_val,
+                                        [offset].as_mut_ptr(),
+                                        1,
+                                        "".to_cstring().as_ptr(),
+                                    ),
+                                    lhs_val.ty,
+                                )
+                            }
+                            _ => todo!(),
+                        }
                 },
                 Op::Mul => unsafe {
                     let lhs_val =
