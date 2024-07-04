@@ -29,6 +29,7 @@ pub enum Op {
     Ref,
     Deref,
     Dot,
+    ScopeRes,
 }
 
 impl std::fmt::Debug for Op {
@@ -56,6 +57,7 @@ impl std::fmt::Debug for Op {
             Op::Ref => write!(f, "ref"),
             Op::Deref => write!(f, "deref"),
             Op::Dot => write!(f, "dot"),
+            Op::ScopeRes => write!(f, "scoperes")
         }
     }
 }
@@ -67,7 +69,7 @@ impl Op {
             Op::Lt | Op::Gt | Op::Le | Op::Ge => 2,
             Op::Add | Op::Sub => 3,
             Op::Mul | Op::Div | Op::Mod => 4,
-            Op::Neg | Op::Not | Op::Ref | Op::Deref | Op::Dot => 5,
+            Op::Neg | Op::Not | Op::Ref | Op::Deref | Op::Dot | Op::ScopeRes => 5,
             _ => 0,
         }
     }

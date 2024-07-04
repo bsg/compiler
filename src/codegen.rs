@@ -5,6 +5,7 @@
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
+use std::any::type_name;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -842,6 +843,27 @@ impl ModuleBuilder {
                         _ => todo!(),
                     }
                 }
+                Op::ScopeRes => match (&**lhs, &**rhs) {
+                    // TODO probably not the correct way to do this
+                    (
+                        Node::Ident { name: type_name },
+                        Node::Call {
+                            ident: fn_ident,
+                            args: fn_args,
+                        },
+                    ) => {
+                        if let Some(Type::Struct { static_methods, .. }) =
+                            type_env_ref.get_type_by_name(type_name)
+                        {
+                            let mangled_name = static_methods.get(&**fn_ident).unwrap();
+
+                            return self.build_call(env, type_env, mangled_name, fn_args.clone());
+                        } else {
+                            todo!()
+                        }
+                    }
+                    _ => todo!(),
+                },
                 _ => todo!(),
             };
 

@@ -543,6 +543,7 @@ impl Parser {
                 Token::LBracket => Op::Index,
                 Token::Colon => Op::Colon,
                 Token::Dot => Op::Dot,
+                Token::ColonColon => Op::ScopeRes,
                 _ => break,
             };
 
@@ -1276,6 +1277,20 @@ array
     array
         3
         ident x
+"
+        );
+    }
+
+    #[test]
+    fn scope_resolution() {
+        assert_parse!(
+            "1 * A::foo()",
+            "\
+mul
+    1
+    scoperes
+        ident A
+        call foo
 "
         );
     }
