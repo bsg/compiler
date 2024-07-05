@@ -106,6 +106,9 @@ pub enum Node {
     Str {
         value: Rc<str>,
     },
+    Char {
+        value: Rc<u8>,
+    },
     UnOp {
         op: Op,
         rhs: NodeRef,
@@ -181,6 +184,7 @@ impl fmt::Debug for Node {
                 Node::Int { value } => format!("{}", value),
                 Node::Bool { value } => format!("{}", value),
                 Node::Str { value } => format!("{:?}", value),
+                Node::Char { value } => format!("'{}'", unsafe {char::from_u32_unchecked(**value as u32) }),
                 Node::UnOp { op, rhs } => {
                     format!("{:?}{}", op, fmt_with_indent(rhs, indent_level + 1, true))
                 }

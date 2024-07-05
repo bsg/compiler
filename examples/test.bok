@@ -61,7 +61,21 @@ fn first_by_ref(arr: &[u32; 4]) -> u32 {
 
 extern "C" fn exit(status: u32) -> void;
 
+fn assert(cond: bool) -> void {
+    if !cond {
+        // TODO printf
+        exit(1);
+    }
+}
+
+extern "C" fn putchar(c: u8) -> void;
+
 fn main(argc: u32) -> u32 {
+    putchar('f');
+    putchar('o');
+    putchar('o');
+    putchar('\n');
+
     let a: u32;
     a = 100;
     let c1: bool = 1000 > a;

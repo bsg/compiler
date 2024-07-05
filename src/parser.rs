@@ -500,6 +500,7 @@ impl Parser {
                 Rc::new(Node::Int { value })
             }
             Token::Str(s) => Rc::new(Node::Str { value: s.clone() }),
+            Token::Char(c) => Rc::new(Node::Char { value: c.clone() }),
             Token::Ident(_) => self.parse_ident()?,
             Token::True => Rc::new(Node::Bool { value: true }),
             Token::False => Rc::new(Node::Bool { value: false }),
@@ -662,6 +663,16 @@ true
             "\"test\"",
             "\
 \"test\"
+"
+        );
+    }
+
+    #[test]
+    fn char_literal() {
+        assert_parse!(
+            "'c'",
+            "\
+'c'
 "
         );
     }

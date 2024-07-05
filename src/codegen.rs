@@ -600,6 +600,15 @@ impl ModuleBuilder {
                     }
                 }
                 Op::Deref => self.build_deref_ptr(env, type_env, rhs.clone(), as_lvalue),
+                Op::Not => {
+                    let val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let llvm_val = unsafe { LLVMBuildNot(self.builder, val.llvm_val, "".to_cstring().as_ptr()) };
+
+                    Val {
+                        ty: val.ty.to_ref_type(type_env),
+                        llvm_val,
+                    }
+                }
                 _ => todo!(),
             }
         } else {
@@ -1039,6 +1048,14 @@ impl ModuleBuilder {
                     llvm_val,
                 }
             },
+            Node::Char { value } => unsafe {
+                let llvm_val = LLVMConstInt(LLVMInt8Type(), **value as u64, 0);
+
+                Val {
+                    ty: type_env.get_type_by_name("u8").unwrap().clone(),
+                    llvm_val,
+                }
+            }
             Node::Ident { name } => unsafe {
                 if let Some(var) = env.get_var(name) {
                     let llvm_val = if as_lvalue {

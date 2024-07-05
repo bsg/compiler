@@ -7,6 +7,7 @@ pub enum Token {
     Ident(Rc<str>),
     Int(Rc<str>),
     Str(Rc<str>),
+    Char(Rc<u8>),
 
     // Operators
     Assign,
@@ -219,6 +220,28 @@ impl Tokens {
             },
             Some(b';') => Token::Semicolon,
             Some(b'"') => Token::Str(self.read_string()),
+            Some(b'\'') => {
+                self.read_char();
+                if let (Some(ch), Some(peek)) = (self.ch, self.peek_char()) {
+                    let ch = if ch == b'\\' && peek == b'n' {
+                        self.read_char();
+                        self.read_char();
+                        10
+                    } else {
+                        self.read_char();
+                        ch
+                    };
+
+                    match self.ch {
+                        Some(b'\'') => {                            
+                            Token::Char(ch.into())
+                        }
+                        _ => todo!()
+                    }
+                } else {
+                    todo!()
+                }
+            }
             Some(b'.') => match self.peek_char() {
                 Some(b'.') => {
                     self.read_char();
@@ -301,7 +324,8 @@ mod tests {
         let source = "=+-!*/(){}[],;:->&||..&&.::as";
         let expected = [
             Assign, Plus, Minus, Bang, Star, Slash, LParen, RParen, LBrace, RBrace, LBracket,
-            RBracket, Comma, Semicolon, Colon, Arrow, Amp, BarBar, DotDot, AmpAmp, Dot, ColonColon, As
+            RBracket, Comma, Semicolon, Colon, Arrow, Amp, BarBar, DotDot, AmpAmp, Dot, ColonColon,
+            As,
         ];
         let mut tokens = Lexer::new(source).tokens();
         expected
@@ -319,6 +343,15 @@ mod tests {
     fn string() {
         let expected = [LBrace, Str("some string".into()), RBrace];
         let mut tokens = Lexer::new(r#"{"some string"}"#).tokens();
+        expected
+            .iter()
+            .for_each(|t| assert_eq!(tokens.next_token(), *t));
+    }
+
+    #[test]
+    fn char() {
+        let expected = [LBrace, Char(b'c'.into()), RBrace];
+        let mut tokens = Lexer::new(r#"{'c'}"#).tokens();
         expected
             .iter()
             .for_each(|t| assert_eq!(tokens.next_token(), *t));
