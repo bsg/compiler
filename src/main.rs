@@ -48,7 +48,7 @@ fn main() {
         fs::write("ast.txt", s).unwrap();
     }
 
-    let mut module = codegen::ModuleBuilder::new("hello");
+    let mut module = codegen::ModuleBuilder::new("main");
     module.build(ast.as_slice());
 
     unsafe {
@@ -80,7 +80,7 @@ fn main() {
         let res = LLVMTargetMachineEmitToFile(
             machine,
             module.get_llvm_module_ref(),
-            core::ffi::CStr::from_bytes_with_nul(b"hello.o\0")
+            core::ffi::CStr::from_bytes_with_nul(b"main.o\0")
                 .unwrap()
                 .as_ptr() as *mut i8,
             LLVMCodeGenFileType::LLVMObjectFile,

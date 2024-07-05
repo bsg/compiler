@@ -602,7 +602,9 @@ impl ModuleBuilder {
                 Op::Deref => self.build_deref_ptr(env, type_env, rhs.clone(), as_lvalue),
                 Op::Not => {
                     let val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    let llvm_val = unsafe { LLVMBuildNot(self.builder, val.llvm_val, "".to_cstring().as_ptr()) };
+                    let llvm_val = unsafe {
+                        LLVMBuildNot(self.builder, val.llvm_val, "".to_cstring().as_ptr())
+                    };
 
                     Val {
                         ty: val.ty.to_ref_type(type_env),
@@ -1022,6 +1024,27 @@ impl ModuleBuilder {
         }
     }
 
+    fn build_string(&mut self, type_env: Rc<TypeEnv>, value: Rc<str>) -> Val {
+        let ty = type_env.get_type_by_name("u8").unwrap();
+        let bytes: Vec<u8> = value.bytes().collect();
+
+        let llvm_val = unsafe {
+            LLVMConstString(
+                bytes.as_slice().as_ptr() as *const i8,
+                bytes.len() as u32,
+                1,
+            )
+        };
+
+        Val {
+            ty: Type::Array {
+                elem_type_id: ty.id(type_env.clone()),
+                len: bytes.len(),
+            },
+            llvm_val,
+        }
+    }
+
     fn build_expr(
         &mut self,
         env: Rc<Env>,
@@ -1055,7 +1078,7 @@ impl ModuleBuilder {
                     ty: type_env.get_type_by_name("u8").unwrap().clone(),
                     llvm_val,
                 }
-            }
+            },
             Node::Ident { name } => unsafe {
                 if let Some(var) = env.get_var(name) {
                     let llvm_val = if as_lvalue {
@@ -1081,6 +1104,7 @@ impl ModuleBuilder {
             Node::BinOp { .. } => self.build_binop(env, type_env, node, as_lvalue),
             Node::Call { ident, args } => self.build_call(env, type_env, ident, args),
             Node::Array { elems } => self.build_array(env, type_env, elems),
+            Node::Str { value } => self.build_string(type_env, value.clone()),
             _ => panic!("unimplemented!\n {:?}", node),
         }
     }
@@ -1330,7 +1354,7 @@ impl ModuleBuilder {
                     args.clone(),
                     ret_ty.clone(),
                     *is_extern,
-                    linkage.clone()
+                    linkage.clone(),
                 ),
                 Node::Struct { ident, .. } => {
                     self.type_env.get_type_id_by_name(ident);
@@ -1436,7 +1460,7 @@ impl ModuleBuilder {
                                 args.clone(),
                                 ret_ty.clone(),
                                 false,
-                                None
+                                None,
                             );
                         } else {
                             todo!()
