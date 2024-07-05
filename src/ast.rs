@@ -72,13 +72,7 @@ impl Op {
             Op::Add | Op::Sub => 3,
             Op::Mul | Op::Div | Op::Mod => 4,
             Op::Cast => 5,
-            Op::Neg
-            | Op::Not
-            | Op::Ref
-            | Op::Deref
-            | Op::Dot
-            | Op::ScopeRes
-            | Op::Index => 6,
+            Op::Neg | Op::Not | Op::Ref | Op::Deref | Op::Dot | Op::ScopeRes | Op::Index => 6,
             Op::Call => 7,
             _ => 0,
         }
@@ -145,7 +139,9 @@ pub enum Node {
         ident: Rc<str>,
         args: Rc<[Arg]>,
         ret_ty: Rc<str>,
-        body: NodeRef,
+        is_extern: bool,
+        linkage: Option<Rc<str>>,
+        body: Option<NodeRef>,
     },
     Call {
         ident: Rc<str>,
@@ -256,6 +252,8 @@ impl fmt::Debug for Node {
                     args,
                     ret_ty,
                     body,
+                    is_extern,
+                    linkage
                 } => {
                     let args_str = args
                         .iter()
@@ -263,13 +261,32 @@ impl fmt::Debug for Node {
                         .collect::<Vec<String>>()
                         .join(", ");
 
-                    format!(
-                        "fn {}({}) -> {}{}",
-                        ident,
-                        args_str,
-                        ret_ty,
-                        fmt_with_indent(body, indent_level + 1, true)
-                    )
+                    if *is_extern {
+                        format!(
+                            "extern {:?} fn {}({}) -> {}{}",
+                            linkage.clone().unwrap(),
+                            ident,
+                            args_str,
+                            ret_ty,
+                            if let Some(body) = body {
+                                fmt_with_indent(body, indent_level + 1, true)
+                            } else {
+                                "".to_string()
+                            }
+                        )
+                    } else {
+                        format!(
+                            "fn {}({}) -> {}{}",
+                            ident,
+                            args_str,
+                            ret_ty,
+                            if let Some(body) = body {
+                                fmt_with_indent(body, indent_level + 1, true)
+                            } else {
+                                "".to_string()
+                            }
+                        )
+                    }
                 }
                 Node::Call { ident, args } => {
                     let mut c = format!("call {}", ident);

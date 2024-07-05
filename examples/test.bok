@@ -59,6 +59,7 @@ fn first_by_ref(arr: &[u32; 4]) -> u32 {
     return (*arr)[0];
 }
 
+extern "C" fn exit(status: u32) -> void;
 
 fn main(argc: u32) -> u32 {
     let a: u32;

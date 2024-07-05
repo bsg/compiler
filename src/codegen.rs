@@ -223,7 +223,7 @@ pub struct Func {
     ret_ty: Type,
     val: LLVMValueRef,
     llvm_ty: LLVMTypeRef, // TODO remove if this is the llvm return type and use ret_ty
-    body: LLVMBasicBlockRef,
+    body: Option<LLVMBasicBlockRef>,
 }
 
 static mut NEXT_TYPE_ID: usize = 0;
@@ -1208,6 +1208,8 @@ impl ModuleBuilder {
         ident: &str,
         args: Rc<[Arg]>,
         ret_ty: Rc<str>,
+        is_extern: bool,
+        _linkage: Option<Rc<str>>,
     ) {
         let ret_ty = match type_env.get_type_by_name(&ret_ty) {
             Some(ty) => ty,
@@ -1236,6 +1238,11 @@ impl ModuleBuilder {
         let val = unsafe { LLVMAddFunction(self.module, ident.to_cstring().as_ptr(), func_ty) };
 
         let fn_env = Env::make_child(env.clone());
+        let body = if is_extern {
+            None
+        } else {
+            Some(unsafe { LLVMAppendBasicBlock(val, "".to_string().to_cstring().as_ptr()) })
+        };
         // this needs to be global
         self.env.insert_func(
             ident,
@@ -1245,7 +1252,7 @@ impl ModuleBuilder {
                 ret_ty: ret_ty.clone(),
                 val,
                 llvm_ty: func_ty,
-                body: unsafe { LLVMAppendBasicBlock(val, "".to_string().to_cstring().as_ptr()) },
+                body,
             },
         );
     }
@@ -1260,31 +1267,33 @@ impl ModuleBuilder {
         body: NodeRef,
     ) {
         let func = env.get_func(&ident).unwrap();
-        self.current_func_ident = Some(ident.clone());
-        unsafe { LLVMPositionBuilderAtEnd(self.builder, func.body) };
+        if let Some(bb_body) = func.body {
+            self.current_func_ident = Some(ident.clone());
+            unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_body) };
 
-        for (i, arg) in args.iter().enumerate() {
-            let ty = type_env.get_type_by_name(&arg.ty).unwrap();
-            let argp = unsafe {
-                LLVMBuildAlloca(
-                    self.builder,
-                    ty.llvm_type(type_env.clone()),
-                    "".to_cstring().as_ptr(),
-                )
-            };
-            unsafe {
-                LLVMBuildStore(
-                    self.builder,
-                    LLVMGetParam(func.val, i.try_into().unwrap()),
-                    argp,
-                )
-            };
-            func.env.insert_var(&arg.ident, argp, ty.clone());
+            for (i, arg) in args.iter().enumerate() {
+                let ty = type_env.get_type_by_name(&arg.ty).unwrap();
+                let argp = unsafe {
+                    LLVMBuildAlloca(
+                        self.builder,
+                        ty.llvm_type(type_env.clone()),
+                        "".to_cstring().as_ptr(),
+                    )
+                };
+                unsafe {
+                    LLVMBuildStore(
+                        self.builder,
+                        LLVMGetParam(func.val, i.try_into().unwrap()),
+                        argp,
+                    )
+                };
+                func.env.insert_var(&arg.ident, argp, ty.clone());
+            }
+
+            self.build_block(func.env.clone(), type_env.clone(), body.clone());
+            unsafe { LLVMBuildRetVoid(self.builder) }; // TODO
+            self.current_func_ident = None;
         }
-
-        self.build_block(func.env.clone(), type_env.clone(), body.clone());
-        unsafe { LLVMBuildRetVoid(self.builder) }; // TODO
-        self.current_func_ident = None;
     }
 
     fn pass1(&mut self, ast: &[NodeRef]) {
@@ -1294,6 +1303,8 @@ impl ModuleBuilder {
                     ident,
                     args,
                     ret_ty,
+                    is_extern,
+                    linkage,
                     ..
                 } => self.build_fn_1(
                     self.env.clone(),
@@ -1301,6 +1312,8 @@ impl ModuleBuilder {
                     ident,
                     args.clone(),
                     ret_ty.clone(),
+                    *is_extern,
+                    linkage.clone()
                 ),
                 Node::Struct { ident, .. } => {
                     self.type_env.get_type_id_by_name(ident);
@@ -1314,14 +1327,22 @@ impl ModuleBuilder {
         for node in ast.iter() {
             match &**node {
                 Node::Fn {
-                    ident, body, args, ..
-                } => self.build_fn_2(
-                    self.env.clone(),
-                    self.type_env.clone(),
-                    ident.clone(),
-                    args.clone(),
-                    body.clone(),
-                ),
+                    ident,
+                    body,
+                    args,
+                    is_extern,
+                    ..
+                } => {
+                    if !is_extern {
+                        self.build_fn_2(
+                            self.env.clone(),
+                            self.type_env.clone(),
+                            ident.clone(),
+                            args.clone(),
+                            body.clone().unwrap(),
+                        )
+                    }
+                }
                 Node::Struct { ident, fields } => {
                     // TODO build a dependency tree and gen structs depth first
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
@@ -1397,6 +1418,8 @@ impl ModuleBuilder {
                                 &mangled_name,
                                 args.clone(),
                                 ret_ty.clone(),
+                                false,
+                                None
                             );
                         } else {
                             todo!()
@@ -1437,7 +1460,7 @@ impl ModuleBuilder {
                             impl_env.type_env.clone(),
                             mangled_name.into(),
                             args.clone(),
-                            body.clone(),
+                            body.clone().unwrap(),
                         )
                     } else {
                         todo!()

@@ -176,8 +176,9 @@ impl Parser {
         }
     }
 
-    // caller must ensure current token is Fn
-    fn parse_fn(&mut self) -> Option<NodeRef> {
+    // TODO linkage should be an enum
+    /// caller must ensure current token is Fn
+    fn parse_fn(&mut self, is_extern: bool, linkage: Option<Rc<str>>) -> Option<NodeRef> {
         let mut args: Vec<Arg> = Vec::new();
 
         assert_eq!(Token::Fn, self.curr_token);
@@ -227,15 +228,20 @@ impl Parser {
             };
             self.next_token();
 
-            assert_eq!(self.curr_token, Token::LBrace);
+            let body = if self.curr_token == Token::LBrace {
+                self.parse_block()
+            } else {
+                None
+            };
 
-            let body = self.parse_block()?;
 
             Some(
                 Node::Fn {
                     ident: ident.clone(),
                     args: Rc::from(args.as_slice()),
                     ret_ty: return_type.clone(),
+                    is_extern,
+                    linkage,
                     body,
                 }
                 .into(),
@@ -450,7 +456,7 @@ impl Parser {
             self.next_token();
 
             while let Token::Fn = self.curr_token {
-                if let Some(fn_node) = self.parse_fn() {
+                if let Some(fn_node) = self.parse_fn(false, None) {
                     methods.push(fn_node);
                 } else {
                     todo!()
@@ -513,7 +519,7 @@ impl Parser {
                 node
             }
             Token::LBrace => self.parse_block()?,
-            Token::Fn => self.parse_fn()?,
+            Token::Fn => self.parse_fn(false, None)?,
             Token::If => self.parse_if()?,
             Token::While => self.parse_while()?,
             Token::Amp => Rc::new(Node::UnOp {
@@ -527,6 +533,15 @@ impl Parser {
             Token::Struct => self.parse_struct()?,
             Token::Impl => self.parse_impl()?,
             Token::LBracket => self.parse_array()?,
+            Token::Extern => {
+                self.next_token();
+                if let Token::Str(linkage) = &self.curr_token.clone() {
+                    self.next_token();
+                    self.parse_fn(true, Some(linkage.clone()))?
+                } else {
+                    todo!()
+                }
+            }
             _ => return None,
         };
 
@@ -607,7 +622,7 @@ mod tests {
         ($input:expr, $expected:expr) => {
             let mut parser = Parser::new($input);
             match parser.parse_statement() {
-                Some(ast) => assert_eq!($expected, format!("{:?}", ast)),
+                Some(ast) => assert_eq!(format!("{:?}", ast), $expected),
                 None => panic!(),
             }
         };
@@ -1326,6 +1341,16 @@ mul
                 call foo
             ident *u32
         5
+"
+        );
+    }
+
+    #[test]
+    fn extern_fn() {
+        assert_parse!(
+            "extern \"C\" fn exit(status: u32) -> void;",
+            "\
+extern \"C\" fn exit(status: u32) -> void
 "
         );
     }

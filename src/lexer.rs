@@ -54,7 +54,8 @@ pub enum Token {
     Return,
     Struct,
     Impl,
-    NullPtr
+    NullPtr,
+    Extern,
 }
 
 impl std::fmt::Display for Token {
@@ -241,6 +242,7 @@ impl Tokens {
                         "impl" => Token::Impl,
                         "nullptr" => Token::NullPtr,
                         "as" => Token::As,
+                        "extern" => Token::Extern,
                         _ => Token::Ident(ident),
                     };
                 }
