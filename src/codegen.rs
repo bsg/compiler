@@ -1210,6 +1210,7 @@ impl ModuleBuilder {
                 }
             },
             Node::While { condition, body } => unsafe {
+                // TODO put decls inside loop body before test bb
                 if let Some(fn_ident) = &self.current_func_ident {
                     let current_func = env.get_func(fn_ident).unwrap();
 
