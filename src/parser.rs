@@ -163,9 +163,8 @@ impl Parser {
                 assert_eq!(Token::LBrace, self.peek_token);
                 self.next_token();
                 let body = self.parse_block();
-                self.next_token(); // eat RBrace
-                assert_eq!(Token::RBrace, self.curr_token);
                 self.next_token();
+                assert_eq!(Token::RBrace, self.curr_token);
 
                 match body {
                     Some(while_body) => Some(

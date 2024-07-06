@@ -84,7 +84,7 @@ fn main(argc: u32) -> u32 {
 
     SDL_FreeSurface(img);
 
-    let rect: *SDL_Rect = malloc(60);
+    let rect: *SDL_Rect = malloc(16);
     (*rect).x = 200;
     (*rect).y = 100;
     (*rect).w = 100;
@@ -119,7 +119,7 @@ fn main(argc: u32) -> u32 {
 
         SDL_RenderClear(renderer);
 
-        if SDL_RenderCopy(renderer, tex, 0, &rect) < 0 {
+        if SDL_RenderCopy(renderer, tex, 0, rect) < 0 {
             puts(SDL_GetError());
         }
 
