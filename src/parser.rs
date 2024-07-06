@@ -125,7 +125,6 @@ impl Parser {
                 assert_eq!(Token::RBrace, self.peek_token);
                 self.next_token();
 
-                // eat 'else' if there is one
                 let else_block = if self.peek_token == Token::Else {
                     self.next_token();
                     assert_eq!(Token::LBrace, self.peek_token);
