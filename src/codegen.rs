@@ -141,6 +141,13 @@ impl Type {
                         type_env.get_type_id_by_name("u32")
                     }
                 }
+                64 => {
+                    if *signed {
+                        type_env.get_type_id_by_name("i64")
+                    } else {
+                        type_env.get_type_id_by_name("u64")
+                    }
+                }
                 _ => todo!(),
             },
             Type::Ref { .. } => todo!(),
@@ -175,6 +182,8 @@ impl Type {
                 (16, false) => "u16".into(),
                 (32, true) => "i32".into(),
                 (32, false) => "u32".into(),
+                (64, true) => "i64".into(),
+                (64, false) => "u64".into(),
                 _ => todo!(),
             },
             Type::Ptr { pointee_type_id } => format!(
@@ -284,6 +293,20 @@ impl TypeEnv {
             "i32",
             Type::Int {
                 width: 32,
+                signed: true,
+            },
+        );
+        env.insert_type_by_name(
+            "u64",
+            Type::Int {
+                width: 64,
+                signed: false,
+            },
+        );
+        env.insert_type_by_name(
+            "i64",
+            Type::Int {
+                width: 64,
                 signed: true,
             },
         );

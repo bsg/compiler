@@ -16,6 +16,7 @@ struct SDL_Renderer {}
 struct SDL_Surface {}
 struct SDL_Texture {}
 
+extern "C" fn malloc(size: u64) -> *u8;
 extern "C" fn exit(status: u32) -> void;
 extern "C" fn sleep(seconds: u32) -> u32;
 extern "C" fn puts(s: *i8) -> i32;
@@ -83,11 +84,11 @@ fn main(argc: u32) -> u32 {
 
     SDL_FreeSurface(img);
 
-    let rect: SDL_Rect;
-    rect.x = 200;
-    rect.y = 100;
-    rect.w = 100; 
-    rect.h = 100;
+    let rect: *SDL_Rect = malloc(60);
+    (*rect).x = 200;
+    (*rect).y = 100;
+    (*rect).w = 100;
+    (*rect).h = 100;
 
     let x_speed: u32 = 1;
     let y_speed: u32 = 1;
@@ -100,19 +101,19 @@ fn main(argc: u32) -> u32 {
             }
         }
 
-        rect.x = rect.x + x_speed;
-        if rect.x == 0 {
+        (*rect).x = (*rect).x + x_speed;
+        if (*rect).x == 0 {
             x_speed = 1;
         }
-        if rect.x == 300 {
+        if (*rect).x == 300 {
             x_speed = -1;
         }
         
-        rect.y = rect.y + y_speed;
-        if rect.y == 0 {
+        (*rect).y = (*rect).y + y_speed;
+        if (*rect).y == 0 {
             y_speed = 1;
         }
-        if rect.y == 300 {
+        if (*rect).y == 300 {
             y_speed = -1;
         }
 

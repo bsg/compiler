@@ -89,15 +89,16 @@ impl Parser {
         ty
     }
 
+    /// curr_token after return is RBrace
     fn parse_block(&mut self) -> Option<NodeRef> {
-        assert_eq!(self.curr_token, Token::LBrace);
-
         let mut statements: Vec<NodeRef> = Vec::new();
 
         match self.curr_token {
             Token::LBrace => {
-                while let Some(stmt) = self.parse_statement().as_ref() {
-                    statements.push(stmt.clone());
+                while self.peek_token != Token::RBrace {
+                    if let Some(stmt) = self.parse_statement().as_ref() {
+                        statements.push(stmt.clone());
+                    }
                 }
 
                 Some(
@@ -113,27 +114,30 @@ impl Parser {
 
     /// caller must ensure current token is If
     fn parse_if(&mut self) -> Option<NodeRef> {
-        assert_eq!(self.curr_token, Token::If);
+        assert_eq!(Token::If, self.curr_token);
 
         match self.parse_expression(0) {
             Some(cond) => {
-                assert_eq!(self.peek_token, Token::LBrace);
+                assert_eq!(Token::LBrace, self.peek_token);
                 self.next_token();
                 let then_block = self.parse_block();
 
-                // eat 'else' if there is one
-                if self.peek_token == Token::Else {
-                    self.next_token();
-                    assert_eq!(self.peek_token, Token::LBrace);
-                }
+                assert_eq!(Token::RBrace, self.peek_token);
+                self.next_token();
 
-                // TODO do not allow without preceding 'else' keyword
-                let else_block = if self.peek_token == Token::LBrace {
+                // eat 'else' if there is one
+                let else_block = if self.peek_token == Token::Else {
                     self.next_token();
-                    self.parse_block()
+                    assert_eq!(Token::LBrace, self.peek_token);
+                    self.next_token();
+                    let b = self.parse_block();
+                    self.next_token();
+                    b
                 } else {
                     None
                 };
+
+                assert_eq!(Token::RBrace, self.curr_token);
 
                 match then_block {
                     Some(then_blk) => Some(
@@ -153,13 +157,16 @@ impl Parser {
 
     /// caller must ensure current token is While
     fn parse_while(&mut self) -> Option<NodeRef> {
-        assert_eq!(self.curr_token, Token::While);
+        assert_eq!(Token::While, self.curr_token);
 
         match self.parse_expression(0) {
             Some(cond) => {
-                assert_eq!(self.peek_token, Token::LBrace);
+                assert_eq!(Token::LBrace, self.peek_token);
                 self.next_token();
                 let body = self.parse_block();
+                self.next_token(); // eat RBrace
+                assert_eq!(Token::RBrace, self.curr_token);
+                self.next_token();
 
                 match body {
                     Some(while_body) => Some(
@@ -219,11 +226,13 @@ impl Parser {
             self.next_token();
 
             let body = if self.curr_token == Token::LBrace {
-                self.parse_block()
+                let b = self.parse_block();
+                self.next_token(); // eat RBrace
+                assert_eq!(Token::RBrace, self.curr_token);
+                b
             } else {
                 None
             };
-
 
             Some(
                 Node::Fn {
@@ -423,6 +432,14 @@ impl Parser {
                     stmt: self.parse_expression(0),
                 }))
             }
+            Some(Token::If) => {
+                self.next_token();
+                self.parse_if()
+            }
+            Some(Token::While) => {
+                self.next_token();
+                self.parse_while()
+            }
             Some(_) => self.parse_expression(0),
             None => return None,
         };
@@ -511,8 +528,7 @@ impl Parser {
             }
             Token::LBrace => self.parse_block()?,
             Token::Fn => self.parse_fn(false, None)?,
-            Token::If => self.parse_if()?,
-            Token::While => self.parse_while()?,
+            Token::If => todo!(), // TODO if expr,
             Token::Amp => Rc::new(Node::UnOp {
                 op: Op::Ref,
                 rhs: self.parse_expression(Op::precedence(&Op::Ref))?,
@@ -613,7 +629,7 @@ mod tests {
         ($input:expr, $expected:expr) => {
             let mut parser = Parser::new($input);
             match parser.parse_statement() {
-                Some(ast) => assert_eq!(format!("{:?}", ast), $expected),
+                Some(ast) => assert_eq!($expected, format!("{:?}", ast)),
                 None => panic!(),
             }
         };
@@ -660,8 +676,7 @@ true
     #[test]
     fn char_literal() {
         assert_parse!(
-            "'c'",
-            "\
+            "'c'", "\
 'c'
 "
         );
@@ -837,7 +852,7 @@ else
     #[test]
     fn if_else() {
         assert_parse!(
-            "if (a < b) {return a} else {return b}",
+            "if (a < b) {return a;} else {return b;}",
             "\
 if
     lt
@@ -1207,7 +1222,7 @@ deref
         assert_parse!(
             "fn f(x: *u32) -> *u32 {return x;}",
             "\
-fn f(x: *u32) -> u32
+fn f(x: *u32) -> *u32
     block
         return
             ident x
@@ -1218,7 +1233,7 @@ fn f(x: *u32) -> u32
     #[test]
     fn while_loop() {
         assert_parse!(
-            "while x < 5 {x = x + 1}",
+            "while x < 5 {x = x + 1;}",
             "\
 while
     lt
@@ -1352,6 +1367,17 @@ mul
             "extern \"C\" fn exit(status: u32) -> void;",
             "\
 extern \"C\" fn exit(status: u32) -> void
+"
+        );
+    }
+
+    #[test]
+    fn lparen_after_block() {
+        assert_parse!(
+            "{} (x)",
+            "\
+block
+ident x
 "
         );
     }
