@@ -1,6 +1,7 @@
 struct SDL_Event {
     type: u32;
     // TODO the rest, once we have unions
+    _padding: [u8; 56];
 }
 
 struct SDL_Rect {
@@ -35,6 +36,8 @@ extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
 extern "C" fn SDL_CreateTextureFromSurface(renderer: *u8, surface: *SDL_Surface) -> *SDL_Texture;
 extern "C" fn SDL_FreeSurface(surface: *SDL_Surface) -> void;
 extern "C" fn SDL_RenderPresent(renderer: *SDL_Renderer) -> void;
+extern "C" fn SDL_Delay(ms: u32) -> void;
+extern "C" fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
 
 fn main(argc: u32) -> u32 {
     let title: [u8; 5] = "game";
@@ -80,25 +83,47 @@ fn main(argc: u32) -> u32 {
 
     SDL_FreeSurface(img);
 
-    // TODO SDL_RenderCopyEx for scaling
     let rect: SDL_Rect;
-    rect.x = 0;
-    rect.y = 0;
-    rect.w = 300; 
-    rect.h = 200;
+    rect.x = 200;
+    rect.y = 100;
+    rect.w = 100; 
+    rect.h = 100;
 
-    if SDL_RenderCopy(renderer, tex, 0, &rect) < 0 {
-        puts(SDL_GetError());
-    }
-
-    SDL_RenderPresent(renderer);
+    let x_speed: u32 = 1;
+    let y_speed: u32 = 1;
     
     let ev: SDL_Event;
     while true {
-        SDL_PollEvent(&ev);
-        if ev.type == 256 {
-            exit(1);
+        while SDL_PollEvent(&ev) == 1 {
+            if ev.type == 256 {
+                exit(1);
+            }
         }
+
+        rect.x = rect.x + x_speed;
+        if rect.x == 0 {
+            x_speed = 1;
+        }
+        if rect.x == 300 {
+            x_speed = -1;
+        }
+        
+        rect.y = rect.y + y_speed;
+        if rect.y == 0 {
+            y_speed = 1;
+        }
+        if rect.y == 300 {
+            y_speed = -1;
+        }
+
+        SDL_RenderClear(renderer);
+
+        if SDL_RenderCopy(renderer, tex, 0, &rect) < 0 {
+            puts(SDL_GetError());
+        }
+
+        SDL_RenderPresent(renderer);
+        SDL_Delay(8);
     }
 
     return 0;
