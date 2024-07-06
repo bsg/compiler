@@ -10,6 +10,7 @@ struct SDL_Rect {
     h: u32;
 }
 
+struct SDL_Window {}
 struct SDL_Renderer {}
 struct SDL_Surface {}
 struct SDL_Texture {}
@@ -52,23 +53,32 @@ fn main(argc: u32) -> u32 {
         return 1;
     }
 
-    let window: *u8 = SDL_CreateWindow(pTitle, 0, 0, 400, 400, 4);
-    puts(SDL_GetError());
+    let window: *SDL_Window = SDL_CreateWindow(pTitle, 0, 0, 400, 400, 4);
+    if window == 0 {
+        puts(SDL_GetError());
+    }
 
-    let renderer: *u8 = SDL_CreateRenderer(window, -1, 1);
-    puts(SDL_GetError());
+    let renderer: *SDL_Renderer = SDL_CreateRenderer(window, -1, 1);
+    if renderer == 0 {
+        puts(SDL_GetError());
+    }
 
-    let surface: *u8 = SDL_GetWindowSurface(window);
-    puts(SDL_GetError());
+    let surface: *SDL_Surface = SDL_GetWindowSurface(window);
+    if surface == 0 {
+        puts(SDL_GetError());
+    }
 
-    let img: *u8 = IMG_Load(pTexPath);
-    puts(SDL_GetError());
+    let img: *SDL_Surface = IMG_Load(pTexPath);
+    if img == 0 {
+        puts(SDL_GetError());
+    }
 
     let tex: *SDL_Texture = SDL_CreateTextureFromSurface(renderer, img);
-    puts(SDL_GetError());
+    if tex == 0 {
+        puts(SDL_GetError());
+    }
 
     SDL_FreeSurface(img);
-    puts(SDL_GetError());
 
     // TODO SDL_RenderCopyEx for scaling
     let rect: SDL_Rect;
@@ -77,11 +87,11 @@ fn main(argc: u32) -> u32 {
     rect.w = 300; 
     rect.h = 200;
 
-    SDL_RenderCopy(renderer, tex, 0, &rect);
-    puts(SDL_GetError());
+    if SDL_RenderCopy(renderer, tex, 0, &rect) < 0 {
+        puts(SDL_GetError());
+    }
 
     SDL_RenderPresent(renderer);
-    puts(SDL_GetError());
     
     let ev: SDL_Event;
     while true {
