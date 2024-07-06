@@ -496,6 +496,7 @@ impl Parser {
     fn parse_expression(&mut self, precedence: i32) -> Option<NodeRef> {
         self.next_token();
         let mut lhs = match &self.curr_token {
+            Token::NullPtr => Rc::new(Node::NullPtr),
             Token::Int(s) => {
                 let value = match s.parse() {
                     Ok(i) => i,

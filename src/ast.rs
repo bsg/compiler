@@ -94,6 +94,7 @@ pub struct StructField {
 
 #[derive(Clone, PartialEq)]
 pub enum Node {
+    NullPtr,
     Ident {
         name: Rc<str>,
     },
@@ -180,6 +181,7 @@ impl fmt::Debug for Node {
             s += "    ".repeat(indent_level).as_str();
 
             s += match node {
+                Node::NullPtr => "nullptr".to_string(),
                 Node::Ident { name } => format!("ident {}", name),
                 Node::Int { value } => format!("{}", value),
                 Node::Bool { value } => format!("{}", value),

@@ -1091,6 +1091,13 @@ impl ModuleBuilder {
         as_lvalue: bool,
     ) -> Val {
         match &*node {
+            Node::NullPtr => {
+                Val {
+                    // TODO type
+                    ty: type_env.get_type_by_name("*void").unwrap().clone(),
+                    llvm_val: unsafe { LLVMConstPointerNull(LLVMVoidType()) },
+                }
+            }
             Node::Int { value } => unsafe {
                 // FIXME int type
                 // TODO sign extend
