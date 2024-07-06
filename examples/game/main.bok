@@ -16,29 +16,29 @@ struct SDL_Renderer {}
 struct SDL_Surface {}
 struct SDL_Texture {}
 
-extern "C" fn malloc(size: u64) -> *u8;
+// TODO some of these need usize
+extern "C" fn malloc(size: u64) -> *void;
+extern "C" fn realloc(ptr: *void, new_size: u64) -> *void;
+extern "C" fn memcpy(dest: *void, src: *void, n: u64) -> *void;
 extern "C" fn exit(status: u32) -> void;
 extern "C" fn sleep(seconds: u32) -> u32;
 extern "C" fn puts(s: *i8) -> i32;
 extern "C" fn SDL_Init(flags: u32) -> i32;
-extern "C" fn SDL_CreateWindow(title: *u8, x: u32, y: u32, w: u32, h: u32, flags: u32) -> *u8;
+extern "C" fn SDL_CreateWindow(title: *u8, x: u32, y: u32, w: u32, h: u32, flags: u32) -> *SDL_Window;
 extern "C" fn SDL_PollEvent(ev: *u32) -> u32;
-extern "C" fn SDL_GetWindowSurface(window: *u8) -> *u8;
-extern "C" fn SDL_RWFromFile(file: *u8, mode: *u8) -> *u8;
-extern "C" fn SDL_LoadBMP_RW(src: *u8, freesrc: u32) -> *u8;
-extern "C" fn SDL_UpperBlit(src: *u8, srcrect: *SDL_Rect, dst: *u8, dstrect: *SDL_Rect) -> u32;
+extern "C" fn SDL_GetWindowSurface(window: *u8) -> *SDL_Surface;
 extern "C" fn SDL_UpdateWindowSurface(window: *u8) -> u32;
 extern "C" fn SDL_GetError() -> *u8;
 extern "C" fn SDL_ClearError() -> void;
-extern "C" fn SDL_CreateRenderer(window: *u8, index: i32, flags: u32) -> *SDL_Renderer;
-extern "C" fn SDL_RenderCopy(renderer: *u8, texture: *u8, srcrect: *SDL_Rect, dstrect: *SDL_Rect) -> u32;
-extern "C" fn IMG_Init(flags: i32) -> i32;
-extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
-extern "C" fn SDL_CreateTextureFromSurface(renderer: *u8, surface: *SDL_Surface) -> *SDL_Texture;
+extern "C" fn SDL_CreateRenderer(window: *SDL_Window, index: i32, flags: u32) -> *SDL_Renderer;
+extern "C" fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: *SDL_Rect, dstrect: *SDL_Rect) -> u32;
+extern "C" fn SDL_CreateTextureFromSurface(renderer: *SDL_Renderer, surface: *SDL_Surface) -> *SDL_Texture;
 extern "C" fn SDL_FreeSurface(surface: *SDL_Surface) -> void;
 extern "C" fn SDL_RenderPresent(renderer: *SDL_Renderer) -> void;
 extern "C" fn SDL_Delay(ms: u32) -> void;
 extern "C" fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
+extern "C" fn IMG_Init(flags: i32) -> i32;
+extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
 
 fn main(argc: u32) -> u32 {
     let title: [u8; 5] = "game";
