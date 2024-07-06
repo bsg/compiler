@@ -1,23 +1,87 @@
-extern "C" fn exit(status: u32) -> void;
-extern "C" fn sleep(seconds: u32) -> u32;
-extern "C" fn puts(s: *i8) -> i32;
-extern "C" fn SDL_Init(flags: u32) -> i32;
-extern "C" fn SDL_CreateWindow(title: *i8, x: u32, y: u32, w: u32, h: u32, flags: u32) -> *u8;
-extern "C" fn SDL_PollEvent(ev: *u32) -> u32;
-
 struct SDL_Event {
     type: u32;
     // TODO the rest, once we have unions
 }
 
+struct SDL_Rect {
+    x: u32;
+    y: u32;
+    w: u32;
+    h: u32;
+}
+
+struct SDL_Renderer {}
+struct SDL_Surface {}
+struct SDL_Texture {}
+
+extern "C" fn exit(status: u32) -> void;
+extern "C" fn sleep(seconds: u32) -> u32;
+extern "C" fn puts(s: *i8) -> i32;
+extern "C" fn SDL_Init(flags: u32) -> i32;
+extern "C" fn SDL_CreateWindow(title: *u8, x: u32, y: u32, w: u32, h: u32, flags: u32) -> *u8;
+extern "C" fn SDL_PollEvent(ev: *u32) -> u32;
+extern "C" fn SDL_GetWindowSurface(window: *u8) -> *u8;
+extern "C" fn SDL_RWFromFile(file: *u8, mode: *u8) -> *u8;
+extern "C" fn SDL_LoadBMP_RW(src: *u8, freesrc: u32) -> *u8;
+extern "C" fn SDL_UpperBlit(src: *u8, srcrect: *SDL_Rect, dst: *u8, dstrect: *SDL_Rect) -> u32;
+extern "C" fn SDL_UpdateWindowSurface(window: *u8) -> u32;
+extern "C" fn SDL_GetError() -> *u8;
+extern "C" fn SDL_ClearError() -> void;
+extern "C" fn SDL_CreateRenderer(window: *u8, index: i32, flags: u32) -> *SDL_Renderer;
+extern "C" fn SDL_RenderCopy(renderer: *u8, texture: *u8, srcrect: *SDL_Rect, dstrect: *SDL_Rect) -> u32;
+extern "C" fn IMG_Init(flags: i32) -> i32;
+extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
+extern "C" fn SDL_CreateTextureFromSurface(renderer: *u8, surface: *SDL_Surface) -> *SDL_Texture;
+extern "C" fn SDL_FreeSurface(surface: *SDL_Surface) -> void;
+extern "C" fn SDL_RenderPresent(renderer: *SDL_Renderer) -> void;
+
 fn main(argc: u32) -> u32 {
-    let s: [u8; 3] = "game";
-    let p: *u8 = &s;
+    let title: [u8; 5] = "game";
+    let pTitle: *u8 = &title;
+
+    let texPath: [u8; 9] = "doll.jpg";
+    let pTexPath: *u8 = &texPath;
 
     if SDL_Init(32) < 0 {
+        puts(SDL_GetError());
         return 1;
     }
-    let window: *u8 = SDL_CreateWindow(p, 0, 0, 400, 400, 4);
+
+    if IMG_Init(1) < 0 {
+        puts(SDL_GetError());
+        return 1;
+    }
+
+    let window: *u8 = SDL_CreateWindow(pTitle, 0, 0, 400, 400, 4);
+    puts(SDL_GetError());
+
+    let renderer: *u8 = SDL_CreateRenderer(window, -1, 1);
+    puts(SDL_GetError());
+
+    let surface: *u8 = SDL_GetWindowSurface(window);
+    puts(SDL_GetError());
+
+    let img: *u8 = IMG_Load(pTexPath);
+    puts(SDL_GetError());
+
+    let tex: *SDL_Texture = SDL_CreateTextureFromSurface(renderer, img);
+    puts(SDL_GetError());
+
+    SDL_FreeSurface(img);
+    puts(SDL_GetError());
+
+    // TODO SDL_RenderCopyEx for scaling
+    let rect: SDL_Rect;
+    rect.x = 0;
+    rect.y = 0;
+    rect.w = 300; 
+    rect.h = 200;
+
+    SDL_RenderCopy(renderer, tex, 0, &rect);
+    puts(SDL_GetError());
+
+    SDL_RenderPresent(renderer);
+    puts(SDL_GetError());
     
     let ev: SDL_Event;
     while true {

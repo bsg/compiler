@@ -222,7 +222,7 @@ pub struct Func {
     arg_tys: Vec<Type>,
     ret_ty: Type,
     val: LLVMValueRef,
-    llvm_ty: LLVMTypeRef, // TODO remove if this is the llvm return type and use ret_ty
+    llvm_ty: LLVMTypeRef,
     body: Option<LLVMBasicBlockRef>,
 }
 
@@ -310,6 +310,11 @@ impl TypeEnv {
     // TODO make sure this is sound
     /// reserves id for ident if it's not registered
     fn get_type_id_by_name(&self, name: &str) -> usize {
+        // TODO this will be a fucking problem because it will reserve id for type ident not available locally
+        // but available in a parent, resulting in multiple different id's corresponding to the same type.
+        // do lookup in parents before you reserve a local id
+        // TODO also make this not reserve id and impl a get_or_reserve_type_id_by_name
+
         // This should not mutate parents at all. Types are resolvable only within and below the scope they are defined in
         match (unsafe { &*self.type_ids.get() }).get(name) {
             Some(type_id) => *type_id,
@@ -604,6 +609,17 @@ impl ModuleBuilder {
                     let val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                     let llvm_val = unsafe {
                         LLVMBuildNot(self.builder, val.llvm_val, "".to_cstring().as_ptr())
+                    };
+
+                    Val {
+                        ty: val.ty.to_ref_type(type_env),
+                        llvm_val,
+                    }
+                }
+                Op::Neg => {
+                    let val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let llvm_val = unsafe {
+                        LLVMBuildNeg(self.builder, val.llvm_val, "".to_cstring().as_ptr())
                     };
 
                     Val {
@@ -974,7 +990,6 @@ impl ModuleBuilder {
         ident: &str,
         arg_exprs: &[NodeRef],
     ) -> Val {
-        // TODO LLVMGetNamedFunction for extern fns
         let func = env.get_func(ident).unwrap();
         let mut args: Vec<LLVMValueRef> = Vec::new();
         for arg in arg_exprs.iter() {
@@ -1025,14 +1040,14 @@ impl ModuleBuilder {
     }
 
     fn build_string(&mut self, type_env: Rc<TypeEnv>, value: Rc<str>) -> Val {
-        let ty = type_env.get_type_by_name("u8").unwrap();
+        let ty = type_env.get_type_by_name("i8").unwrap();
         let bytes: Vec<u8> = value.bytes().collect();
 
         let llvm_val = unsafe {
             LLVMConstString(
                 bytes.as_slice().as_ptr() as *const i8,
                 bytes.len() as u32,
-                1,
+                0,
             )
         };
 
@@ -1313,7 +1328,10 @@ impl ModuleBuilder {
             unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_body) };
 
             for (i, arg) in args.iter().enumerate() {
-                let ty = type_env.get_type_by_name(&arg.ty).unwrap();
+                let ty = match type_env.get_type_by_name(&arg.ty) {
+                    Some(ty) => ty,
+                    None => panic!("unresolved type {}", arg.ty),
+                };
                 let argp = unsafe {
                     LLVMBuildAlloca(
                         self.builder,
@@ -1340,22 +1358,6 @@ impl ModuleBuilder {
     fn pass1(&mut self, ast: &[NodeRef]) {
         for node in ast {
             match &**node {
-                Node::Fn {
-                    ident,
-                    args,
-                    ret_ty,
-                    is_extern,
-                    linkage,
-                    ..
-                } => self.build_fn_1(
-                    self.env.clone(),
-                    self.type_env.clone(),
-                    ident,
-                    args.clone(),
-                    ret_ty.clone(),
-                    *is_extern,
-                    linkage.clone(),
-                ),
                 Node::Struct { ident, .. } => {
                     self.type_env.get_type_id_by_name(ident);
                 }
@@ -1365,25 +1367,8 @@ impl ModuleBuilder {
     }
 
     fn pass2(&mut self, ast: &[NodeRef]) {
-        for node in ast.iter() {
+        for node in ast {
             match &**node {
-                Node::Fn {
-                    ident,
-                    body,
-                    args,
-                    is_extern,
-                    ..
-                } => {
-                    if !is_extern {
-                        self.build_fn_2(
-                            self.env.clone(),
-                            self.type_env.clone(),
-                            ident.clone(),
-                            args.clone(),
-                            body.clone().unwrap(),
-                        )
-                    }
-                }
                 Node::Struct { ident, fields } => {
                     // TODO build a dependency tree and gen structs depth first
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
@@ -1403,6 +1388,55 @@ impl ModuleBuilder {
                             member_methods: HashMap::new(),
                         },
                     );
+                }
+                _ => (),
+            }
+        }
+    }
+
+    fn pass3(&mut self, ast: &[NodeRef]) {
+        for node in ast {
+            match &**node {
+                Node::Fn {
+                    ident,
+                    args,
+                    ret_ty,
+                    is_extern,
+                    linkage,
+                    ..
+                } => self.build_fn_1(
+                    self.env.clone(),
+                    self.type_env.clone(),
+                    ident,
+                    args.clone(),
+                    ret_ty.clone(),
+                    *is_extern,
+                    linkage.clone(),
+                ),
+                _ => (),
+            }
+        }
+    }
+
+    fn pass4(&mut self, ast: &[NodeRef]) {
+        for node in ast.iter() {
+            match &**node {
+                Node::Fn {
+                    ident,
+                    body,
+                    args,
+                    is_extern,
+                    ..
+                } => {
+                    if !is_extern {
+                        self.build_fn_2(
+                            self.env.clone(),
+                            self.type_env.clone(),
+                            ident.clone(),
+                            args.clone(),
+                            body.clone().unwrap(),
+                        )
+                    }
                 }
                 Node::Impl {
                     ident: impl_ty,
@@ -1480,7 +1514,7 @@ impl ModuleBuilder {
         }
     }
 
-    fn pass3(&mut self, ast: &[NodeRef]) {
+    fn pass5(&mut self, ast: &[NodeRef]) {
         let env = self.env.clone();
 
         for node in ast.iter() {
@@ -1515,6 +1549,8 @@ impl ModuleBuilder {
         self.pass1(ast);
         self.pass2(ast);
         self.pass3(ast);
+        self.pass4(ast);
+        self.pass5(ast);
     }
 
     pub unsafe fn get_llvm_module_ref(&mut self) -> LLVMModuleRef {

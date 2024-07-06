@@ -215,17 +215,7 @@ impl Parser {
             assert_eq!(self.curr_token, Token::Arrow);
             self.next_token();
 
-            let return_type = match self.curr_token.clone() {
-                Token::Ident(ret_ident) => ret_ident,
-                Token::Star => {
-                    self.next_token();
-                    match self.curr_token.clone() {
-                        Token::Ident(ret_ident) => ret_ident,
-                        _ => todo!(),
-                    }
-                }
-                _ => todo!(),
-            };
+            let return_type = self.parse_type().unwrap();
             self.next_token();
 
             let body = if self.curr_token == Token::LBrace {
