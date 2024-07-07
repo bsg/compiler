@@ -1,6 +1,7 @@
 // TODO Scope!
 // TODO impl type aliasing and make 'Self' a type alias instead of a new type
 // TODO struct literals
+// TODO Fn type
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -360,6 +361,8 @@ impl TypeEnv {
                     } else {
                         todo!()
                     }
+                } else if let Some(parent) = &self.parent {
+                    parent.get_type_id_by_name(name)
                 } else {
                     let type_id = unsafe { NEXT_TYPE_ID };
                     unsafe { NEXT_TYPE_ID += 1 };

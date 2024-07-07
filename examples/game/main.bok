@@ -78,12 +78,12 @@ struct SpriteSheet {
 
 impl SpriteSheet {
     // TODO borked
-    // fn new(tileSize: u32, tex: *SDL_Texture) -> SpriteSheet {
-    //     let spritesheet: SpriteSheet;
-    //     spritesheet.tileSize = tileSize;
-    //     spritesheet.tex = tex;
-    //     return spritesheet;
-    // }
+    fn new(tileSize: u32, tex: *SDL_Texture) -> SpriteSheet {
+        let spritesheet: SpriteSheet;
+        spritesheet.tileSize = tileSize;
+        spritesheet.tex = tex;
+        return spritesheet;
+    }
 }
 
 struct Player {
@@ -97,6 +97,9 @@ struct Player {
 }
 
 fn main(argc: u32) -> u32 {
+    let windowW: u32 = 400;
+    let windowH: u32 = 600;
+
     let title: [u8; 5] = "game";
     let pTitle: *u8 = &title;
 
@@ -113,7 +116,7 @@ fn main(argc: u32) -> u32 {
         return 1;
     }
 
-    let window: *SDL_Window = SDL_CreateWindow(pTitle, 0, 0, 400, 400, 4);
+    let window: *SDL_Window = SDL_CreateWindow(pTitle, 0, 0, windowW, windowH, 4);
     if window == nullptr {
         puts(SDL_GetError());
     }
@@ -140,17 +143,17 @@ fn main(argc: u32) -> u32 {
 
     SDL_FreeSurface(img);
 
-    let src_rect: SDL_Rect;
-    src_rect.x = 0;
-    src_rect.y = 0;
-    src_rect.w = 16;
-    src_rect.h = 32;
+    let srcRect: SDL_Rect;
+    srcRect.x = 0;
+    srcRect.y = 0;
+    srcRect.w = 16;
+    srcRect.h = 32;
 
-    let dst_rect: SDL_Rect;
-    dst_rect.x = 200;
-    dst_rect.y = 100;
-    dst_rect.w = 80;
-    dst_rect.h = 80;
+    let dstRect: SDL_Rect;
+    dstRect.x = 200;
+    dstRect.y = 100;
+    dstRect.w = 80;
+    dstRect.h = 80;
 
     
     let ev: SDL_Event;
@@ -171,7 +174,7 @@ fn main(argc: u32) -> u32 {
     player.sprite.tileY = 0;
     player.w = 32;
     player.h = 64;
-    player.speed = 2;
+    player.speed = 3;
     player.animState = 0;
     player.animTicksLeft = 30;
 
@@ -228,12 +231,12 @@ fn main(argc: u32) -> u32 {
             }
         }
         if input_down {
-            if player.pos.y < 400 - player.h {
+            if player.pos.y < (windowH - player.h) {
                 player.pos.y = player.pos.y + player.speed;
             }
         }
         if input_right {
-            if player.pos.x < 400 - player.w {
+            if player.pos.x < (windowW - player.w) {
                 player.pos.x = player.pos.x + player.speed;
             }
         }
@@ -253,17 +256,17 @@ fn main(argc: u32) -> u32 {
             player.animTicksLeft = player.animTicksLeft - 1;
         }
 
-        src_rect.x = player.sprite.tileX * 16;
-        src_rect.y = 0;
-        src_rect.w = player.sprite.tileW * 16;
-        src_rect.h = player.sprite.tileH * 16;
+        srcRect.x = player.sprite.tileX * 16;
+        srcRect.y = 0;
+        srcRect.w = player.sprite.tileW * 16;
+        srcRect.h = player.sprite.tileH * 16;
 
-        dst_rect.x = player.pos.x;
-        dst_rect.y = player.pos.y;
-        dst_rect.w = player.w;
-        dst_rect.h = player.h;
+        dstRect.x = player.pos.x;
+        dstRect.y = player.pos.y;
+        dstRect.w = player.w;
+        dstRect.h = player.h;
 
-        if SDL_RenderCopy(renderer, tex, &src_rect, &dst_rect) < 0 {
+        if SDL_RenderCopy(renderer, tex, &srcRect, &dstRect) < 0 {
             puts(SDL_GetError());
         }
 
