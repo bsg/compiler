@@ -1423,8 +1423,33 @@ impl ModuleBuilder {
 
     fn pass1(&mut self, ast: &[NodeRef]) {
         for node in ast {
-            if let Node::Struct { ident, .. } = &**node {
-                self.type_env.get_type_id_by_name(ident);
+            match &**node {
+                Node::Struct { ident, .. } => {self.type_env.get_type_id_by_name(ident);},
+                Node::Const { ty, lhs, rhs } => {
+                    // TODO part of this is shared with 'let', extract some stuff out?
+                    if let Node::Ident { name } = &**lhs {
+                        let ty = match self.type_env.get_type_by_name(ty) {
+                            Some(t) => t,
+                            None => panic!("unknown type {}", ty),
+                        };
+                        let reg = unsafe { LLVMBuildAlloca(
+                            self.builder,
+                            ty.llvm_type(self.type_env.clone()),
+                            "".to_cstring().as_ptr(),
+                        ) };
+    
+                        self.env.insert_var(name, reg, ty.clone());
+    
+                        if let Some(rhs) = rhs {
+                            let rhs =
+                                self.build_expr(self.env.clone(), self.type_env.clone(), rhs.clone(), false);
+                            unsafe { LLVMBuildStore(self.builder, rhs.llvm_val, reg) };
+                        };
+                    } else {
+                        panic!()
+                    }
+                }
+                _ => (),
             }
         }
     }

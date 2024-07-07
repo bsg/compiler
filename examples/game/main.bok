@@ -16,6 +16,8 @@ struct SDL_KeyboardEvent {
     keysym: SDL_Keysym;
 }
 
+// const KEY_ESC: u32 = 41;
+
 struct SDL_Event {
     type: u32;
     // TODO the rest, once we have unions
@@ -38,8 +40,8 @@ struct SDL_Texture {}
 extern "C" fn malloc(size: u64) -> *void;
 extern "C" fn realloc(ptr: *void, new_size: u64) -> *void;
 extern "C" fn memcpy(dest: *void, src: *void, n: u64) -> *void;
-extern "C" fn free(ptr: *void) -> void;
-extern "C" fn exit(status: u32) -> void;
+extern "C" fn free(ptr: *void);
+extern "C" fn exit(status: u32);
 extern "C" fn sleep(seconds: u32) -> u32;
 extern "C" fn puts(s: *i8) -> i32;
 extern "C" fn SDL_Init(flags: u32) -> i32;
@@ -48,13 +50,13 @@ extern "C" fn SDL_PollEvent(ev: *u32) -> u32;
 extern "C" fn SDL_GetWindowSurface(window: *u8) -> *SDL_Surface;
 extern "C" fn SDL_UpdateWindowSurface(window: *u8) -> u32;
 extern "C" fn SDL_GetError() -> *u8;
-extern "C" fn SDL_ClearError() -> void;
+extern "C" fn SDL_ClearError();
 extern "C" fn SDL_CreateRenderer(window: *SDL_Window, index: i32, flags: u32) -> *SDL_Renderer;
 extern "C" fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: *SDL_Rect, dstrect: *SDL_Rect) -> u32;
 extern "C" fn SDL_CreateTextureFromSurface(renderer: *SDL_Renderer, surface: *SDL_Surface) -> *SDL_Texture;
-extern "C" fn SDL_FreeSurface(surface: *SDL_Surface) -> void;
-extern "C" fn SDL_RenderPresent(renderer: *SDL_Renderer) -> void;
-extern "C" fn SDL_Delay(ms: u32) -> void;
+extern "C" fn SDL_FreeSurface(surface: *SDL_Surface);
+extern "C" fn SDL_RenderPresent(renderer: *SDL_Renderer);
+extern "C" fn SDL_Delay(ms: u32);
 extern "C" fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
 extern "C" fn IMG_Init(flags: i32) -> i32;
 extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
@@ -77,12 +79,23 @@ struct SpriteSheet {
 }
 
 impl SpriteSheet {
-    // TODO borked
     fn new(tileSize: u32, tex: *SDL_Texture) -> SpriteSheet {
         let spritesheet: SpriteSheet;
         spritesheet.tileSize = tileSize;
         spritesheet.tex = tex;
         return spritesheet;
+    }
+
+    fn drawTile(self: &Self, renderer: &SDL_Renderer, tileX: u32, tileY: u32, dstRect: &SDL_Rect) {
+        let srcRect: SDL_Rect;
+        srcRect.x = tileX * 16;
+        srcRect.y = tileY * 16;
+        srcRect.w = 16;
+        srcRect.h = 16;
+
+        if SDL_RenderCopy(renderer, (*self).tex, &srcRect, dstRect) < 0 {
+            puts(SDL_GetError());
+        }
     }
 }
 

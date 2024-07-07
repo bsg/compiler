@@ -25,7 +25,6 @@ pub enum Op {
     Or,
     Call,
     Index,
-    Colon,
     Ref,
     Deref,
     Dot,
@@ -54,7 +53,6 @@ impl std::fmt::Debug for Op {
             Op::Or => write!(f, "or"),
             Op::Call => write!(f, "call"),
             Op::Index => write!(f, "index"),
-            Op::Colon => write!(f, "colon"),
             Op::Ref => write!(f, "ref"),
             Op::Deref => write!(f, "deref"),
             Op::Dot => write!(f, "dot"),
@@ -120,6 +118,12 @@ pub enum Node {
         rhs: NodeRef,
     },
     Let {
+        ty: Rc<str>,
+        lhs: NodeRef,
+        rhs: Option<NodeRef>,
+    },
+    // TODO could be merged with let
+    Const {
         ty: Rc<str>,
         lhs: NodeRef,
         rhs: Option<NodeRef>,
@@ -196,6 +200,18 @@ impl fmt::Debug for Node {
                 Node::Let { ty, lhs, rhs } => {
                     format!(
                         "let {}{}{}",
+                        ty,
+                        fmt_with_indent(lhs, indent_level + 1, true),
+                        if rhs.is_some() {
+                            fmt_with_indent(rhs.as_ref().unwrap(), indent_level + 1, true)
+                        } else {
+                            "".to_string()
+                        }
+                    )
+                }
+                Node::Const { ty, lhs, rhs } => {
+                    format!(
+                        "const {}{}{}",
                         ty,
                         fmt_with_indent(lhs, indent_level + 1, true),
                         if rhs.is_some() {

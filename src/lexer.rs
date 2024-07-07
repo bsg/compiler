@@ -57,6 +57,7 @@ pub enum Token {
     Impl,
     NullPtr,
     Extern,
+    Const,
 }
 
 impl std::fmt::Display for Token {
@@ -266,6 +267,7 @@ impl Tokens {
                         "nullptr" => Token::NullPtr,
                         "as" => Token::As,
                         "extern" => Token::Extern,
+                        "const" => Token::Const,
                         _ => Token::Ident(ident),
                     };
                 }
