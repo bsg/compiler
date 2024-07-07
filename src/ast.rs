@@ -151,11 +151,6 @@ pub enum Node {
         ident: Rc<str>,
         args: Rc<[NodeRef]>,
     },
-    // TODO where is this used?
-    Pair {
-        key: NodeRef,
-        value: NodeRef,
-    },
     Struct {
         ident: Rc<str>,
         fields: Rc<[StructField]>,
@@ -301,7 +296,6 @@ impl fmt::Debug for Node {
                     }
                     c
                 }
-                Node::Pair { .. } => todo!(),
                 Node::Struct { ident, fields } => {
                     let fields_str = fields.iter().fold(String::new(), |mut acc, field| {
                         acc += "\n";

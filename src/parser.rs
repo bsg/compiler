@@ -300,18 +300,6 @@ impl Parser {
         )
     }
 
-    fn parse_pair(&mut self, key: NodeRef) -> Option<NodeRef> {
-        assert_eq!(self.peek_token, Token::Colon);
-        self.next_token();
-        let value = self.parse_expression(0)?;
-
-        if self.peek_token == Token::Comma {
-            self.next_token();
-        }
-
-        Some(Node::Pair { key, value }.into())
-    }
-
     fn parse_struct(&mut self) -> Option<NodeRef> {
         let mut fields: Vec<StructField> = Vec::new();
 
@@ -518,7 +506,6 @@ impl Parser {
                 op: Op::Not,
                 rhs: self.parse_expression(Op::precedence(&Op::Not))?,
             }),
-            Token::Let => self.parse_statement()?,
             Token::LParen => {
                 let node = self.parse_expression(0)?;
                 assert_eq!(self.peek_token, Token::RParen);
@@ -526,7 +513,6 @@ impl Parser {
                 node
             }
             Token::LBrace => self.parse_block()?,
-            Token::Fn => self.parse_fn(false, None)?,
             Token::If => todo!(), // TODO if expr,
             Token::Amp => Rc::new(Node::UnOp {
                 op: Op::Ref,
@@ -539,6 +525,7 @@ impl Parser {
             Token::Struct => self.parse_struct()?,
             Token::Impl => self.parse_impl()?,
             Token::LBracket => self.parse_array()?,
+            Token::Fn => self.parse_fn(false, None)?,
             Token::Extern => {
                 self.next_token();
                 if let Token::Str(linkage) = &self.curr_token.clone() {
@@ -565,8 +552,8 @@ impl Parser {
                 Token::Gt => Op::Gt,
                 Token::Le => Op::Le,
                 Token::Ge => Op::Ge,
-                Token::Amp => Op::And,
-                Token::Bar => Op::Or,
+                Token::AmpAmp => Op::And,
+                Token::BarBar => Op::Or,
                 Token::LParen => Op::Call,
                 Token::LBracket => Op::Index,
                 Token::Colon => Op::Colon,
@@ -584,7 +571,6 @@ impl Parser {
             lhs = match op {
                 Op::Call => self.parse_call(lhs)?,
                 Op::Index => self.parse_index(lhs)?,
-                Op::Colon => self.parse_pair(lhs)?,
                 Op::Cast => {
                     self.next_token();
                     self.next_token();

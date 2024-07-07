@@ -1,3 +1,21 @@
+struct SDL_Keysym {
+    scancode: u32;
+    sym: u32;
+    mod: u16;
+    unused: u32;
+}
+
+struct SDL_KeyboardEvent {
+    type: u32;
+    timestamp: u32;
+    windowID: u32;
+    state: u8;
+    repeat: u8;
+    padding2: u8;
+    padding3: u8;
+    keysym: SDL_Keysym;
+}
+
 struct SDL_Event {
     type: u32;
     // TODO the rest, once we have unions
@@ -20,6 +38,7 @@ struct SDL_Texture {}
 extern "C" fn malloc(size: u64) -> *void;
 extern "C" fn realloc(ptr: *void, new_size: u64) -> *void;
 extern "C" fn memcpy(dest: *void, src: *void, n: u64) -> *void;
+extern "C" fn free(ptr: *void) -> void;
 extern "C" fn exit(status: u32) -> void;
 extern "C" fn sleep(seconds: u32) -> u32;
 extern "C" fn puts(s: *i8) -> i32;
@@ -40,11 +59,48 @@ extern "C" fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
 extern "C" fn IMG_Init(flags: i32) -> i32;
 extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
 
+struct Pos {
+    x: i32;
+    y: i32;
+}
+
+struct Sprite {
+    tileX: u32;
+    tileY: u32;
+    tileW: u32;
+    tileH: u32;
+}
+
+struct SpriteSheet {
+    tileSize: u32;
+    tex: *SDL_Texture;
+}
+
+impl SpriteSheet {
+    // TODO borked
+    // fn new(tileSize: u32, tex: *SDL_Texture) -> SpriteSheet {
+    //     let spritesheet: SpriteSheet;
+    //     spritesheet.tileSize = tileSize;
+    //     spritesheet.tex = tex;
+    //     return spritesheet;
+    // }
+}
+
+struct Player {
+    pos: Pos;
+    sprite: Sprite;
+    w: u32;
+    h: u32;
+    speed: u32;
+    animState: u32;
+    animTicksLeft: u32;
+}
+
 fn main(argc: u32) -> u32 {
     let title: [u8; 5] = "game";
     let pTitle: *u8 = &title;
 
-    let texPath: [u8; 9] = "doll.jpg";
+    let texPath: [u8; 16] = "spritesheet.png";
     let pTexPath: *u8 = &texPath;
 
     if SDL_Init(32) < 0 {
@@ -52,7 +108,7 @@ fn main(argc: u32) -> u32 {
         return 1;
     }
 
-    if IMG_Init(1) < 0 {
+    if IMG_Init(2) < 0 {
         puts(SDL_GetError());
         return 1;
     }
@@ -84,47 +140,135 @@ fn main(argc: u32) -> u32 {
 
     SDL_FreeSurface(img);
 
-    let rect: *SDL_Rect = malloc(16);
-    (*rect).x = 200;
-    (*rect).y = 100;
-    (*rect).w = 100;
-    (*rect).h = 100;
+    let src_rect: SDL_Rect;
+    src_rect.x = 0;
+    src_rect.y = 0;
+    src_rect.w = 16;
+    src_rect.h = 32;
 
-    let x_speed: u32 = 1;
-    let y_speed: u32 = 1;
+    let dst_rect: SDL_Rect;
+    dst_rect.x = 200;
+    dst_rect.y = 100;
+    dst_rect.w = 80;
+    dst_rect.h = 80;
+
     
     let ev: SDL_Event;
+    let kb_event: SDL_KeyboardEvent;
+
+    let input_up:    bool = false;
+    let input_down:  bool = false;
+    let input_left:  bool = false;
+    let input_right: bool = false;
+
+    // TODO really need struct literals
+    let player: Player;
+    player.pos.x = 200;
+    player.pos.y = 200;
+    player.sprite.tileW = 1;
+    player.sprite.tileH = 2;
+    player.sprite.tileX = 0;
+    player.sprite.tileY = 0;
+    player.w = 32;
+    player.h = 64;
+    player.speed = 2;
+    player.animState = 0;
+    player.animTicksLeft = 30;
+
     while true {
         while SDL_PollEvent(&ev) == 1 {
-            if ev.type == 256 {
-                exit(1);
+            if ev.type == 256 { // quit event
+                exit(0);
+            }
+
+            if ev.type == 768 { // keydown event
+                kb_event = ev;
+                if kb_event.keysym.scancode == 41 { // ESC
+                    exit(0);
+                }
+                if kb_event.keysym.scancode == 26 { // w
+                    input_up = true;
+                }
+                if kb_event.keysym.scancode == 4 { // a
+                    input_left = true;
+                }
+                if kb_event.keysym.scancode == 22 { // s
+                    input_down = true;
+                }
+                if kb_event.keysym.scancode == 7 { // d
+                    input_right = true;
+                }
+            }
+
+            if ev.type == 769 { // keydown event
+                kb_event = ev;
+                if kb_event.keysym.scancode == 26 { // w
+                    input_up = false;
+                }
+                if kb_event.keysym.scancode == 4 { // a
+                    input_left = false;
+                }
+                if kb_event.keysym.scancode == 22 { // s
+                    input_down = false;
+                }
+                if kb_event.keysym.scancode == 7 { // d
+                    input_right = false;
+                }
             }
         }
-
-        (*rect).x = (*rect).x + x_speed;
-        if (*rect).x == 0 {
-            x_speed = 1;
-        }
-        if (*rect).x == 300 {
-            x_speed = -1;
-        }
         
-        (*rect).y = (*rect).y + y_speed;
-        if (*rect).y == 0 {
-            y_speed = 1;
+        if input_up {
+            if player.pos.y > 0 {
+                player.pos.y = player.pos.y - player.speed;
+            }
         }
-        if (*rect).y == 300 {
-            y_speed = -1;
+        if input_left {
+            if player.pos.x > 0 {
+                player.pos.x = player.pos.x - player.speed;
+            }
+        }
+        if input_down {
+            if player.pos.y < 400 - player.h {
+                player.pos.y = player.pos.y + player.speed;
+            }
+        }
+        if input_right {
+            if player.pos.x < 400 - player.w {
+                player.pos.x = player.pos.x + player.speed;
+            }
         }
 
         SDL_RenderClear(renderer);
 
-        if SDL_RenderCopy(renderer, tex, 0, rect) < 0 {
+        if player.animTicksLeft == 0 {
+            if player.animState == 0 {
+                player.animState = 1;
+                player.sprite.tileX = 1;
+            } else {
+                player.animState = 0;
+                player.sprite.tileX = 0;
+            }
+            player.animTicksLeft = 30; 
+        } else {
+            player.animTicksLeft = player.animTicksLeft - 1;
+        }
+
+        src_rect.x = player.sprite.tileX * 16;
+        src_rect.y = 0;
+        src_rect.w = player.sprite.tileW * 16;
+        src_rect.h = player.sprite.tileH * 16;
+
+        dst_rect.x = player.pos.x;
+        dst_rect.y = player.pos.y;
+        dst_rect.w = player.w;
+        dst_rect.h = player.h;
+
+        if SDL_RenderCopy(renderer, tex, &src_rect, &dst_rect) < 0 {
             puts(SDL_GetError());
         }
 
         SDL_RenderPresent(renderer);
-        SDL_Delay(8);
+        SDL_Delay(16);
     }
 
     return 0;

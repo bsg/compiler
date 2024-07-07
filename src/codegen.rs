@@ -769,6 +769,38 @@ impl ModuleBuilder {
                         type_env.get_type_by_name("u32").unwrap().clone(),
                     )
                 },
+                Op::And => unsafe {
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    // TODO
+                    (
+                        LLVMBuildAnd(
+                            self.builder,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("bool").unwrap().clone(),
+                    )
+                },
+                Op::Or => unsafe {
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    // TODO
+                    (
+                        LLVMBuildOr(
+                            self.builder,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("bool").unwrap().clone(),
+                    )
+                },
                 Op::Eq => unsafe {
                     let lhs_val =
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
@@ -1388,11 +1420,8 @@ impl ModuleBuilder {
 
     fn pass1(&mut self, ast: &[NodeRef]) {
         for node in ast {
-            match &**node {
-                Node::Struct { ident, .. } => {
-                    self.type_env.get_type_id_by_name(ident);
-                }
-                _ => (),
+            if let Node::Struct { ident, .. } = &**node {
+                self.type_env.get_type_id_by_name(ident);
             }
         }
     }
@@ -1508,7 +1537,7 @@ impl ModuleBuilder {
                                 true
                             };
 
-                            let mangled_name = format!("__{}_{}", impl_ty, method_name);
+                            let mangled_name = format!("{}::{}", impl_ty, method_name);
 
                             if is_static {
                                 static_methods
@@ -1560,7 +1589,7 @@ impl ModuleBuilder {
                         ident, args, body, ..
                     } = &**method
                     {
-                        let mangled_name = format!("__{}_{}", impl_ty, ident);
+                        let mangled_name = format!("{}::{}", impl_ty, ident);
                         self.build_fn_2(
                             impl_env.env.clone(),
                             impl_env.type_env.clone(),
