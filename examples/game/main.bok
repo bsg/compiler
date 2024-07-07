@@ -16,7 +16,47 @@ struct SDL_KeyboardEvent {
     keysym: SDL_Keysym;
 }
 
-// const KEY_ESC: u32 = 41;
+const SDL_SCANCODE_A:         u32 = 4;
+const SDL_SCANCODE_B:         u32 = 5;
+const SDL_SCANCODE_C:         u32 = 6;
+const SDL_SCANCODE_D:         u32 = 7;
+const SDL_SCANCODE_E:         u32 = 8;
+const SDL_SCANCODE_F:         u32 = 9;
+const SDL_SCANCODE_G:         u32 = 10;
+const SDL_SCANCODE_H:         u32 = 11;
+const SDL_SCANCODE_I:         u32 = 12;
+const SDL_SCANCODE_J:         u32 = 13;
+const SDL_SCANCODE_K:         u32 = 14;
+const SDL_SCANCODE_L:         u32 = 15;
+const SDL_SCANCODE_M:         u32 = 16;
+const SDL_SCANCODE_N:         u32 = 17;
+const SDL_SCANCODE_O:         u32 = 18;
+const SDL_SCANCODE_P:         u32 = 19;
+const SDL_SCANCODE_Q:         u32 = 20;
+const SDL_SCANCODE_R:         u32 = 21;
+const SDL_SCANCODE_S:         u32 = 22;
+const SDL_SCANCODE_T:         u32 = 23;
+const SDL_SCANCODE_U:         u32 = 24;
+const SDL_SCANCODE_V:         u32 = 25;
+const SDL_SCANCODE_W:         u32 = 26;
+const SDL_SCANCODE_X:         u32 = 27;
+const SDL_SCANCODE_Y:         u32 = 28;
+const SDL_SCANCODE_Z:         u32 = 29;
+const SDL_SCANCODE_1:         u32 = 30;
+const SDL_SCANCODE_2:         u32 = 31;
+const SDL_SCANCODE_3:         u32 = 32;
+const SDL_SCANCODE_4:         u32 = 33;
+const SDL_SCANCODE_5:         u32 = 34;
+const SDL_SCANCODE_6:         u32 = 35;
+const SDL_SCANCODE_7:         u32 = 36;
+const SDL_SCANCODE_8:         u32 = 37;
+const SDL_SCANCODE_9:         u32 = 38;
+const SDL_SCANCODE_0:         u32 = 39;
+const SDL_SCANCODE_RETURN:    u32 = 40;
+const SDL_SCANCODE_ESCAPE:    u32 = 41;
+const SDL_SCANCODE_BACKSPACE: u32 = 42;
+const SDL_SCANCODE_TAB:       u32 = 43;
+const SDL_SCANCODE_SPACE:     u32 = 44;
 
 struct SDL_Event {
     type: u32;
@@ -99,6 +139,14 @@ impl SpriteSheet {
     }
 }
 
+struct InputState {
+    up: bool;
+    down: bool;
+    left: bool;
+    right: bool;
+    shoot: bool;
+}
+
 struct Player {
     pos: Pos;
     sprite: Sprite;
@@ -107,6 +155,33 @@ struct Player {
     speed: u32;
     animState: u32;
     animTicksLeft: u32;
+}
+
+struct SpriteList {
+    len: u32;
+    ptr: *u8;
+}
+
+impl SpriteList {
+    fn new(size: u32) -> Self {
+        let spriteList: SpriteList;
+        spriteList.len = size;
+        // TODO #[sizeof T]
+        spriteList.ptr = malloc(16 * size);
+        return spriteList;
+    }
+
+    fn put(self: &Self, idx: u32, sprite: *Sprite) {
+        if (*self).ptr != nullptr && idx < (*self).len {
+            memcpy((*self).ptr + (idx * 16), sprite, 16);
+        }
+    }
+
+    fn get(self: &Self, idx: u32) -> &Sprite {
+        if (*self).ptr != nullptr && idx < (*self).len {
+            return (*self).ptr + (idx * 16);
+        }
+    }
 }
 
 fn main(argc: u32) -> u32 {
@@ -172,10 +247,7 @@ fn main(argc: u32) -> u32 {
     let ev: SDL_Event;
     let kb_event: SDL_KeyboardEvent;
 
-    let input_up:    bool = false;
-    let input_down:  bool = false;
-    let input_left:  bool = false;
-    let input_right: bool = false;
+    let input: InputState;
 
     // TODO really need struct literals
     let player: Player;
@@ -191,6 +263,19 @@ fn main(argc: u32) -> u32 {
     player.animState = 0;
     player.animTicksLeft = 30;
 
+
+    let spriteList: SpriteList = SpriteList::new(2);
+    let spriteIdx: u32 = 0;
+    let currentSprite: &Sprite;
+
+    let sp1: Sprite;
+    sp1.tileX = 10;
+    sp1.tileY = 0;
+    sp1.tileW = 1;
+    sp1.tileH = 1;
+
+    spriteList.put(0, &sp1);
+
     while true {
         while SDL_PollEvent(&ev) == 1 {
             if ev.type == 256 { // quit event
@@ -199,56 +284,62 @@ fn main(argc: u32) -> u32 {
 
             if ev.type == 768 { // keydown event
                 kb_event = ev;
-                if kb_event.keysym.scancode == 41 { // ESC
+                if kb_event.keysym.scancode == SDL_SCANCODE_ESCAPE {
                     exit(0);
                 }
-                if kb_event.keysym.scancode == 26 { // w
-                    input_up = true;
+                if kb_event.keysym.scancode == SDL_SCANCODE_W {
+                    input.up = true;
                 }
-                if kb_event.keysym.scancode == 4 { // a
-                    input_left = true;
+                if kb_event.keysym.scancode == SDL_SCANCODE_A {
+                    input.left = true;
                 }
-                if kb_event.keysym.scancode == 22 { // s
-                    input_down = true;
+                if kb_event.keysym.scancode == SDL_SCANCODE_S {
+                    input.down = true;
                 }
-                if kb_event.keysym.scancode == 7 { // d
-                    input_right = true;
+                if kb_event.keysym.scancode == SDL_SCANCODE_D {
+                    input.right = true;
+                }
+                if kb_event.keysym.scancode == SDL_SCANCODE_SPACE {
+                    input.shoot = true;
                 }
             }
 
             if ev.type == 769 { // keydown event
                 kb_event = ev;
-                if kb_event.keysym.scancode == 26 { // w
-                    input_up = false;
+                if kb_event.keysym.scancode == SDL_SCANCODE_W {
+                    input.up = false;
                 }
-                if kb_event.keysym.scancode == 4 { // a
-                    input_left = false;
+                if kb_event.keysym.scancode == SDL_SCANCODE_A {
+                    input.left = false;
                 }
-                if kb_event.keysym.scancode == 22 { // s
-                    input_down = false;
+                if kb_event.keysym.scancode == SDL_SCANCODE_S {
+                    input.down = false;
                 }
-                if kb_event.keysym.scancode == 7 { // d
-                    input_right = false;
+                if kb_event.keysym.scancode == SDL_SCANCODE_D {
+                    input.right = false;
+                }
+                if kb_event.keysym.scancode == SDL_SCANCODE_SPACE {
+                    input.shoot = false;
                 }
             }
         }
         
-        if input_up {
+        if input.up {
             if player.pos.y > 0 {
                 player.pos.y = player.pos.y - player.speed;
             }
         }
-        if input_left {
+        if input.left {
             if player.pos.x > 0 {
                 player.pos.x = player.pos.x - player.speed;
             }
         }
-        if input_down {
+        if input.down {
             if player.pos.y < (windowH - player.h) {
                 player.pos.y = player.pos.y + player.speed;
             }
         }
-        if input_right {
+        if input.right {
             if player.pos.x < (windowW - player.w) {
                 player.pos.x = player.pos.x + player.speed;
             }
@@ -281,6 +372,27 @@ fn main(argc: u32) -> u32 {
 
         if SDL_RenderCopy(renderer, tex, &srcRect, &dstRect) < 0 {
             puts(SDL_GetError());
+        }
+
+        spriteIdx = 0;
+        while spriteIdx < 1 {
+            currentSprite = spriteList.get(spriteIdx);
+
+            srcRect.x = (*currentSprite).tileX * 16;
+            srcRect.y = (*currentSprite).tileY * 16;
+            srcRect.w = (*currentSprite).tileW * 16;
+            srcRect.h = (*currentSprite).tileH * 16;
+
+            dstRect.x = 100;
+            dstRect.y = 100;
+            dstRect.w = 32;
+            dstRect.h = 32;
+
+            if SDL_RenderCopy(renderer, tex, &srcRect, &dstRect) < 0 {
+                puts(SDL_GetError());
+            }
+
+            spriteIdx = spriteIdx + 1;
         }
 
         SDL_RenderPresent(renderer);

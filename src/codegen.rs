@@ -46,7 +46,8 @@ pub enum Type {
         referent_type_id: usize,
     },
     Struct {
-        // TODO make this an Rc<Type>
+        name: Rc<str>,
+        // TODO make this an Rc<Type>?
         type_id: usize,
         field_indices: HashMap<String, usize>,
         field_type_ids: Vec<usize>,
@@ -224,6 +225,7 @@ impl Type {
 pub struct Var {
     val: LLVMValueRef,
     ty: Type,
+    is_const: bool,
 }
 
 #[derive(Debug)]
@@ -507,7 +509,25 @@ impl Env {
     }
 
     pub fn insert_var(&self, ident: &str, val: LLVMValueRef, ty: Type) {
-        (unsafe { &mut *self.vars.get() }).insert(ident.to_string(), Var { val, ty });
+        (unsafe { &mut *self.vars.get() }).insert(
+            ident.to_string(),
+            Var {
+                val,
+                ty,
+                is_const: false,
+            },
+        );
+    }
+
+    pub fn insert_const(&self, ident: &str, val: LLVMValueRef, ty: Type) {
+        (unsafe { &mut *self.vars.get() }).insert(
+            ident.to_string(),
+            Var {
+                val,
+                ty,
+                is_const: true,
+            },
+        );
     }
 
     pub fn get_var(&self, ident: &str) -> Option<&Var> {
@@ -820,6 +840,22 @@ impl ModuleBuilder {
                         type_env.get_type_by_name("bool").unwrap().clone(),
                     )
                 },
+                Op::NotEq => unsafe {
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    (
+                        LLVMBuildICmp(
+                            self.builder,
+                            llvm_sys::LLVMIntPredicate::LLVMIntNE,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("bool").unwrap().clone(),
+                    )
+                },
                 Op::Gt => unsafe {
                     let lhs_val =
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
@@ -868,6 +904,7 @@ impl ModuleBuilder {
                             field_indices,
                             field_type_ids: fields,
                             member_methods,
+                            name: struct_name,
                             ..
                         } => match &**rhs {
                             Node::Ident { name } => {
@@ -901,7 +938,12 @@ impl ModuleBuilder {
                                 }
                             }
                             Node::Call { ident, args } => {
-                                let func_ident = member_methods.get(&ident.to_string()).unwrap();
+                                let func_ident =
+                                    if let Some(member) = member_methods.get(&ident.to_string()) {
+                                        member
+                                    } else {
+                                        panic!("struct {} has no method {}", struct_name, ident)
+                                    };
                                 let func = env.get_func(func_ident).unwrap();
                                 let self_by_ref =
                                     if let Some(Type::Ref { .. }) = func.arg_tys.first() {
@@ -1161,7 +1203,7 @@ impl ModuleBuilder {
             },
             Node::Ident { name } => unsafe {
                 if let Some(var) = env.get_var(name) {
-                    let llvm_val = if as_lvalue {
+                    let llvm_val = if as_lvalue || var.is_const {
                         var.val
                     } else {
                         LLVMBuildLoad2(
@@ -1424,27 +1466,32 @@ impl ModuleBuilder {
     fn pass1(&mut self, ast: &[NodeRef]) {
         for node in ast {
             match &**node {
-                Node::Struct { ident, .. } => {self.type_env.get_type_id_by_name(ident);},
+                Node::Struct { ident, .. } => {
+                    self.type_env.get_type_id_by_name(ident);
+                }
                 Node::Const { ty, lhs, rhs } => {
-                    // TODO part of this is shared with 'let', extract some stuff out?
                     if let Node::Ident { name } = &**lhs {
                         let ty = match self.type_env.get_type_by_name(ty) {
                             Some(t) => t,
                             None => panic!("unknown type {}", ty),
                         };
-                        let reg = unsafe { LLVMBuildAlloca(
-                            self.builder,
-                            ty.llvm_type(self.type_env.clone()),
-                            "".to_cstring().as_ptr(),
-                        ) };
-    
-                        self.env.insert_var(name, reg, ty.clone());
-    
-                        if let Some(rhs) = rhs {
-                            let rhs =
-                                self.build_expr(self.env.clone(), self.type_env.clone(), rhs.clone(), false);
-                            unsafe { LLVMBuildStore(self.builder, rhs.llvm_val, reg) };
-                        };
+
+                        // TODO type checking and missing types
+                        if let Some(Node::Int { value }) = rhs.as_deref() {
+                            self.env.insert_const(
+                                name,
+                                unsafe {
+                                    LLVMConstInt(
+                                        ty.llvm_type(self.type_env.clone()),
+                                        *value as u64,
+                                        0,
+                                    )
+                                },
+                                ty.clone(),
+                            );
+                        } else {
+                            unimplemented!()
+                        }
                     } else {
                         panic!()
                     }
@@ -1469,6 +1516,7 @@ impl ModuleBuilder {
                     self.type_env.insert_type_by_name(
                         ident,
                         Type::Struct {
+                            name: ident.clone(),
                             type_id,
                             field_indices,
                             field_type_ids: field_types,
@@ -1560,7 +1608,7 @@ impl ModuleBuilder {
                         } = &**method
                         {
                             let is_static = if let Some(arg) = args.first() {
-                                !(&*arg.ty != "Self" || &*arg.ty != "*Self")
+                                !(&*arg.ty == "Self" || &*arg.ty == "&Self")
                             } else {
                                 true
                             };
