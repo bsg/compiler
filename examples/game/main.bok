@@ -109,6 +109,11 @@ extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
 // END BINDINGS
 // --------------------------------------------------------------------------------------------------------------------
 
+fn abort(msg: &u8) {
+    puts(msg);
+    exit(1);
+}
+
 struct Pos {
     x: i32;
     y: i32;
@@ -251,38 +256,43 @@ fn main(argc: u32) -> u32 {
     let texPath: [u8; 16] = "spritesheet.png";
     let pTexPath: *u8 = &texPath;
 
-    SDL_Init(32);
+    
 
-    IMG_Init(2);
+    if SDL_Init(32) < 0 {
+        abort(SDL_GetError());
+    }
+
+    if IMG_Init(2) < 0 {
+        abort(SDL_GetError());
+    }
 
     let window: *SDL_Window = SDL_CreateWindow(pTitle, 0, 0, windowW, windowH, 4);
     if window == nullptr {
-        puts(SDL_GetError());
+        abort(SDL_GetError());
     }
 
     let renderer: *SDL_Renderer = SDL_CreateRenderer(window, -1, 1);
     if renderer == nullptr {
-        puts(SDL_GetError());
+        abort(SDL_GetError());
     }
 
     let surface: *SDL_Surface = SDL_GetWindowSurface(window);
     if surface == nullptr {
-        puts(SDL_GetError());
+        abort(SDL_GetError());
     }
 
     let img: *SDL_Surface = IMG_Load(pTexPath);
     if img == nullptr {
-        puts(SDL_GetError());
+        abort(SDL_GetError());
     }
 
     let texSpritesheet: *SDL_Texture = SDL_CreateTextureFromSurface(renderer, img);
-    if texSpritesheet == nullptr {
-        puts(SDL_GetError());
-    }
     SDL_FreeSurface(img);
+    if texSpritesheet == nullptr {
+        abort(SDL_GetError());
+    }
     
     let spritesheet: SpriteSheet = SpriteSheet::new(16, texSpritesheet);
-
 
     let srcRect: SDL_Rect;
     srcRect.x = 0;

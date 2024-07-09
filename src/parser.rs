@@ -301,14 +301,33 @@ impl Parser {
 
     fn parse_struct(&mut self) -> Option<NodeRef> {
         let mut fields: Vec<StructField> = Vec::new();
+        let mut generics: Vec<Rc<str>> = Vec::new();
 
         assert_eq!(Token::Struct, self.curr_token);
         self.next_token();
 
         if let Token::Ident(ident) = &self.curr_token.clone() {
             self.next_token();
-            assert_eq!(self.curr_token, Token::LBrace);
-            self.next_token();
+            match self.curr_token {
+                Token::LBrace => self.next_token(),
+                Token::Lt => {
+                    self.next_token();
+                    while self.curr_token != Token::Gt {
+                        if let Some(Node::Ident { name }) = self.parse_ident().as_deref() {
+                            generics.push(name.clone());
+                            self.next_token();
+                            if let Token::Comma = self.curr_token {
+                                self.next_token();
+                            }
+                        } else {
+                            todo!()
+                        }
+                    }
+                    self.next_token(); // eat Gt
+                    self.next_token(); // eat RBrace
+                }
+                _ => todo!()
+            }
 
             loop {
                 match &self.curr_token.clone() {
@@ -342,6 +361,7 @@ impl Parser {
                 Node::Struct {
                     ident: ident.clone(),
                     fields: Rc::from(fields.as_slice()),
+                    generics: Rc::from(generics.as_slice()),
                 }
                 .into(),
             )
@@ -1317,6 +1337,19 @@ mul
             "extern \"C\" fn exit(status: u32) -> void;",
             "\
 extern \"C\" fn exit(status: u32) -> void
+"
+        );
+    }
+
+    #[test]
+    fn struct_defn_with_generics() {
+        assert_parse!(
+            "struct T<A, B> {a: u32; b: u8; c: A;}",
+            "\
+struct T<A,B>
+    a u32
+    b u8
+    c A
 "
         );
     }

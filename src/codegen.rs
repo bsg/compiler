@@ -1571,7 +1571,7 @@ impl ModuleBuilder {
     fn pass2(&mut self, ast: &[NodeRef]) {
         for node in ast {
             match &**node {
-                Node::Struct { ident, fields } => {
+                Node::Struct { ident, fields, .. } => {
                     // TODO build a dependency tree and gen structs depth first
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
                     let mut field_types: Vec<usize> = Vec::new();

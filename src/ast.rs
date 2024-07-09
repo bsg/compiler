@@ -158,6 +158,7 @@ pub enum Node {
     Struct {
         ident: Rc<str>,
         fields: Rc<[StructField]>,
+        generics: Rc<[Rc<str>]>,
     },
     Impl {
         ident: Rc<str>,
@@ -185,7 +186,9 @@ impl fmt::Debug for Node {
                 Node::Int { value } => format!("{}", value),
                 Node::Bool { value } => format!("{}", value),
                 Node::Str { value } => format!("{:?}", value),
-                Node::Char { value } => format!("'{}'", unsafe {char::from_u32_unchecked(**value as u32) }),
+                Node::Char { value } => {
+                    format!("'{}'", unsafe { char::from_u32_unchecked(**value as u32) })
+                }
                 Node::UnOp { op, rhs } => {
                     format!("{:?}{}", op, fmt_with_indent(rhs, indent_level + 1, true))
                 }
@@ -270,7 +273,7 @@ impl fmt::Debug for Node {
                     ret_ty,
                     body,
                     is_extern,
-                    linkage
+                    linkage,
                 } => {
                     let args_str = args
                         .iter()
@@ -312,7 +315,11 @@ impl fmt::Debug for Node {
                     }
                     c
                 }
-                Node::Struct { ident, fields } => {
+                Node::Struct {
+                    ident,
+                    fields,
+                    generics,
+                } => {
                     let fields_str = fields.iter().fold(String::new(), |mut acc, field| {
                         acc += "\n";
                         acc += "    ";
@@ -321,7 +328,14 @@ impl fmt::Debug for Node {
                         acc += &field.ty;
                         acc
                     });
-                    format!("struct {}{}", ident, fields_str)
+
+                    let generics_str = if generics.len() > 0 {
+                        format!("<{}>", generics.join(","))
+                    } else {
+                        "".to_string()
+                    };
+
+                    format!("struct {}{}{}", ident, generics_str, fields_str)
                 }
                 Node::Impl { ident, methods } => {
                     let methods_str = methods.iter().fold(String::new(), |mut acc, method| {
