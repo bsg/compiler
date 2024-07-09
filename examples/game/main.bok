@@ -367,38 +367,30 @@ fn main(argc: u32) -> u32 {
             }
         }
         
-        if input.up {
-            if player.pos.y > 0 {
-                player.pos.y = player.pos.y - player.speed;
-            }
+        if input.up && player.pos.y > 0 {
+            player.pos.y = player.pos.y - player.speed;
         }
-        if input.left {
-            if player.pos.x > 0 {
-                player.pos.x = player.pos.x - player.speed;
-            }
+        if input.left && player.pos.x > 0 {
+            player.pos.x = player.pos.x - player.speed;
         }
-        if input.down {
-            if player.pos.y < (windowH - player.h) {
-                player.pos.y = player.pos.y + player.speed;
-            }
+        if input.down && player.pos.y < (windowH - player.h) {
+            player.pos.y = player.pos.y + player.speed;
         }
-        if input.right {
-            if player.pos.x < (windowW - player.w) {
-                player.pos.x = player.pos.x + player.speed;
-            }
+        if input.right && player.pos.x < (windowW - player.w) {
+            player.pos.x = player.pos.x + player.speed;
         }
-        if input.shoot {
-            if shootCooldown == 0 {
+        
+        if shootCooldown > 0 {
+            shootCooldown = shootCooldown - 1;
+        } else {
+            if input.shoot {
                 bullet.isAlive = true;
                 bullet.pos.x = player.pos.x + 8;
                 bullet.pos.y = player.pos.y - 20;
                 bulletList.spawn(&bullet);
                 shootCooldown = 30;
-            } else {
-                shootCooldown = shootCooldown - 1;
-            }
+            } 
         }
-
 
         SDL_RenderClear(renderer);
 

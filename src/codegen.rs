@@ -1276,10 +1276,7 @@ impl ModuleBuilder {
 
                     let bb_current = LLVMGetInsertBlock(self.builder);
 
-                    LLVMPositionBuilderAtEnd(
-                        self.builder,
-                        func.unwrap().bb_entry.unwrap(),
-                    );
+                    LLVMPositionBuilderAtEnd(self.builder, func.unwrap().bb_entry.unwrap());
 
                     let reg = LLVMBuildAlloca(
                         self.builder,
