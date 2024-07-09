@@ -78,8 +78,8 @@ struct SDL_Texture {}
 
 // TODO some of these need usize
 extern "C" fn malloc(size: u32) -> *u8;
-extern "C" fn realloc(ptr: *u8, new_size: u64) -> *u8;
-extern "C" fn memcpy(dest: *u8, src: *u8, n: u64) -> *u8;
+extern "C" fn realloc(ptr: *u8, new_size: u32) -> *u8;
+extern "C" fn memcpy(dest: *u8, src: *u8, n: u32) -> *u8;
 extern "C" fn free(ptr: *u8);
 extern "C" fn exit(status: u32);
 extern "C" fn sleep(seconds: u32) -> u32;
@@ -191,11 +191,21 @@ impl BulletList {
         return bulletList;
     }
 
-    // fn spawn(self: &Self, bullet: *Bullet) -> u32 {
-    //     if (*self).ptr != nullptr && idx < (*self).len {
-    //         memcpy((*self).ptr + (idx * 16), bullet, 16);
-    //     }
-    // }
+    fn spawn(self: &Self, bullet: *Bullet) -> u32 {
+        let idx: u32 = 0;
+        if (*self).len < (*self).cap {
+            idx = (*self).len;
+            (*self).len = (*self).len + 1;
+        } else {
+            return 0;
+        }
+        
+        if (*self).ptr != nullptr && idx < (*self).len {
+            memcpy((*self).ptr + (idx * 16), bullet, 16);
+        }
+
+        return idx;
+    }
 
     fn get(self: &Self, id: u32) -> &Bullet {
         // TODO because this returns, do not emit a br
@@ -284,6 +294,20 @@ fn main(argc: u32) -> u32 {
     player.pos.x = 200;
     player.pos.y = windowH - player.h;
 
+    let shootCooldown: u32 = 0;
+    let bulletList: BulletList = BulletList::new(10);
+
+    let bullet: Bullet;
+
+    let bulletSprite: Sprite;
+    bulletSprite.tileX = 10;
+    bulletSprite.tileY = 0;
+    bulletSprite.tileW = 1;
+    bulletSprite.tileH = 1;
+
+    let i: u32 = 0;    
+    let bulletIt: &Bullet;
+
     while true {
         while SDL_PollEvent(&ev) == 1 {
             if ev.type == 256 { // quit event
@@ -352,6 +376,18 @@ fn main(argc: u32) -> u32 {
                 player.pos.x = player.pos.x + player.speed;
             }
         }
+        if input.shoot {
+            if shootCooldown == 0 {
+                bullet.isAlive = true;
+                bullet.pos.x = player.pos.x + 8;
+                bullet.pos.y = player.pos.y - 20;
+                bulletList.spawn(&bullet);
+                shootCooldown = 30;
+            } else {
+                shootCooldown = shootCooldown - 1;
+            }
+        }
+
 
         SDL_RenderClear(renderer);
 
@@ -374,6 +410,21 @@ fn main(argc: u32) -> u32 {
         dstRect.h = player.h;
 
         spritesheet.drawTile(renderer, &player.sprite, &dstRect);
+
+        i = 0;
+        while i < bulletList.len {
+            bulletIt = bulletList.get(i);
+
+            (*bulletIt).pos.y = (*bulletIt).pos.y - 2;
+
+            dstRect.x = (*bulletIt).pos.x;
+            dstRect.y = (*bulletIt).pos.y;
+            dstRect.w = 16;
+            dstRect.h = 16;
+
+            spritesheet.drawTile(renderer, &bulletSprite, &dstRect);
+            i = i + 1;
+        }
 
         SDL_RenderPresent(renderer);
         SDL_Delay(16);
