@@ -228,7 +228,6 @@ impl BulletList {
     }
 
     fn get(self: &Self, id: u32) -> &Bullet {
-        // TODO because this returns, do not emit a br
         if self.ptr != nullptr && id < self.len {
             return self.ptr + (id * 16);
         }
