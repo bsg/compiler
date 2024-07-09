@@ -8,9 +8,12 @@
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
+use llvm_sys::LLVMBasicBlock;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::ptr::null;
+use std::ptr::null_mut;
 use std::rc::Rc;
 
 use crate::ast::*;
@@ -238,7 +241,9 @@ pub struct Func {
     ret_ty: Type,
     val: LLVMValueRef,
     llvm_ty: LLVMTypeRef,
-    body: Option<LLVMBasicBlockRef>,
+    // TODO group these two together
+    bb_entry: Option<LLVMBasicBlockRef>,
+    bb_body: Option<LLVMBasicBlockRef>,
 }
 
 static mut NEXT_TYPE_ID: usize = 0;
@@ -1266,11 +1271,23 @@ impl ModuleBuilder {
                         Some(t) => t,
                         None => panic!("unknown type {}", ty),
                     };
+
+                    let func = self.env.get_func(&self.current_func_ident.clone().unwrap());
+
+                    let bb_current = LLVMGetInsertBlock(self.builder);
+
+                    LLVMPositionBuilderAtEnd(
+                        self.builder,
+                        func.unwrap().bb_entry.unwrap(),
+                    );
+
                     let reg = LLVMBuildAlloca(
                         self.builder,
                         ty.llvm_type(type_env.clone()),
                         "".to_cstring().as_ptr(),
                     );
+
+                    LLVMPositionBuilderAtEnd(self.builder, bb_current);
 
                     env.insert_var(name, reg, ty.clone());
 
@@ -1324,7 +1341,6 @@ impl ModuleBuilder {
                     }
 
                     LLVMPositionBuilderAtEnd(self.builder, bb_exit);
-
                     Val {
                         ty: type_env.get_type_by_name("void").unwrap().clone(),
                         llvm_val: cond,
@@ -1429,10 +1445,21 @@ impl ModuleBuilder {
         let val = unsafe { LLVMAddFunction(self.module, ident.to_cstring().as_ptr(), func_ty) };
 
         let fn_env = Env::make_child(env.clone());
-        let body = if is_extern {
-            None
+        let (bb_entry, bb_body) = if is_extern {
+            (None, None)
         } else {
-            Some(unsafe { LLVMAppendBasicBlock(val, "".to_string().to_cstring().as_ptr()) })
+            unsafe {
+                (
+                    Some(LLVMAppendBasicBlock(
+                        val,
+                        "".to_string().to_cstring().as_ptr(),
+                    )),
+                    Some(LLVMAppendBasicBlock(
+                        val,
+                        "".to_string().to_cstring().as_ptr(),
+                    )),
+                )
+            }
         };
         // this needs to be global
         self.env.insert_func(
@@ -1443,7 +1470,8 @@ impl ModuleBuilder {
                 ret_ty: ret_ty.clone(),
                 val,
                 llvm_ty: func_ty,
-                body,
+                bb_entry,
+                bb_body,
             },
         );
     }
@@ -1458,9 +1486,9 @@ impl ModuleBuilder {
         body: NodeRef,
     ) {
         let func = env.get_func(&ident).unwrap();
-        if let Some(bb_body) = func.body {
+        if let (Some(bb_entry), Some(bb_body)) = (func.bb_entry, func.bb_body) {
             self.current_func_ident = Some(ident.clone());
-            unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_body) };
+            unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_entry) };
 
             for (i, arg) in args.iter().enumerate() {
                 let ty = match type_env.get_type_by_name(&arg.ty) {
@@ -1484,10 +1512,18 @@ impl ModuleBuilder {
                 func.env.insert_var(&arg.ident, argp, ty.clone());
             }
 
+            unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_body) };
+
             self.build_block(func.env.clone(), type_env.clone(), body.clone());
             if func.ret_ty == Type::None {
                 unsafe { LLVMBuildRetVoid(self.builder) };
             }
+
+            unsafe {
+                LLVMPositionBuilderAtEnd(self.builder, bb_entry);
+                LLVMBuildBr(self.builder, bb_body);
+            }
+
             self.current_func_ident = None;
         }
     }

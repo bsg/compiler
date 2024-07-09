@@ -198,9 +198,8 @@ impl BulletList {
             (*self).len = (*self).len + 1;
         } else {
             let run: bool = true; // TODO we have no 'break' yet lmao
-            let b: &Bullet;
             while idx < (*self).len && run {
-                b = (*self).get(idx);
+                let b: &Bullet = (*self).get(idx);
                 if !(*b).isAlive {
                     run = false;
                 } else {
@@ -320,9 +319,6 @@ fn main(argc: u32) -> u32 {
     bulletSprite.tileW = 1;
     bulletSprite.tileH = 1;
 
-    let i: u32 = 0;    
-    let bulletIt: &Bullet;
-
     while true {
         while SDL_PollEvent(&ev) == 1 {
             if ev.type == 256 { // quit event
@@ -426,19 +422,19 @@ fn main(argc: u32) -> u32 {
 
         spritesheet.drawTile(renderer, &player.sprite, &dstRect);
 
-        i = 0;
+        let i: u32 = 0;
         while i < bulletList.len {
-            bulletIt = bulletList.get(i);
+            let bullet: &Bullet = bulletList.get(i);
 
-            if (*bulletIt).isAlive {
-                dstRect.x = (*bulletIt).pos.x;
-                dstRect.y = (*bulletIt).pos.y;
+            if (*bullet).isAlive {
+                dstRect.x = (*bullet).pos.x;
+                dstRect.y = (*bullet).pos.y;
                 dstRect.w = 16;
                 dstRect.h = 16;
                 spritesheet.drawTile(renderer, &bulletSprite, &dstRect);
 
-                (*bulletIt).pos.y = (*bulletIt).pos.y - BULLET_SPEED;
-                if (*bulletIt).pos.y < 0 {
+                (*bullet).pos.y = (*bullet).pos.y - BULLET_SPEED;
+                if (*bullet).pos.y < 0 {
                     bulletList.despawn(i);
                 }
             }
