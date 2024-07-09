@@ -77,10 +77,10 @@ struct SDL_Surface {}
 struct SDL_Texture {}
 
 // TODO some of these need usize
-extern "C" fn malloc(size: u64) -> *void;
-extern "C" fn realloc(ptr: *void, new_size: u64) -> *void;
-extern "C" fn memcpy(dest: *void, src: *void, n: u64) -> *void;
-extern "C" fn free(ptr: *void);
+extern "C" fn malloc(size: u32) -> *u8;
+extern "C" fn realloc(ptr: *u8, new_size: u64) -> *u8;
+extern "C" fn memcpy(dest: *u8, src: *u8, n: u64) -> *u8;
+extern "C" fn free(ptr: *u8);
 extern "C" fn exit(status: u32);
 extern "C" fn sleep(seconds: u32) -> u32;
 extern "C" fn puts(s: *i8) -> i32;
@@ -126,12 +126,12 @@ impl SpriteSheet {
         return spritesheet;
     }
 
-    fn drawTile(self: &Self, renderer: &SDL_Renderer, tileX: u32, tileY: u32, dstRect: &SDL_Rect) {
+    fn drawTile(self: &Self, renderer: *SDL_Renderer, sprite: &Sprite, dstRect: &SDL_Rect) {
         let srcRect: SDL_Rect;
-        srcRect.x = tileX * 16;
-        srcRect.y = tileY * 16;
-        srcRect.w = 16;
-        srcRect.h = 16;
+        srcRect.x = (*sprite).tileX * (*self).tileSize;
+        srcRect.y = (*sprite).tileY * (*self).tileSize;
+        srcRect.w = (*sprite).tileW * (*self).tileSize;
+        srcRect.h = (*sprite).tileH * (*self).tileSize;
 
         if SDL_RenderCopy(renderer, (*self).tex, &srcRect, dstRect) < 0 {
             puts(SDL_GetError());
@@ -147,6 +147,18 @@ struct InputState {
     shoot: bool;
 }
 
+impl InputState {
+    fn new() -> Self {
+        let input: Self;
+        input.up = false;
+        input.down = false;
+        input.left = false;
+        input.right = false;
+        input.shoot = false;
+        return input;
+    }
+}
+
 struct Player {
     pos: Pos;
     sprite: Sprite;
@@ -157,30 +169,44 @@ struct Player {
     animTicksLeft: u32;
 }
 
-struct SpriteList {
+struct Bullet {
+    isAlive: bool;
+    pos: Pos;
+}
+
+struct BulletList {
     len: u32;
+    cap: u32;
+    //ptr: *Sprite; TODO this fails
     ptr: *u8;
 }
 
-impl SpriteList {
-    fn new(size: u32) -> Self {
-        let spriteList: SpriteList;
-        spriteList.len = size;
+impl BulletList {
+    fn new(cap: u32) -> Self {
+        let bulletList: BulletList;
+        bulletList.len = 0;
+        bulletList.cap = cap;
         // TODO #[sizeof T]
-        spriteList.ptr = malloc(16 * size);
-        return spriteList;
+        bulletList.ptr = malloc(16 * cap);
+        return bulletList;
     }
 
-    fn put(self: &Self, idx: u32, sprite: *Sprite) {
-        if (*self).ptr != nullptr && idx < (*self).len {
-            memcpy((*self).ptr + (idx * 16), sprite, 16);
+    // fn spawn(self: &Self, bullet: *Bullet) -> u32 {
+    //     if (*self).ptr != nullptr && idx < (*self).len {
+    //         memcpy((*self).ptr + (idx * 16), bullet, 16);
+    //     }
+    // }
+
+    fn get(self: &Self, id: u32) -> &Bullet {
+        // TODO because this returns, do not emit a br
+        if (*self).ptr != nullptr && id < (*self).len {
+            return (*self).ptr + (id * 16);
         }
+        return nullptr;
     }
 
-    fn get(self: &Self, idx: u32) -> &Sprite {
-        if (*self).ptr != nullptr && idx < (*self).len {
-            return (*self).ptr + (idx * 16);
-        }
+    fn kill(self: &Self, id: u32) {
+        (*(*self).get(id)).isAlive = 0;
     }
 }
 
@@ -194,15 +220,9 @@ fn main(argc: u32) -> u32 {
     let texPath: [u8; 16] = "spritesheet.png";
     let pTexPath: *u8 = &texPath;
 
-    if SDL_Init(32) < 0 {
-        puts(SDL_GetError());
-        return 1;
-    }
+    SDL_Init(32);
 
-    if IMG_Init(2) < 0 {
-        puts(SDL_GetError());
-        return 1;
-    }
+    IMG_Init(2);
 
     let window: *SDL_Window = SDL_CreateWindow(pTitle, 0, 0, windowW, windowH, 4);
     if window == nullptr {
@@ -224,12 +244,14 @@ fn main(argc: u32) -> u32 {
         puts(SDL_GetError());
     }
 
-    let tex: *SDL_Texture = SDL_CreateTextureFromSurface(renderer, img);
-    if tex == nullptr {
+    let texSpritesheet: *SDL_Texture = SDL_CreateTextureFromSurface(renderer, img);
+    if texSpritesheet == nullptr {
         puts(SDL_GetError());
     }
-
     SDL_FreeSurface(img);
+    
+    let spritesheet: SpriteSheet = SpriteSheet::new(16, texSpritesheet);
+
 
     let srcRect: SDL_Rect;
     srcRect.x = 0;
@@ -242,17 +264,14 @@ fn main(argc: u32) -> u32 {
     dstRect.y = 100;
     dstRect.w = 80;
     dstRect.h = 80;
-
     
     let ev: SDL_Event;
     let kb_event: SDL_KeyboardEvent;
 
-    let input: InputState;
+    let input: InputState = InputState::new();
 
     // TODO really need struct literals
     let player: Player;
-    player.pos.x = 200;
-    player.pos.y = 200;
     player.sprite.tileW = 1;
     player.sprite.tileH = 2;
     player.sprite.tileX = 0;
@@ -262,19 +281,8 @@ fn main(argc: u32) -> u32 {
     player.speed = 3;
     player.animState = 0;
     player.animTicksLeft = 30;
-
-
-    let spriteList: SpriteList = SpriteList::new(2);
-    let spriteIdx: u32 = 0;
-    let currentSprite: &Sprite;
-
-    let sp1: Sprite;
-    sp1.tileX = 10;
-    sp1.tileY = 0;
-    sp1.tileW = 1;
-    sp1.tileH = 1;
-
-    spriteList.put(0, &sp1);
+    player.pos.x = 200;
+    player.pos.y = windowH - player.h;
 
     while true {
         while SDL_PollEvent(&ev) == 1 {
@@ -360,40 +368,12 @@ fn main(argc: u32) -> u32 {
             player.animTicksLeft = player.animTicksLeft - 1;
         }
 
-        srcRect.x = player.sprite.tileX * 16;
-        srcRect.y = 0;
-        srcRect.w = player.sprite.tileW * 16;
-        srcRect.h = player.sprite.tileH * 16;
-
         dstRect.x = player.pos.x;
         dstRect.y = player.pos.y;
         dstRect.w = player.w;
         dstRect.h = player.h;
 
-        if SDL_RenderCopy(renderer, tex, &srcRect, &dstRect) < 0 {
-            puts(SDL_GetError());
-        }
-
-        spriteIdx = 0;
-        while spriteIdx < 1 {
-            currentSprite = spriteList.get(spriteIdx);
-
-            srcRect.x = (*currentSprite).tileX * 16;
-            srcRect.y = (*currentSprite).tileY * 16;
-            srcRect.w = (*currentSprite).tileW * 16;
-            srcRect.h = (*currentSprite).tileH * 16;
-
-            dstRect.x = 100;
-            dstRect.y = 100;
-            dstRect.w = 32;
-            dstRect.h = 32;
-
-            if SDL_RenderCopy(renderer, tex, &srcRect, &dstRect) < 0 {
-                puts(SDL_GetError());
-            }
-
-            spriteIdx = spriteIdx + 1;
-        }
+        spritesheet.drawTile(renderer, &player.sprite, &dstRect);
 
         SDL_RenderPresent(renderer);
         SDL_Delay(16);

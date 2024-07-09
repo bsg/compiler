@@ -2,6 +2,8 @@
 // TODO impl type aliasing and make 'Self' a type alias instead of a new type
 // TODO struct literals
 // TODO Fn type
+// TODO check returns values of LLVM function calls
+// TODO LLVMVerifyFunction
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -938,13 +940,24 @@ impl ModuleBuilder {
                                 }
                             }
                             Node::Call { ident, args } => {
-                                let func_ident =
-                                    if let Some(member) = member_methods.get(&ident.to_string()) {
-                                        member
-                                    } else {
-                                        panic!("struct {} has no method {}", struct_name, ident)
-                                    };
-                                let func = env.get_func(func_ident).unwrap();
+                                // TODO the following fails for struct members that depend on one another
+                                // build static/member methods lists before you build impl fn bodies
+
+                                // TODO is this even needed? maybe instead consistently mangle fn names?
+
+                                // let func_ident =
+                                //     if let Some(member) = member_methods.get(&ident.to_string()) {
+                                //         member
+                                //     } else {
+                                //         panic!("struct {} has no method {}", struct_name, ident)
+                                //     };
+
+                                let func_ident = format!("{}::{}", struct_name, ident);
+                                let func = if let Some(func) = env.get_func(func_ident.as_str()) {
+                                    func
+                                } else {
+                                    panic!("unresolved method {}", func_ident);
+                                };
                                 let self_by_ref =
                                     if let Some(Type::Ref { .. }) = func.arg_tys.first() {
                                         // TODO type checking
@@ -971,7 +984,7 @@ impl ModuleBuilder {
                                 return self.build_call(
                                     env.clone(),
                                     type_env.clone(),
-                                    func_ident,
+                                    func_ident.as_str(),
                                     &args,
                                 );
                             }
@@ -1172,7 +1185,7 @@ impl ModuleBuilder {
                 Val {
                     // TODO type
                     ty: type_env.get_type_by_name("*void").unwrap().clone(),
-                    llvm_val: unsafe { LLVMConstPointerNull(LLVMVoidType()) },
+                    llvm_val: unsafe { LLVMConstPointerNull(LLVMPointerType(LLVMVoidType(), 0)) },
                 }
             }
             Node::Int { value } => unsafe {
@@ -1458,7 +1471,9 @@ impl ModuleBuilder {
             }
 
             self.build_block(func.env.clone(), type_env.clone(), body.clone());
-            unsafe { LLVMBuildRetVoid(self.builder) }; // TODO
+            if func.ret_ty == Type::None {
+                unsafe { LLVMBuildRetVoid(self.builder) };
+            }
             self.current_func_ident = None;
         }
     }

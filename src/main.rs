@@ -1,14 +1,16 @@
 use std::fs;
+use std::ptr::null_mut;
 
 use clap::Parser;
+use llvm_sys::analysis::LLVMVerifyModule;
 use llvm_sys::target_machine::{
     LLVMGetDefaultTargetTriple, LLVMGetFirstTarget, LLVMGetHostCPUName,
 };
 
 mod ast;
+mod codegen;
 mod lexer;
 mod parser;
-mod codegen;
 
 use llvm_sys::core::*;
 use llvm_sys::target_machine::*;
@@ -50,6 +52,12 @@ fn main() {
 
     let mut module = codegen::ModuleBuilder::new("main");
     module.build(ast.as_slice());
+
+    unsafe { LLVMVerifyModule(
+        module.get_llvm_module_ref(),
+        llvm_sys::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
+        null_mut(),
+    ) };
 
     unsafe {
         LLVMPrintModuleToFile(
