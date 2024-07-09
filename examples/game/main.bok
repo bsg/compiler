@@ -1,3 +1,7 @@
+// --------------------------------------------------------------------------------------------------------------------
+// BEGIN BINDINGS
+// --------------------------------------------------------------------------------------------------------------------
+
 struct SDL_Keysym {
     scancode: u32;
     sym: u32;
@@ -101,6 +105,10 @@ extern "C" fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
 extern "C" fn IMG_Init(flags: i32) -> i32;
 extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
 
+// --------------------------------------------------------------------------------------------------------------------
+// END BINDINGS
+// --------------------------------------------------------------------------------------------------------------------
+
 struct Pos {
     x: i32;
     y: i32;
@@ -128,12 +136,12 @@ impl SpriteSheet {
 
     fn drawTile(self: &Self, renderer: *SDL_Renderer, sprite: &Sprite, dstRect: &SDL_Rect) {
         let srcRect: SDL_Rect;
-        srcRect.x = (*sprite).tileX * (*self).tileSize;
-        srcRect.y = (*sprite).tileY * (*self).tileSize;
-        srcRect.w = (*sprite).tileW * (*self).tileSize;
-        srcRect.h = (*sprite).tileH * (*self).tileSize;
+        srcRect.x = sprite.tileX * self.tileSize;
+        srcRect.y = sprite.tileY * self.tileSize;
+        srcRect.w = sprite.tileW * self.tileSize;
+        srcRect.h = sprite.tileH * self.tileSize;
 
-        if SDL_RenderCopy(renderer, (*self).tex, &srcRect, dstRect) < 0 {
+        if SDL_RenderCopy(renderer, self.tex, &srcRect, dstRect) < 0 {
             puts(SDL_GetError());
         }
     }
@@ -183,24 +191,24 @@ struct BulletList {
 
 impl BulletList {
     fn new(cap: u32) -> Self {
-        let bulletList: BulletList;
-        bulletList.len = 0;
-        bulletList.cap = cap;
+        let list: BulletList;
+        list.len = 0;
+        list.cap = cap;
         // TODO #[sizeof T]
-        bulletList.ptr = malloc(16 * cap);
-        return bulletList;
+        list.ptr = malloc(16 * cap);
+        return list;
     }
 
     fn spawn(self: &Self, bullet: *Bullet) -> u32 {
         let idx: u32 = 0;
-        if (*self).len < (*self).cap {
-            idx = (*self).len;
-            (*self).len = (*self).len + 1;
+        if self.len < self.cap {
+            idx = self.len;
+            self.len = self.len + 1;
         } else {
             let run: bool = true; // TODO we have no 'break' yet lmao
-            while idx < (*self).len && run {
-                let b: &Bullet = (*self).get(idx);
-                if !(*b).isAlive {
+            while idx < self.len && run {
+                let b: &Bullet = self.get(idx);
+                if !b.isAlive {
                     run = false;
                 } else {
                     idx = idx + 1;
@@ -208,27 +216,27 @@ impl BulletList {
             }
         }
         
-        if (*self).ptr != nullptr && idx < (*self).len {
-            memcpy((*self).ptr + (idx * 16), bullet, 16);
+        if self.ptr != nullptr && idx < self.len {
+            memcpy(self.ptr + (idx * 16), bullet, 16);
         }
 
         return idx;
     }
 
     fn despawn(self: &Self, id: u32) {
-        (*(*self).get(id)).isAlive = false;
+        self.get(id).isAlive = false;
     }
 
     fn get(self: &Self, id: u32) -> &Bullet {
         // TODO because this returns, do not emit a br
-        if (*self).ptr != nullptr && id < (*self).len {
-            return (*self).ptr + (id * 16);
+        if self.ptr != nullptr && id < self.len {
+            return self.ptr + (id * 16);
         }
         return nullptr;
     }
 
     fn kill(self: &Self, id: u32) {
-        (*(*self).get(id)).isAlive = 0;
+        self.get(id).isAlive = 0;
     }
 }
 
@@ -418,15 +426,15 @@ fn main(argc: u32) -> u32 {
         while i < bulletList.len {
             let bullet: &Bullet = bulletList.get(i);
 
-            if (*bullet).isAlive {
-                dstRect.x = (*bullet).pos.x;
-                dstRect.y = (*bullet).pos.y;
+            if bullet.isAlive {
+                dstRect.x = bullet.pos.x;
+                dstRect.y = bullet.pos.y;
                 dstRect.w = 16;
                 dstRect.h = 16;
                 spritesheet.drawTile(renderer, &bulletSprite, &dstRect);
 
-                (*bullet).pos.y = (*bullet).pos.y - BULLET_SPEED;
-                if (*bullet).pos.y < 0 {
+                bullet.pos.y = bullet.pos.y - BULLET_SPEED;
+                if bullet.pos.y < 0 {
                     bulletList.despawn(i);
                 }
             }

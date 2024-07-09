@@ -2,18 +2,16 @@
 // TODO impl type aliasing and make 'Self' a type alias instead of a new type
 // TODO struct literals
 // TODO Fn type
-// TODO check returns values of LLVM function calls
+// TODO check return values of llvm-sys function calls
 // TODO LLVMVerifyFunction
 // TODO break/continue
+// TODO check if variable shadowing works as intended
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
-use llvm_sys::LLVMBasicBlock;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::ptr::null;
-use std::ptr::null_mut;
 use std::rc::Rc;
 
 use crate::ast::*;
@@ -908,6 +906,13 @@ impl ModuleBuilder {
                 Op::Dot => unsafe {
                     let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
                     match lhs_val.ty.clone() {
+                        // TODO this is possibly retarded, then again wtf do i know
+                        Type::Ref { .. } => return self.build_binop(
+                            env,
+                            type_env,
+                            Node::BinOp { op: Op::Dot, lhs: Node::UnOp { op: Op::Deref, rhs: lhs.clone() }.into(), rhs: rhs.clone() }.into(),
+                            as_lvalue,
+                        ),
                         Type::Struct {
                             field_indices,
                             field_type_ids: fields,
