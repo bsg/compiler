@@ -906,7 +906,6 @@ impl ModuleBuilder {
                         Type::Struct {
                             field_indices,
                             field_type_ids: fields,
-                            member_methods,
                             name: struct_name,
                             ..
                         } => match &**rhs {

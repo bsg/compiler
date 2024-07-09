@@ -197,7 +197,16 @@ impl BulletList {
             idx = (*self).len;
             (*self).len = (*self).len + 1;
         } else {
-            return 0;
+            let run: bool = true; // TODO we have no 'break' yet lmao
+            let b: &Bullet;
+            while idx < (*self).len && run {
+                b = (*self).get(idx);
+                if !(*b).isAlive {
+                    run = false;
+                } else {
+                    idx = idx + 1;
+                }
+            }
         }
         
         if (*self).ptr != nullptr && idx < (*self).len {
@@ -205,6 +214,10 @@ impl BulletList {
         }
 
         return idx;
+    }
+
+    fn despawn(self: &Self, id: u32) {
+        (*(*self).get(id)).isAlive = false;
     }
 
     fn get(self: &Self, id: u32) -> &Bullet {
@@ -219,6 +232,8 @@ impl BulletList {
         (*(*self).get(id)).isAlive = 0;
     }
 }
+
+const BULLET_SPEED: u32 = 4;
 
 fn main(argc: u32) -> u32 {
     let windowW: u32 = 400;
@@ -415,14 +430,18 @@ fn main(argc: u32) -> u32 {
         while i < bulletList.len {
             bulletIt = bulletList.get(i);
 
-            (*bulletIt).pos.y = (*bulletIt).pos.y - 2;
+            if (*bulletIt).isAlive {
+                dstRect.x = (*bulletIt).pos.x;
+                dstRect.y = (*bulletIt).pos.y;
+                dstRect.w = 16;
+                dstRect.h = 16;
+                spritesheet.drawTile(renderer, &bulletSprite, &dstRect);
 
-            dstRect.x = (*bulletIt).pos.x;
-            dstRect.y = (*bulletIt).pos.y;
-            dstRect.w = 16;
-            dstRect.h = 16;
-
-            spritesheet.drawTile(renderer, &bulletSprite, &dstRect);
+                (*bulletIt).pos.y = (*bulletIt).pos.y - BULLET_SPEED;
+                if (*bulletIt).pos.y < 0 {
+                    bulletList.despawn(i);
+                }
+            }
             i = i + 1;
         }
 
