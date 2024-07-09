@@ -4,6 +4,7 @@
 // TODO Fn type
 // TODO check returns values of LLVM function calls
 // TODO LLVMVerifyFunction
+// TODO break/continue
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -1309,15 +1310,19 @@ impl ModuleBuilder {
                         bb_else,
                     );
 
+                    // FIXME properly determine whether the else/exit blocks should be built
                     LLVMPositionBuilderAtEnd(self.builder, bb_then);
-                    self.build_block(env.clone(), type_env.clone(), then_block.clone());
-                    LLVMBuildBr(self.builder, bb_exit);
-
+                    if !self.build_block(env.clone(), type_env.clone(), then_block.clone()) {
+                        LLVMBuildBr(self.builder, bb_exit);
+                    }
                     LLVMPositionBuilderAtEnd(self.builder, bb_else);
                     if let Some(else_block) = else_block {
-                        self.build_block(env.clone(), type_env.clone(), else_block.clone());
+                        if !self.build_block(env.clone(), type_env.clone(), else_block.clone()) {
+                            LLVMBuildBr(self.builder, bb_exit);
+                        }
+                    } else {
+                        LLVMBuildBr(self.builder, bb_exit);
                     }
-                    LLVMBuildBr(self.builder, bb_exit);
 
                     LLVMPositionBuilderAtEnd(self.builder, bb_exit);
 
@@ -1367,14 +1372,24 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_block(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, node: NodeRef) {
+    fn build_block(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, node: NodeRef) -> bool {
+        let mut returns = false;
         if let Node::Block { statements } = &*node {
-            for stmt in statements.iter() {
+            for (i, stmt) in statements.iter().enumerate() {
+                // TODO this is a quick hack. build_stmt should return info, including whether the stmt returns
+                if let Node::Return { .. } = &**stmt {
+                    if i == statements.len() - 1 {
+                        returns = true;
+                    } else {
+                        panic!("return stmt in the middle of block");
+                    }
+                }
                 self.build_stmt(env.clone(), type_env.clone(), stmt.clone());
             }
         } else {
             panic!()
         }
+        returns
     }
 
     // TODO rename

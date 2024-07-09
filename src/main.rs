@@ -55,7 +55,7 @@ fn main() {
 
     unsafe { LLVMVerifyModule(
         module.get_llvm_module_ref(),
-        llvm_sys::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction,
+        llvm_sys::analysis::LLVMVerifierFailureAction::LLVMPrintMessageAction,
         null_mut(),
     ) };
 
