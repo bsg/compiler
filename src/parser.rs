@@ -38,7 +38,26 @@ impl Parser {
         }
 
         let ty = match self.curr_token.clone() {
-            Token::Ident(ident) => Some(ident),
+            Token::Ident(ident) => {
+                if self.peek_token == Token::Lt {
+                    self.next_token();
+                    self.next_token();
+
+                    let mut generics: Vec<Rc<str>> = Vec::new();
+                    while self.curr_token != Token::Gt {
+                        if let Some(ty_ident) = &self.parse_type() {
+                            generics.push(ty_ident.clone());
+                        } else {
+                            todo!()
+                        }
+                        self.next_token();
+                    }
+
+                    Some(format!("{}<{}>", ident, generics.join(",")).into())
+                } else {
+                    Some(ident)
+                }
+            }
             Token::Star => {
                 self.next_token();
                 if let Some(ty) = get_ident_str(&self.curr_token) {
@@ -326,7 +345,7 @@ impl Parser {
                     self.next_token(); // eat Gt
                     self.next_token(); // eat RBrace
                 }
-                _ => todo!()
+                _ => todo!(),
             }
 
             loop {
@@ -616,15 +635,15 @@ impl Parser {
             Token::If => {
                 expect_semicolon = false;
                 self.parse_if()
-            },
+            }
             Token::While => {
                 expect_semicolon = false;
                 self.parse_while()
-            },
+            }
             Token::Struct => {
                 expect_semicolon = false;
                 self.parse_struct()
-            },
+            }
             Token::Const => {
                 expect_semicolon = true;
                 self.parse_let_or_const(true)
@@ -1072,32 +1091,32 @@ add
         );
     }
 
-// TODO if expr
-//     #[test]
-//     fn if_precedence() {
-//         assert_parse!(
-//             "if(a){1}{2} + if(b){3}{4}",
-//             "\
-// add
-//     if
-//         ident a
-//     then
-//         block
-//             1
-//     else
-//         block
-//             2
-//     if
-//         ident b
-//     then
-//         block
-//             3
-//     else
-//         block
-//             4
-// "
-//         );
-//     }
+    // TODO if expr
+    //     #[test]
+    //     fn if_precedence() {
+    //         assert_parse!(
+    //             "if(a){1}{2} + if(b){3}{4}",
+    //             "\
+    // add
+    //     if
+    //         ident a
+    //     then
+    //         block
+    //             1
+    //     else
+    //         block
+    //             2
+    //     if
+    //         ident b
+    //     then
+    //         block
+    //             3
+    //     else
+    //         block
+    //             4
+    // "
+    //         );
+    //     }
 
     #[test]
     fn parse_array_type() {
@@ -1337,6 +1356,17 @@ mul
             "extern \"C\" fn exit(status: u32) -> void;",
             "\
 extern \"C\" fn exit(status: u32) -> void
+"
+        );
+    }
+
+    #[test]
+    fn generic_type_instance() {
+        assert_parse!(
+            "let a: T<&u32>;",
+            "\
+let T<&u32>
+    ident a
 "
         );
     }

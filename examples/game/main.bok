@@ -132,7 +132,7 @@ struct SpriteSheet {
 }
 
 impl SpriteSheet {
-    fn new(tileSize: u32, tex: *SDL_Texture) -> SpriteSheet {
+    fn new(tileSize: u32, tex: *SDL_Texture) -> Self {
         let spritesheet: SpriteSheet;
         spritesheet.tileSize = tileSize;
         spritesheet.tex = tex;
@@ -246,7 +246,16 @@ impl BulletList {
 
 const BULLET_SPEED: u32 = 4;
 
+struct List<T> {
+    len: u64;
+    cap: u64;
+    ptr: *T;
+}
+
 fn main(argc: u32) -> u32 {
+    let u32List: List<u32>;
+    let u8List: List<u8>;
+
     let windowW: u32 = 400;
     let windowH: u32 = 600;
 
@@ -255,8 +264,6 @@ fn main(argc: u32) -> u32 {
 
     let texPath: [u8; 16] = "spritesheet.png";
     let pTexPath: *u8 = &texPath;
-
-    
 
     if SDL_Init(32) < 0 {
         abort(SDL_GetError());

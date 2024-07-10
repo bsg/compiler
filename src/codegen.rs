@@ -6,6 +6,7 @@
 // TODO LLVMVerifyFunction
 // TODO break/continue
 // TODO check if variable shadowing works as intended
+// TODO type id's should be global. think of type names as aliases into type ids
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -32,6 +33,7 @@ impl ToCStr for String {
     }
 }
 
+// TODO attach id and llvm type to the variants
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     None,
@@ -55,6 +57,7 @@ pub enum Type {
         type_id: usize,
         field_indices: HashMap<String, usize>,
         field_type_ids: Vec<usize>,
+        generics: Rc<[Rc<str>]>,
         static_methods: HashMap<String, String>,
         member_methods: HashMap<String, String>,
     },
@@ -100,10 +103,11 @@ impl Type {
                 let mut llvm_types: Vec<LLVMTypeRef> = field_type_ids
                     .iter()
                     .map(|f| {
-                        type_env
-                            .get_type_by_id(*f)
-                            .unwrap()
-                            .llvm_type(type_env.clone())
+                        if let Some(t) = type_env.get_type_by_id(*f) {
+                            t.llvm_type(type_env.clone())
+                        } else {
+                            panic!("unresolved type id {}", *f)
+                        }
                     })
                     .collect();
                 // TODO packed
@@ -121,7 +125,7 @@ impl Type {
         }
     }
 
-    pub fn id(&self, type_env: Rc<TypeEnv>) -> usize {
+    pub fn id(&self, type_env: &TypeEnv) -> usize {
         match self {
             Type::None => type_env.get_type_id_by_name("void"),
             Type::Bool => type_env.get_type_id_by_name("bool"),
@@ -161,22 +165,18 @@ impl Type {
             Type::Struct { type_id, .. } => *type_id,
             Type::Array { elem_type_id, len } => {
                 let elem_ty = type_env.get_type_by_id(*elem_type_id).unwrap();
-                type_env.get_type_id_by_name(&format!(
-                    "[{}; {}]",
-                    elem_ty.name(type_env.clone()),
-                    len
-                ))
+                type_env.get_type_id_by_name(&format!("[{}; {}]", elem_ty.name(type_env), len))
             }
         }
     }
 
-    pub fn to_ref_type(&self, type_env: Rc<TypeEnv>) -> Type {
+    pub fn to_ref_type(&self, type_env: &TypeEnv) -> Type {
         Type::Ref {
             referent_type_id: self.id(type_env),
         }
     }
 
-    pub fn name(&self, type_env: Rc<TypeEnv>) -> Rc<str> {
+    pub fn name(&self, type_env: &TypeEnv) -> Rc<str> {
         // TODO impl missing
         match self {
             Type::None => "void".into(),
@@ -197,7 +197,7 @@ impl Type {
                 type_env
                     .get_type_by_id(*pointee_type_id)
                     .unwrap()
-                    .name(type_env.clone())
+                    .name(type_env)
             )
             .into(),
             Type::Ref { referent_type_id } => format!(
@@ -205,19 +205,18 @@ impl Type {
                 type_env
                     .get_type_by_id(*referent_type_id)
                     .unwrap()
-                    .name(type_env.clone())
+                    .name(type_env)
             )
             .into(),
-            Type::Struct { type_id, .. } => type_env
-                .get_type_by_id(*type_id)
-                .unwrap()
-                .name(type_env.clone()),
+            Type::Struct { type_id, .. } => {
+                type_env.get_type_by_id(*type_id).unwrap().name(type_env)
+            }
             Type::Array { elem_type_id, len } => format!(
                 "[{}; {}]",
                 type_env
                     .get_type_by_id(*elem_type_id)
                     .unwrap()
-                    .name(type_env.clone()),
+                    .name(type_env),
                 len
             )
             .into(),
@@ -250,6 +249,8 @@ pub struct TypeEnv {
     parent: Option<Rc<TypeEnv>>,
     types: UnsafeCell<HashMap<usize, Type>>,
     type_ids: UnsafeCell<HashMap<String, usize>>,
+    // TODO this should hold something like a GenericType instead of Type
+    generic_types: UnsafeCell<HashMap<Rc<str>, NodeRef>>,
 }
 
 impl TypeEnv {
@@ -258,6 +259,7 @@ impl TypeEnv {
             parent: None,
             types: UnsafeCell::new(HashMap::new()),
             type_ids: UnsafeCell::new(HashMap::new()),
+            generic_types: UnsafeCell::new(HashMap::new()),
         };
 
         env.insert_type_by_name("void", Type::None);
@@ -329,16 +331,20 @@ impl TypeEnv {
             parent: Some(parent),
             types: UnsafeCell::new(HashMap::new()),
             type_ids: UnsafeCell::new(HashMap::new()),
+            generic_types: UnsafeCell::new(HashMap::new()),
         }
     }
 
     pub fn insert_type_by_name(&self, name: &str, ty: Type) -> usize {
         // This should not mutate parents at all. Types are resolvable only within and below the scope they are defined in
-        let type_id = self.get_type_id_by_name(name);
+        let type_id = unsafe { NEXT_TYPE_ID };
+        unsafe { NEXT_TYPE_ID += 1 };
+        (unsafe { &mut *self.type_ids.get() }).insert(name.to_string(), type_id);
         (unsafe { &mut *self.types.get() }).insert(type_id, ty);
         type_id
     }
 
+    // FIXME the entire thing is cursed
     // TODO make sure this is sound
     /// reserves id for ident if it's not registered
     fn get_type_id_by_name(&self, name: &str) -> usize {
@@ -347,9 +353,64 @@ impl TypeEnv {
         // do lookup in parents before you reserve a local id
         // TODO also make this not reserve id and impl a get_or_reserve_type_id_by_name
 
+        let type_id = if name.contains('<') {
+            // TODO this ignores parents
+            if let Some(id) = (unsafe { &*self.type_ids.get() }).get(name) {
+                Some(*id)
+            } else if let Some((generic_name, type_args_str)) = name.split_once('<') {
+                if let Node::Struct {
+                    ident,
+                    fields,
+                    generics,
+                } = &**self.get_generic_type(generic_name).unwrap()
+                {
+                    assert!(type_args_str.ends_with('>'));
+                    let type_args: Vec<&str> = type_args_str[..type_args_str.len() - 1]
+                        .split_terminator(',')
+                        .collect();
+                    let mut field_indices: HashMap<String, usize> = HashMap::new();
+                    let mut field_type_ids: Vec<usize> = Vec::new();
+
+                    // TODO these should be inserted into struct local scope
+                    for (i, t) in generics.iter().enumerate() {
+                        let ty = self.get_type_by_name(type_args[i]).unwrap();
+                        // create an alias to the concrete type
+                        unsafe { &mut *self.type_ids.get() }.insert(t.to_string(), ty.id(self));
+                    }
+
+                    for (idx, field) in fields.iter().enumerate() {
+                        field_type_ids.push(self.get_type_id_by_name(&field.ty));
+                        field_indices.insert(field.ident.to_string(), idx);
+                    }
+
+                    let struct_type_id = unsafe { NEXT_TYPE_ID };
+                    unsafe { NEXT_TYPE_ID += 1 };
+                    unsafe { &mut *self.type_ids.get() }.insert(name.to_string(), struct_type_id);
+                    (unsafe { &mut *self.types.get() }).insert(
+                        struct_type_id,
+                        Type::Struct {
+                            name: ident.clone(),
+                            type_id: struct_type_id,
+                            field_indices,
+                            field_type_ids,
+                            generics: generics.clone(),
+                            static_methods: HashMap::new(),
+                            member_methods: HashMap::new(),
+                        },
+                    );
+                    Some(struct_type_id)
+                } else {
+                    todo!()
+                }
+            } else {
+                todo!()
+            }
+        } else {
+            (unsafe { &*self.type_ids.get() }).get(name).copied()
+        };
         // This should not mutate parents at all. Types are resolvable only within and below the scope they are defined in
-        match (unsafe { &*self.type_ids.get() }).get(name) {
-            Some(type_id) => *type_id,
+        let id = match type_id {
+            Some(type_id) => type_id,
             None => {
                 // FIXME FUCKING HATE THIS
                 if name.starts_with('[') {
@@ -369,8 +430,24 @@ impl TypeEnv {
                     } else {
                         todo!()
                     }
-                } else if let Some(parent) = &self.parent {
-                    parent.get_type_id_by_name(name)
+                } else if name.starts_with('&') {
+                    self.insert_type_by_name(
+                        name,
+                        Type::Ref {
+                            referent_type_id: self
+                                .get_type_id_by_name(name.strip_prefix('&').unwrap()),
+                        },
+                    )
+                } else if name.starts_with('*') {
+                    self.insert_type_by_name(
+                        name,
+                        Type::Ptr {
+                            pointee_type_id: self
+                                .get_type_id_by_name(name.strip_prefix('*').unwrap()),
+                        },
+                    )
+                } else if let Some(p) = &self.parent {
+                    p.get_type_id_by_name(name)
                 } else {
                     let type_id = unsafe { NEXT_TYPE_ID };
                     unsafe { NEXT_TYPE_ID += 1 };
@@ -379,7 +456,9 @@ impl TypeEnv {
                     type_id
                 }
             }
-        }
+        };
+        println!("{}: {}", name, id);
+        id
     }
 
     pub fn get_type_by_id(&self, type_id: usize) -> Option<&Type> {
@@ -409,58 +488,23 @@ impl TypeEnv {
     }
 
     pub fn get_type_by_name(&self, name: &str) -> Option<&Type> {
-        match self.get_type_by_id(self.get_type_id_by_name(name)) {
-            Some(ty) => Some(ty),
-            None => {
-                if name.starts_with('&') {
-                    self.insert_type_by_name(
-                        name,
-                        Type::Ref {
-                            referent_type_id: self
-                                .get_type_id_by_name(name.strip_prefix('&').unwrap()),
-                        },
-                    );
-                    self.get_type_by_name(name)
-                } else if name.starts_with('*') {
-                    self.insert_type_by_name(
-                        name,
-                        Type::Ptr {
-                            pointee_type_id: self
-                                .get_type_id_by_name(name.strip_prefix('*').unwrap()),
-                        },
-                    );
-                    self.get_type_by_name(name)
-                } else if name == "Self" || name == "&Self" {
-                    // don't ask parents for Self if it's not defined in the current scope
-                    None
-                } else if let Some(parent) = &self.parent {
-                    parent.get_type_by_name(name)
-                } else {
-                    None
-                }
-            }
-        }
+        self.get_type_by_id(self.get_type_id_by_name(name))
     }
 
-    // TODO duplicate code
     pub fn get_type_by_name_mut(&self, name: &str) -> Option<&mut Type> {
-        match self.get_type_by_id_mut(self.get_type_id_by_name(name)) {
-            Some(ty) => Some(ty),
+        self.get_type_by_id_mut(self.get_type_id_by_name(name))
+    }
+
+    pub fn insert_generic_type(&self, ident: Rc<str>, ty: NodeRef) {
+        (unsafe { &mut *self.generic_types.get() }).insert(ident, ty);
+    }
+
+    pub fn get_generic_type(&self, ident: &str) -> Option<&mut NodeRef> {
+        match (unsafe { &mut *self.generic_types.get() }).get_mut(ident) {
+            Some(t) => Some(t),
             None => {
-                if name.starts_with('*') {
-                    self.insert_type_by_name(
-                        name,
-                        Type::Ref {
-                            referent_type_id: self
-                                .get_type_id_by_name(name.strip_prefix('&').unwrap()),
-                        },
-                    );
-                    self.get_type_by_name_mut(name)
-                } else if name == "Self" || name == "&Self" {
-                    // don't ask parents for Self if it's not defined in the current scope
-                    None
-                } else if let Some(parent) = &self.parent {
-                    parent.get_type_by_name_mut(name)
+                if let Some(parent) = &self.parent {
+                    parent.get_generic_type(ident)
                 } else {
                     None
                 }
@@ -652,7 +696,7 @@ impl ModuleBuilder {
                     let val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true);
 
                     Val {
-                        ty: val.ty.to_ref_type(type_env),
+                        ty: val.ty.to_ref_type(&type_env),
                         llvm_val: val.llvm_val,
                     }
                 }
@@ -664,7 +708,7 @@ impl ModuleBuilder {
                     };
 
                     Val {
-                        ty: val.ty.to_ref_type(type_env),
+                        ty: val.ty.to_ref_type(&type_env),
                         llvm_val,
                     }
                 }
@@ -675,7 +719,7 @@ impl ModuleBuilder {
                     };
 
                     Val {
-                        ty: val.ty.to_ref_type(type_env),
+                        ty: val.ty.to_ref_type(&type_env),
                         llvm_val,
                     }
                 }
@@ -907,12 +951,23 @@ impl ModuleBuilder {
                     let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
                     match lhs_val.ty.clone() {
                         // TODO this is possibly retarded, then again wtf do i know
-                        Type::Ref { .. } => return self.build_binop(
-                            env,
-                            type_env,
-                            Node::BinOp { op: Op::Dot, lhs: Node::UnOp { op: Op::Deref, rhs: lhs.clone() }.into(), rhs: rhs.clone() }.into(),
-                            as_lvalue,
-                        ),
+                        Type::Ref { .. } => {
+                            return self.build_binop(
+                                env,
+                                type_env,
+                                Node::BinOp {
+                                    op: Op::Dot,
+                                    lhs: Node::UnOp {
+                                        op: Op::Deref,
+                                        rhs: lhs.clone(),
+                                    }
+                                    .into(),
+                                    rhs: rhs.clone(),
+                                }
+                                .into(),
+                                as_lvalue,
+                            )
+                        }
                         Type::Struct {
                             field_indices,
                             field_type_ids: fields,
@@ -1155,7 +1210,7 @@ impl ModuleBuilder {
 
         Val {
             ty: Type::Array {
-                elem_type_id: elem_ty.id(type_env.clone()),
+                elem_type_id: elem_ty.id(&type_env),
                 len: elem_vals.len(),
             },
             llvm_val,
@@ -1176,7 +1231,7 @@ impl ModuleBuilder {
 
         Val {
             ty: Type::Array {
-                elem_type_id: ty.id(type_env.clone()),
+                elem_type_id: ty.id(&type_env),
                 len: bytes.len(),
             },
             llvm_val,
@@ -1570,13 +1625,18 @@ impl ModuleBuilder {
 
     fn pass2(&mut self, ast: &[NodeRef]) {
         for node in ast {
-            match &**node {
-                Node::Struct { ident, fields, .. } => {
-                    // TODO build a dependency tree and gen structs depth first
-                    let mut field_indices: HashMap<String, usize> = HashMap::new();
-                    let mut field_types: Vec<usize> = Vec::new();
+            if let Node::Struct {
+                ident,
+                fields,
+                generics,
+            } = &**node
+            {
+                let mut field_indices: HashMap<String, usize> = HashMap::new();
+                // TODO build a dependency tree and gen structs depth first
+                if generics.len() == 0 {
+                    let mut field_type_ids: Vec<usize> = Vec::new();
                     for (idx, field) in fields.iter().enumerate() {
-                        field_types.push(self.type_env.get_type_id_by_name(&field.ty));
+                        field_type_ids.push(self.type_env.get_type_id_by_name(&field.ty));
                         field_indices.insert(field.ident.to_string(), idx);
                     }
                     let type_id = self.type_env.get_type_id_by_name(ident);
@@ -1586,28 +1646,32 @@ impl ModuleBuilder {
                             name: ident.clone(),
                             type_id,
                             field_indices,
-                            field_type_ids: field_types,
+                            field_type_ids,
                             static_methods: HashMap::new(),
                             member_methods: HashMap::new(),
+                            generics: generics.clone(),
                         },
                     );
+                } else {
+                    self.type_env
+                        .insert_generic_type(ident.clone(), node.clone())
                 }
-                _ => (),
             }
         }
     }
 
     fn pass3(&mut self, ast: &[NodeRef]) {
         for node in ast {
-            match &**node {
-                Node::Fn {
-                    ident,
-                    args,
-                    ret_ty,
-                    is_extern,
-                    linkage,
-                    ..
-                } => self.build_fn_1(
+            if let Node::Fn {
+                ident,
+                args,
+                ret_ty,
+                is_extern,
+                linkage,
+                ..
+            } = &**node
+            {
+                self.build_fn_1(
                     self.env.clone(),
                     self.type_env.clone(),
                     ident,
@@ -1615,8 +1679,7 @@ impl ModuleBuilder {
                     ret_ty.clone(),
                     *is_extern,
                     linkage.clone(),
-                ),
-                _ => (),
+                )
             }
         }
     }
