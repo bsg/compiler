@@ -251,7 +251,11 @@ struct List<T> {
     ptr: *T;
 }
 
-impl List<T> {}
+impl List<T> {
+    fn foo() -> u32 {
+        return sizeof(T);
+    }
+}
 
 fn main(argc: u32) -> u32 {
     let u32List: List<u32>;

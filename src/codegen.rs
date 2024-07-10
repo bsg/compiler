@@ -7,6 +7,9 @@
 // TODO break/continue
 // TODO check if variable shadowing works as intended
 // TODO type id's should be global. think of type names as aliases into type ids
+// TODO llvm type aliases for compound types
+// FIXME top level consts dependent will not resolve compound types on account of type not being available
+// when the const is being generated
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -250,6 +253,8 @@ pub struct TypeEnv {
     type_ids: UnsafeCell<HashMap<String, usize>>,
     // TODO this should hold something like a GenericType instead of Type
     generic_types: UnsafeCell<HashMap<Rc<str>, NodeRef>>,
+    generic_impls: UnsafeCell<HashMap<Rc<str>, NodeRef>>,
+    generic_impl_instances: UnsafeCell<Vec<(Rc<str>, Vec<Rc<str>>)>>,
 }
 
 impl TypeEnv {
@@ -260,6 +265,8 @@ impl TypeEnv {
             types: UnsafeCell::new(HashMap::new()),
             type_ids: UnsafeCell::new(HashMap::new()),
             generic_types: UnsafeCell::new(HashMap::new()),
+            generic_impls: UnsafeCell::new(HashMap::new()),
+            generic_impl_instances: UnsafeCell::new(Vec::new()),
         };
 
         env.insert_type_by_name("void", Type::None);
@@ -354,6 +361,8 @@ impl TypeEnv {
             types: UnsafeCell::new(HashMap::new()),
             type_ids: UnsafeCell::new(HashMap::new()),
             generic_types: UnsafeCell::new(HashMap::new()),
+            generic_impls: UnsafeCell::new(HashMap::new()),
+            generic_impl_instances: UnsafeCell::new(Vec::new()),
         }
     }
 
@@ -380,11 +389,11 @@ impl TypeEnv {
             if let Some(id) = (unsafe { &*self.type_ids.get() }).get(name) {
                 Some(*id)
             } else if let Some((generic_name, type_args_str)) = name.split_once('<') {
-                if let Node::Struct {
+                if let Some(Node::Struct {
                     ident,
                     fields,
                     generics,
-                } = &**self.get_generic_type(generic_name).unwrap()
+                }) = self.get_generic_type(generic_name).map(|node| &**node)
                 {
                     assert!(type_args_str.ends_with('>'));
                     let type_args: Vec<&str> = type_args_str[..type_args_str.len() - 1]
@@ -393,12 +402,16 @@ impl TypeEnv {
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
                     let mut field_type_ids: Vec<usize> = Vec::new();
 
+                    let mut concrete_type_names: Vec<Rc<str>> = Vec::new();
                     // TODO these should be inserted into struct local scope
                     for (i, t) in generics.iter().enumerate() {
                         let ty = self.get_type_by_name(type_args[i]).unwrap();
+                        concrete_type_names.push(ty.name(self));
                         // create an alias to the concrete type
                         unsafe { &mut *self.type_ids.get() }.insert(t.to_string(), ty.id(self));
                     }
+
+                    self.insert_generic_impl_instance(ident.clone(), concrete_type_names);
 
                     for (idx, field) in fields.iter().enumerate() {
                         field_type_ids.push(self.get_type_id_by_name(&field.ty));
@@ -422,7 +435,7 @@ impl TypeEnv {
                     );
                     Some(struct_type_id)
                 } else {
-                    todo!()
+                    panic!("could not resolve generic type {}", generic_name);
                 }
             } else {
                 todo!()
@@ -531,6 +544,31 @@ impl TypeEnv {
                 }
             }
         }
+    }
+
+    pub fn insert_generic_impl(&self, ident: Rc<str>, ty: NodeRef) {
+        (unsafe { &mut *self.generic_impls.get() }).insert(ident, ty);
+    }
+
+    pub fn get_generic_impl(&self, ident: &str) -> Option<&NodeRef> {
+        match (unsafe { &mut *self.generic_impls.get() }).get(ident) {
+            Some(t) => Some(t),
+            None => {
+                if let Some(parent) = &self.parent {
+                    parent.get_generic_impl(ident)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub fn insert_generic_impl_instance(&self, ident: Rc<str>, type_names: Vec<Rc<str>>) {
+        (unsafe { &mut *self.generic_impl_instances.get() }).push((ident, type_names));
+    }
+
+    pub fn get_generic_impl_instances(&self) -> &Vec<(Rc<str>, Vec<Rc<str>>)> {
+        unsafe { &mut *self.generic_impl_instances.get() }
     }
 }
 
@@ -1784,64 +1822,70 @@ impl ModuleBuilder {
                 Node::Impl {
                     ident: impl_ty,
                     methods,
-                    ..
+                    impl_generics,
+                    type_generics,
                 } => {
-                    let type_env = self.type_env.clone();
-                    let env = self.env.clone();
-                    let impl_env = env.get_impl_env_mut(impl_ty).unwrap();
-
-                    impl_env.type_env.insert_type_by_name(
-                        "Self",
-                        self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
-                    );
-
-                    let (static_methods, member_methods) = if let Some(Type::Struct {
-                        static_methods,
-                        member_methods,
-                        ..
-                    }) =
-                        type_env.get_type_by_name_mut(impl_ty)
-                    {
-                        (static_methods, member_methods)
+                    if type_generics.len() > 0 {
+                        self.type_env
+                            .insert_generic_impl(impl_ty.clone(), node.clone());
                     } else {
-                        todo!();
-                    };
+                        let type_env = self.type_env.clone();
+                        let env = self.env.clone();
+                        let impl_env = env.get_impl_env_mut(impl_ty).unwrap();
 
-                    for method in methods.iter() {
-                        if let Node::Fn {
-                            ident: method_name,
-                            args,
-                            ret_ty,
+                        impl_env.type_env.insert_type_by_name(
+                            "Self",
+                            self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
+                        );
+
+                        let (static_methods, member_methods) = if let Some(Type::Struct {
+                            static_methods,
+                            member_methods,
                             ..
-                        } = &**method
+                        }) =
+                            type_env.get_type_by_name_mut(impl_ty)
                         {
-                            let is_static = if let Some(arg) = args.first() {
-                                !(&*arg.ty == "Self" || &*arg.ty == "&Self")
-                            } else {
-                                true
-                            };
-
-                            let mangled_name = format!("{}::{}", impl_ty, method_name);
-
-                            if is_static {
-                                static_methods
-                                    .insert(method_name.to_string(), mangled_name.clone());
-                            } else {
-                                member_methods
-                                    .insert(method_name.to_string(), mangled_name.clone());
-                            }
-
-                            self.build_fn_1(
-                                impl_env.env.clone(),
-                                impl_env.type_env.clone(),
-                                &mangled_name,
-                                args.clone(),
-                                ret_ty.clone(),
-                                false,
-                                None,
-                            );
+                            (static_methods, member_methods)
                         } else {
-                            todo!()
+                            todo!();
+                        };
+
+                        for method in methods.iter() {
+                            if let Node::Fn {
+                                ident: method_name,
+                                args,
+                                ret_ty,
+                                ..
+                            } = &**method
+                            {
+                                let is_static = if let Some(arg) = args.first() {
+                                    !(&*arg.ty == "Self" || &*arg.ty == "&Self")
+                                } else {
+                                    true
+                                };
+
+                                let mangled_name = format!("{}::{}", impl_ty, method_name);
+
+                                if is_static {
+                                    static_methods
+                                        .insert(method_name.to_string(), mangled_name.clone());
+                                } else {
+                                    member_methods
+                                        .insert(method_name.to_string(), mangled_name.clone());
+                                }
+
+                                self.build_fn_1(
+                                    impl_env.env.clone(),
+                                    impl_env.type_env.clone(),
+                                    &mangled_name,
+                                    args.clone(),
+                                    ret_ty.clone(),
+                                    false,
+                                    None,
+                                );
+                            } else {
+                                todo!()
+                            }
                         }
                     }
                 }
@@ -1857,23 +1901,135 @@ impl ModuleBuilder {
             if let Node::Impl {
                 ident: impl_ty,
                 methods,
+                type_generics,
                 ..
             } = &**node
             {
-                let impl_env = env.get_impl_env_mut(impl_ty).unwrap();
+                if type_generics.is_empty() {
+                    let impl_env = env.get_impl_env_mut(impl_ty).unwrap();
+                    for method in methods.iter() {
+                        if let Node::Fn {
+                            ident, args, body, ..
+                        } = &**method
+                        {
+                            let mangled_name = format!("{}::{}", impl_ty, ident);
+                            self.build_fn_2(
+                                impl_env.env.clone(),
+                                impl_env.type_env.clone(),
+                                mangled_name.into(),
+                                args.clone(),
+                                body.clone().unwrap(),
+                            )
+                        } else {
+                            todo!()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn pass6(&mut self, _ast: &[NodeRef]) {
+        let type_env = self.type_env.clone();
+        for impl_instance in type_env.get_generic_impl_instances() {
+            if let Some(Node::Impl {
+                ident: type_name,
+                methods,
+                type_generics,
+                ..
+            }) = type_env.get_generic_impl(&impl_instance.0).map(|i| &**i)
+            {
+                let env = self.env.clone();
+                let impl_env = env.get_impl_env_mut(type_name).unwrap();
+
+                let mangled_type_name = format!("{}<{}>", type_name, impl_instance.1.join(","));
+
+                for (i, t) in impl_instance.1.iter().enumerate() {
+                    type_env.insert_type_by_name(
+                        type_generics.get(i).unwrap(),
+                        type_env.get_type_by_name(t).unwrap().clone(),
+                    );
+                }
+
                 for method in methods.iter() {
-                    if let Node::Fn {
-                        ident, args, body, ..
-                    } = &**method
-                    {
-                        let mangled_name = format!("{}::{}", impl_ty, ident);
-                        self.build_fn_2(
-                            impl_env.env.clone(),
-                            impl_env.type_env.clone(),
-                            mangled_name.into(),
-                            args.clone(),
-                            body.clone().unwrap(),
-                        )
+                    if let Node::Fn { .. } = &**method {
+                        impl_env.type_env.insert_type_by_name(
+                            "Self",
+                            type_env
+                                .get_type_by_name(mangled_type_name.as_str())
+                                .unwrap()
+                                .clone(),
+                        );
+
+                        let (static_methods, member_methods) = if let Some(Type::Struct {
+                            static_methods,
+                            member_methods,
+                            ..
+                        }) =
+                            type_env.get_type_by_name_mut(mangled_type_name.as_str())
+                        {
+                            (static_methods, member_methods)
+                        } else {
+                            todo!();
+                        };
+
+                        for method in methods.iter() {
+                            if let Node::Fn {
+                                ident: method_name,
+                                args,
+                                ret_ty,
+                                ..
+                            } = &**method
+                            {
+                                let is_static = if let Some(arg) = args.first() {
+                                    !(&*arg.ty == "Self" || &*arg.ty == "&Self")
+                                } else {
+                                    true
+                                };
+
+                                let mangled_name =
+                                    format!("{}::{}", mangled_type_name, method_name);
+
+                                if is_static {
+                                    static_methods
+                                        .insert(method_name.to_string(), mangled_name.clone());
+                                } else {
+                                    member_methods
+                                        .insert(method_name.to_string(), mangled_name.clone());
+                                }
+
+                                self.build_fn_1(
+                                    impl_env.env.clone(),
+                                    impl_env.type_env.clone(),
+                                    &mangled_name,
+                                    args.clone(),
+                                    ret_ty.clone(),
+                                    false,
+                                    None,
+                                );
+                            } else {
+                                todo!()
+                            }
+                        }
+
+                        let impl_env = env.get_impl_env_mut(type_name).unwrap();
+                        for method in methods.iter() {
+                            if let Node::Fn {
+                                ident, args, body, ..
+                            } = &**method
+                            {
+                                let mangled_name = format!("{}::{}", mangled_type_name, ident);
+                                self.build_fn_2(
+                                    impl_env.env.clone(),
+                                    impl_env.type_env.clone(),
+                                    mangled_name.into(),
+                                    args.clone(),
+                                    body.clone().unwrap(),
+                                )
+                            } else {
+                                todo!()
+                            }
+                        }
                     } else {
                         todo!()
                     }
@@ -1888,6 +2044,7 @@ impl ModuleBuilder {
         self.pass3(ast);
         self.pass4(ast);
         self.pass5(ast);
+        self.pass6(ast);
     }
 
     pub unsafe fn get_llvm_module_ref(&mut self) -> LLVMModuleRef {
