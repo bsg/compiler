@@ -457,7 +457,6 @@ impl TypeEnv {
                 }
             }
         };
-        println!("{}: {}", name, id);
         id
     }
 
@@ -628,7 +627,6 @@ struct Val {
 pub struct ModuleBuilder {
     module: LLVMModuleRef,
     builder: LLVMBuilderRef,
-    // because fuck it
     type_env: Rc<TypeEnv>,
     env: Rc<Env>,
     current_func_ident: Option<Rc<str>>,
@@ -1302,7 +1300,34 @@ impl ModuleBuilder {
             },
             Node::UnOp { .. } => self.build_unop(env, type_env, node, as_lvalue),
             Node::BinOp { .. } => self.build_binop(env, type_env, node, as_lvalue),
-            Node::Call { ident, args } => self.build_call(env, type_env, ident, args),
+            Node::Call { ident, args } => {
+                if &**ident == "sizeof" {
+                    assert!(args.len() == 1);
+                    if let Node::Ident { name: ty_name } = &*args[0] {
+                        Val {
+                            ty: type_env.get_type_by_name("u32").unwrap().clone(), // TODO usize
+                            llvm_val: unsafe {
+                                LLVMBuildIntCast2(
+                                    self.builder,
+                                    LLVMSizeOf(
+                                        type_env
+                                            .get_type_by_name(ty_name)
+                                            .unwrap()
+                                            .llvm_type(type_env.clone()),
+                                    ),
+                                    LLVMInt32Type(),
+                                    0,
+                                    "".to_cstring().as_ptr(),
+                                )
+                            },
+                        }
+                    } else {
+                        todo!()
+                    }
+                } else {
+                    self.build_call(env, type_env, ident, args)
+                }
+            }
             Node::Array { elems } => self.build_array(env, type_env, elems),
             Node::Str { value } => self.build_string(type_env, value.clone()),
             _ => panic!("unimplemented!\n {:?}", node),
