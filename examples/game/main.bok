@@ -251,15 +251,7 @@ struct List<T> {
     ptr: *T;
 }
 
-// impl List<T> {
-//     fn new(size: u32) -> Self {
-//         list: Self;
-//         list.len = 0;
-//         list.cap = size;
-//         list.ptr = malloc(sizeof(T) * cap);
-//         return Self;
-//     }
-// }
+impl List<T> {}
 
 fn main(argc: u32) -> u32 {
     let u32List: List<u32>;

@@ -10,6 +10,8 @@
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
+use llvm_sys::target::LLVMCreateTargetData;
+use llvm_sys::target::LLVMPointerSize;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -44,16 +46,13 @@ pub enum Type {
         signed: bool,
     },
     Ptr {
-        // TODO make this an Rc<Type>
         pointee_type_id: usize,
     },
     Ref {
-        // TODO make this an Rc<Type>
         referent_type_id: usize,
     },
     Struct {
         name: Rc<str>,
-        // TODO make this an Rc<Type>?
         type_id: usize,
         field_indices: HashMap<String, usize>,
         field_type_ids: Vec<usize>,
@@ -62,7 +61,6 @@ pub enum Type {
         member_methods: HashMap<String, String>,
     },
     Array {
-        // TODO make this an Rc<Type>
         elem_type_id: usize,
         len: usize,
     },
@@ -246,6 +244,7 @@ pub struct Func {
 static mut NEXT_TYPE_ID: usize = 0;
 
 pub struct TypeEnv {
+    llvm_module_ref: LLVMModuleRef,
     parent: Option<Rc<TypeEnv>>,
     types: UnsafeCell<HashMap<usize, Type>>,
     type_ids: UnsafeCell<HashMap<String, usize>>,
@@ -254,8 +253,9 @@ pub struct TypeEnv {
 }
 
 impl TypeEnv {
-    pub fn new() -> Self {
+    pub fn new(llvm_module_ref: LLVMModuleRef) -> Self {
         let env = TypeEnv {
+            llvm_module_ref,
             parent: None,
             types: UnsafeCell::new(HashMap::new()),
             type_ids: UnsafeCell::new(HashMap::new()),
@@ -321,6 +321,27 @@ impl TypeEnv {
                 signed: true,
             },
         );
+        env.insert_type_by_name(
+            "isize",
+            Type::Int {
+                width: unsafe {
+                    LLVMPointerSize(LLVMCreateTargetData(LLVMGetDataLayoutStr(llvm_module_ref)))
+                        as usize
+                } * 8,
+                signed: true,
+            },
+        );
+        env.insert_type_by_name(
+            "usize",
+            Type::Int {
+                width: unsafe {
+                    LLVMPointerSize(LLVMCreateTargetData(LLVMGetDataLayoutStr(llvm_module_ref)))
+                        as usize
+                } * 8,
+                signed: false,
+            },
+        );
+
         env.insert_type_by_name("bool", Type::Bool);
 
         env
@@ -328,6 +349,7 @@ impl TypeEnv {
 
     pub fn make_child(parent: Rc<TypeEnv>) -> Self {
         TypeEnv {
+            llvm_module_ref: parent.llvm_module_ref,
             parent: Some(parent),
             types: UnsafeCell::new(HashMap::new()),
             type_ids: UnsafeCell::new(HashMap::new()),
@@ -625,7 +647,7 @@ struct Val {
 
 // TODO type_env accessors
 pub struct ModuleBuilder {
-    module: LLVMModuleRef,
+    llvm_module: LLVMModuleRef,
     builder: LLVMBuilderRef,
     type_env: Rc<TypeEnv>,
     env: Rc<Env>,
@@ -635,13 +657,13 @@ pub struct ModuleBuilder {
 impl ModuleBuilder {
     pub fn new(name: &str) -> Self {
         let mod_name = name.to_cstring().as_ptr();
-        let module = unsafe { LLVMModuleCreateWithName(mod_name) };
+        let llvm_module = unsafe { LLVMModuleCreateWithName(mod_name) };
         let builder = unsafe { LLVMCreateBuilder() };
 
         Self {
-            module,
+            llvm_module,
             builder,
-            type_env: Rc::new(TypeEnv::new()),
+            type_env: Rc::new(TypeEnv::new(llvm_module)),
             env: Rc::new(Env::new()),
             current_func_ident: None,
         }
@@ -1144,6 +1166,24 @@ impl ModuleBuilder {
                                 todo!()
                             }
                         }
+                        (
+                            Type::Int { .. },
+                            Type::Int {
+                                signed: signed_b, ..
+                            },
+                        ) => (
+                            // TODO compare widths and signs and not build the cast if they match
+                            unsafe {
+                                LLVMBuildIntCast2(
+                                    self.builder,
+                                    lhs_val.llvm_val,
+                                    ty.llvm_type(type_env.clone()),
+                                    if *signed_b { 1 } else { 0 },
+                                    "".to_cstring().as_ptr(),
+                                )
+                            },
+                            ty.clone(),
+                        ),
                         _ => todo!(),
                     }
                 }
@@ -1304,8 +1344,9 @@ impl ModuleBuilder {
                 if &**ident == "sizeof" {
                     assert!(args.len() == 1);
                     if let Node::Ident { name: ty_name } = &*args[0] {
+                        let ty_usize = type_env.get_type_by_name("u32").unwrap().clone(); // TODO usize
                         Val {
-                            ty: type_env.get_type_by_name("u32").unwrap().clone(), // TODO usize
+                            ty: ty_usize.clone(),
                             llvm_val: unsafe {
                                 LLVMBuildIntCast2(
                                     self.builder,
@@ -1315,7 +1356,7 @@ impl ModuleBuilder {
                                             .unwrap()
                                             .llvm_type(type_env.clone()),
                                     ),
-                                    LLVMInt32Type(),
+                                    ty_usize.llvm_type(type_env),
                                     0,
                                     "".to_cstring().as_ptr(),
                                 )
@@ -1524,7 +1565,8 @@ impl ModuleBuilder {
                 0,
             )
         };
-        let val = unsafe { LLVMAddFunction(self.module, ident.to_cstring().as_ptr(), func_ty) };
+        let val =
+            unsafe { LLVMAddFunction(self.llvm_module, ident.to_cstring().as_ptr(), func_ty) };
 
         let fn_env = Env::make_child(env.clone());
         let (bb_entry, bb_body) = if is_extern {
@@ -1656,6 +1698,16 @@ impl ModuleBuilder {
                 generics,
             } = &**node
             {
+                let local_env = Rc::new(Env::make_child(self.env.clone()));
+                let local_type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
+
+                self.env.insert_impl_env(
+                    ident,
+                    ImplEnv {
+                        env: local_env.clone(),
+                        type_env: local_type_env.clone(),
+                    },
+                );
                 let mut field_indices: HashMap<String, usize> = HashMap::new();
                 // TODO build a dependency tree and gen structs depth first
                 if generics.len() == 0 {
@@ -1732,14 +1784,15 @@ impl ModuleBuilder {
                 Node::Impl {
                     ident: impl_ty,
                     methods,
+                    ..
                 } => {
                     let type_env = self.type_env.clone();
-                    let local_env = Rc::new(Env::make_child(self.env.clone()));
-                    let local_type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
+                    let env = self.env.clone();
+                    let impl_env = env.get_impl_env_mut(impl_ty).unwrap();
 
-                    local_type_env.insert_type_by_name(
+                    impl_env.type_env.insert_type_by_name(
                         "Self",
-                        type_env.get_type_by_name(impl_ty).unwrap().clone(),
+                        self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
                     );
 
                     let (static_methods, member_methods) = if let Some(Type::Struct {
@@ -1779,8 +1832,8 @@ impl ModuleBuilder {
                             }
 
                             self.build_fn_1(
-                                local_env.clone(),
-                                local_type_env.clone(),
+                                impl_env.env.clone(),
+                                impl_env.type_env.clone(),
                                 &mangled_name,
                                 args.clone(),
                                 ret_ty.clone(),
@@ -1791,14 +1844,6 @@ impl ModuleBuilder {
                             todo!()
                         }
                     }
-
-                    self.env.insert_impl_env(
-                        impl_ty,
-                        ImplEnv {
-                            env: local_env.clone(),
-                            type_env: local_type_env.clone(),
-                        },
-                    )
                 }
                 _ => (),
             }
@@ -1812,6 +1857,7 @@ impl ModuleBuilder {
             if let Node::Impl {
                 ident: impl_ty,
                 methods,
+                ..
             } = &**node
             {
                 let impl_env = env.get_impl_env_mut(impl_ty).unwrap();
@@ -1845,7 +1891,7 @@ impl ModuleBuilder {
     }
 
     pub unsafe fn get_llvm_module_ref(&mut self) -> LLVMModuleRef {
-        self.module
+        self.llvm_module
     }
 }
 

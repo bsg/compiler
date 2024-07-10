@@ -163,6 +163,8 @@ pub enum Node {
     Impl {
         ident: Rc<str>,
         methods: Rc<[NodeRef]>,
+        impl_generics: Rc<[Rc<str>]>,
+        type_generics: Rc<[Rc<str>]>,
     },
     Array {
         elems: Rc<[NodeRef]>,
@@ -337,14 +339,26 @@ impl fmt::Debug for Node {
 
                     format!("struct {}{}{}", ident, generics_str, fields_str)
                 }
-                Node::Impl { ident, methods } => {
+                Node::Impl { ident, methods, impl_generics, type_generics } => {
                     let methods_str = methods.iter().fold(String::new(), |mut acc, method| {
                         acc += "\n";
                         acc += fmt_with_indent(method, indent_level + 1, false).as_str();
                         acc
                     });
 
-                    format!("impl {}{}", ident, methods_str)
+                    let impl_generics_str = if impl_generics.len() > 0 {
+                        format!("<{}>", impl_generics.join(","))
+                    } else {
+                        "".to_string()
+                    };
+
+                    let type_generics_str = if type_generics.len() > 0 {
+                        format!("<{}>", type_generics.join(","))
+                    } else {
+                        "".to_string()
+                    };
+
+                    format!("impl{} {}{}{}", impl_generics_str, ident, type_generics_str, methods_str)
                 }
                 Node::Array { elems } => {
                     let elems_str = elems.iter().fold(String::new(), |mut acc, method| {

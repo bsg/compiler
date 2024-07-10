@@ -343,7 +343,7 @@ impl Parser {
                         }
                     }
                     self.next_token(); // eat Gt
-                    self.next_token(); // eat RBrace
+                    self.next_token(); // eat LBrace
                 }
                 _ => todo!(),
             }
@@ -455,15 +455,52 @@ impl Parser {
     }
 
     fn parse_impl(&mut self) -> Option<NodeRef> {
+        let mut impl_generics: Vec<Rc<str>> = Vec::new();
+        let mut type_generics: Vec<Rc<str>> = Vec::new();
         let mut methods: Vec<NodeRef> = Vec::new();
 
         assert_eq!(Token::Impl, self.curr_token);
         self.next_token();
 
+        if let Token::Lt = self.curr_token {
+            self.next_token();
+            while self.curr_token != Token::Gt {
+                if let Some(Node::Ident { name }) = self.parse_ident().as_deref() {
+                    impl_generics.push(name.clone());
+                    self.next_token();
+                    if let Token::Comma = self.curr_token {
+                        self.next_token();
+                    }
+                } else {
+                    todo!()
+                }
+            }
+            self.next_token(); // eat Gt
+        };
+
         if let Token::Ident(ident) = &self.curr_token.clone() {
             self.next_token();
-            assert_eq!(self.curr_token, Token::LBrace);
-            self.next_token();
+
+            match self.curr_token {
+                Token::LBrace => self.next_token(),
+                Token::Lt => {
+                    self.next_token();
+                    while self.curr_token != Token::Gt {
+                        if let Some(Node::Ident { name }) = self.parse_ident().as_deref() {
+                            type_generics.push(name.clone());
+                            self.next_token();
+                            if let Token::Comma = self.curr_token {
+                                self.next_token();
+                            }
+                        } else {
+                            todo!()
+                        }
+                    }
+                    self.next_token(); // eat Gt
+                    self.next_token(); // eat LBrace
+                }
+                _ => todo!(),
+            }
 
             while let Token::Fn = self.curr_token {
                 if let Some(fn_node) = self.parse_fn(false, None) {
@@ -480,6 +517,8 @@ impl Parser {
                 Node::Impl {
                     ident: ident.clone(),
                     methods: Rc::from(methods.as_slice()),
+                    impl_generics: impl_generics.into(),
+                    type_generics: type_generics.into(),
                 }
                 .into(),
             )
@@ -1380,6 +1419,22 @@ struct T<A,B>
     a u32
     b u8
     c A
+"
+        );
+    }
+
+    #[test]
+    fn impl_for_generic_struct() {
+        assert_parse!(
+            "impl T<A, B> {}",
+            "\
+impl T<A,B>
+"
+        );
+        assert_parse!(
+            "impl<A, B> T<A, B> {}",
+            "\
+impl<A,B> T<A,B>
 "
         );
     }
