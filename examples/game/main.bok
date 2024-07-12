@@ -258,8 +258,8 @@ impl List<T> {
 }
 
 fn main(argc: u32) -> u32 {
-    let u32List: List<u32>;
-    let u8List: List<u8>;
+    // let u32List: List<u32>;
+    // let u8List: List<u8>;
 
     let windowW: u32 = 400;
     let windowH: u32 = 600;

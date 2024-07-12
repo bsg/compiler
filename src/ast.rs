@@ -129,7 +129,7 @@ pub enum Node {
         rhs: Option<NodeRef>,
     },
     Return {
-        stmt: Option<NodeRef>,
+        expr: Option<NodeRef>,
     },
     If {
         condition: NodeRef,
@@ -226,7 +226,7 @@ impl fmt::Debug for Node {
                         }
                     )
                 }
-                Node::Return { stmt } => match stmt {
+                Node::Return { expr: stmt } => match stmt {
                     Some(stmt) => {
                         format!("return{}", fmt_with_indent(stmt, indent_level + 1, true))
                     }

@@ -11,6 +11,7 @@ mod ast;
 mod codegen;
 mod lexer;
 mod parser;
+mod type_collector;
 
 use llvm_sys::core::*;
 use llvm_sys::target_machine::*;
@@ -50,8 +51,8 @@ fn main() {
         fs::write("ast.txt", s).unwrap();
     }
 
-    let mut module = codegen::ModuleBuilder::new("main");
-    module.build(ast.as_slice());
+    let mut module = codegen::ModuleBuilder::new("main", ast);
+    module.build();
 
     unsafe { LLVMVerifyModule(
         module.get_llvm_module_ref(),

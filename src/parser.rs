@@ -666,7 +666,7 @@ impl Parser {
                 expect_semicolon = true;
                 self.next_token();
                 let r = Some(Rc::new(Node::Return {
-                    stmt: self.parse_expression(0),
+                    expr: self.parse_expression(0),
                 }));
                 self.next_token();
                 r
