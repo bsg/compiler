@@ -102,8 +102,15 @@ impl Type {
                 )
             },
             Type::Struct {
-                field_type_names, ..
+                name,
+                field_type_names,
+                ..
             } => unsafe {
+                let type_env = if let Some(env) = type_env.get_impl_env_mut(name) {
+                    env.type_env.clone()
+                } else {
+                    type_env
+                };
                 let mut llvm_types: Vec<LLVMTypeRef> = field_type_names
                     .iter()
                     .map(|f| {
@@ -240,9 +247,10 @@ pub struct TypeEnv {
     types: UnsafeCell<HashMap<usize, Type>>,
     type_ids: UnsafeCell<HashMap<String, usize>>,
     // TODO this should hold something like a GenericType instead of Type
-    generic_types: UnsafeCell<HashMap<Rc<str>, NodeRef>>,
-    generic_impls: UnsafeCell<HashMap<Rc<str>, NodeRef>>,
-    generic_impl_instances: UnsafeCell<Vec<(Rc<str>, Vec<Rc<str>>)>>,
+    generic_types: UnsafeCell<HashMap<String, NodeRef>>,
+    generic_impls: UnsafeCell<HashMap<String, NodeRef>>,
+    generic_impl_instances: UnsafeCell<Vec<(String, Vec<Rc<str>>)>>,
+    impl_envs: UnsafeCell<HashMap<String, ImplEnv>>,
 }
 
 impl TypeEnv {
@@ -255,6 +263,7 @@ impl TypeEnv {
             generic_types: UnsafeCell::new(HashMap::new()),
             generic_impls: UnsafeCell::new(HashMap::new()),
             generic_impl_instances: UnsafeCell::new(Vec::new()),
+            impl_envs: UnsafeCell::new(HashMap::new()),
         };
 
         env.insert_type_by_name("void", Type::None);
@@ -351,6 +360,7 @@ impl TypeEnv {
             generic_types: UnsafeCell::new(HashMap::new()),
             generic_impls: UnsafeCell::new(HashMap::new()),
             generic_impl_instances: UnsafeCell::new(Vec::new()),
+            impl_envs: UnsafeCell::new(HashMap::new()),
         }
     }
 
@@ -457,11 +467,11 @@ impl TypeEnv {
         self.get_type_by_id_mut(self.get_type_id_by_name(name))
     }
 
-    pub fn insert_generic_type(&self, ident: Rc<str>, ty: NodeRef) {
-        (unsafe { &mut *self.generic_types.get() }).insert(ident, ty);
+    pub fn insert_generic_type(&self, ident: String, node: NodeRef) {
+        (unsafe { &mut *self.generic_types.get() }).insert(ident, node);
     }
 
-    pub fn get_generic_type(&self, ident: &str) -> Option<&mut NodeRef> {
+    pub fn get_generic_type(&self, ident: &String) -> Option<&mut NodeRef> {
         match (unsafe { &mut *self.generic_types.get() }).get_mut(ident) {
             Some(t) => Some(t),
             None => {
@@ -475,7 +485,7 @@ impl TypeEnv {
     }
 
     pub fn insert_generic_impl(&self, ident: Rc<str>, ty: NodeRef) {
-        (unsafe { &mut *self.generic_impls.get() }).insert(ident, ty);
+        (unsafe { &mut *self.generic_impls.get() }).insert(ident.to_string(), ty);
     }
 
     pub fn get_generic_impl(&self, ident: &str) -> Option<&NodeRef> {
@@ -492,11 +502,21 @@ impl TypeEnv {
     }
 
     pub fn insert_generic_impl_instance(&self, ident: Rc<str>, type_names: Vec<Rc<str>>) {
-        (unsafe { &mut *self.generic_impl_instances.get() }).push((ident, type_names));
+        (unsafe { &mut *self.generic_impl_instances.get() }).push((ident.to_string(), type_names));
     }
 
-    pub fn get_generic_impl_instances(&self) -> &Vec<(Rc<str>, Vec<Rc<str>>)> {
+    pub fn get_generic_impl_instances(&self) -> &Vec<(String, Vec<Rc<str>>)> {
         unsafe { &mut *self.generic_impl_instances.get() }
+    }
+
+    // impls are top level statements for now
+    pub fn insert_impl_env(&self, impl_ident: &str, env: ImplEnv) {
+        (unsafe { &mut *self.impl_envs.get() }).insert(impl_ident.to_string(), env);
+    }
+
+    // impls are top level statements for now
+    pub fn get_impl_env_mut(&self, impl_ident: &str) -> Option<&mut ImplEnv> {
+        (unsafe { &mut *self.impl_envs.get() }).get_mut(impl_ident)
     }
 }
 
@@ -521,8 +541,6 @@ pub struct Env {
     parent: Option<Rc<Env>>,
     vars: UnsafeCell<HashMap<String, Var>>,
     funcs: UnsafeCell<HashMap<String, Func>>,
-    // TODO this probably has no business being in here since it's only used to pass info to subsequent passes
-    impl_envs: UnsafeCell<HashMap<String, ImplEnv>>,
 }
 
 impl Env {
@@ -531,7 +549,6 @@ impl Env {
             parent: None,
             vars: UnsafeCell::new(HashMap::new()),
             funcs: UnsafeCell::new(HashMap::new()),
-            impl_envs: UnsafeCell::new(HashMap::new()),
         }
     }
 
@@ -541,7 +558,6 @@ impl Env {
             parent: Some(parent),
             vars: UnsafeCell::new(HashMap::new()),
             funcs: UnsafeCell::new(HashMap::new()),
-            impl_envs: UnsafeCell::new(HashMap::new()),
         }
     }
 
@@ -593,25 +609,14 @@ impl Env {
             }
         }
     }
-
-    // impls are top level statements for now
-    pub fn insert_impl_env(&self, impl_ident: &str, env: ImplEnv) {
-        (unsafe { &mut *self.impl_envs.get() }).insert(impl_ident.to_string(), env);
-    }
-
-    // impls are top level statements for now
-    pub fn get_impl_env_mut(&self, impl_ident: &str) -> Option<&mut ImplEnv> {
-        (unsafe { &mut *self.impl_envs.get() }).get_mut(impl_ident)
-    }
 }
 
 // TODO rename
 struct Val {
-    ty: Type, // TODO this needs to be typeid
+    ty: Type, // TODO this needs to be type name?
     llvm_val: LLVMValueRef,
 }
 
-// TODO type_env accessors
 pub struct ModuleBuilder {
     ast: Rc<Vec<NodeRef>>,
     llvm_module: LLVMModuleRef,
@@ -619,6 +624,8 @@ pub struct ModuleBuilder {
     type_env: Rc<TypeEnv>,
     env: Rc<Env>,
     current_func_ident: Option<Rc<str>>,
+    // TODO rename
+    generic_struct_mono_set: Vec<(String, Vec<String>)>,
 }
 
 impl ModuleBuilder {
@@ -634,6 +641,7 @@ impl ModuleBuilder {
             type_env: Rc::new(TypeEnv::new(llvm_module)),
             env: Rc::new(Env::new()),
             current_func_ident: None,
+            generic_struct_mono_set: Vec::new(),
         }
     }
 
@@ -1500,8 +1508,7 @@ impl ModuleBuilder {
         returns
     }
 
-    // TODO rename
-    fn build_fn_1(
+    fn set_up_function(
         &mut self,
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
@@ -1570,8 +1577,7 @@ impl ModuleBuilder {
         );
     }
 
-    // TODO rename
-    fn build_fn_2(
+    fn build_function(
         &mut self,
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
@@ -1622,12 +1628,39 @@ impl ModuleBuilder {
         }
     }
 
+    fn build_struct(&self, env: &Env, type_env: &TypeEnv, node: NodeRef, name: Option<String>) {
+        if let Node::Struct {
+            ident,
+            fields,
+            generics,
+        } = &*node
+        {
+            let mut field_indices: HashMap<String, usize> = HashMap::new();
+            let mut field_type_names: Vec<Rc<String>> = Vec::new();
+            for (idx, field) in fields.iter().enumerate() {
+                field_type_names.push(field.ty.to_string().into());
+                field_indices.insert(field.ident.to_string(), idx);
+            }
+
+            let name = name.unwrap_or(ident.to_string());
+            self.type_env.insert_type_by_name(
+                &name.clone(),
+                Type::Struct {
+                    name: name.into(),
+                    field_indices,
+                    field_type_names,
+                    static_methods: HashMap::new(),
+                    member_methods: HashMap::new(),
+                    generics: generics.clone(),
+                },
+            );
+        }
+    }
+
     fn pass1(&mut self) {
         for node in &*self.ast {
+            #[allow(clippy::single_match)]
             match &**node {
-                Node::Struct { ident, .. } => {
-                    self.type_env.get_type_id_by_name(ident);
-                }
                 Node::Const { ty, lhs, rhs } => {
                     if let Node::Ident { name } = &**lhs {
                         let ty = match self.type_env.get_type_by_name(ty) {
@@ -1663,44 +1696,53 @@ impl ModuleBuilder {
     fn pass2(&mut self) {
         for node in &*self.ast {
             if let Node::Struct {
-                ident,
-                fields,
-                generics,
+                ident, generics, ..
             } = &**node
             {
                 let local_env = Rc::new(Env::make_child(self.env.clone()));
                 let local_type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
 
-                self.env.insert_impl_env(
-                    ident,
-                    ImplEnv {
-                        env: local_env.clone(),
-                        type_env: local_type_env.clone(),
-                    },
-                );
-                let mut field_indices: HashMap<String, usize> = HashMap::new();
                 // TODO build a dependency tree and gen structs depth first
                 if generics.len() == 0 {
-                    let mut field_type_names: Vec<Rc<String>> = Vec::new();
-                    for (idx, field) in fields.iter().enumerate() {
-                        field_type_names.push(field.ty.to_string().into());
-                        field_indices.insert(field.ident.to_string(), idx);
-                    }
-                    self.type_env.insert_type_by_name(
-                        ident,
-                        Type::Struct {
-                            name: ident.to_string().into(),
-                            field_indices,
-                            field_type_names,
-                            static_methods: HashMap::new(),
-                            member_methods: HashMap::new(),
-                            generics: generics.clone(),
-                        },
-                    );
+                    self.build_struct(&local_env, &local_type_env, node.clone(), None);
                 } else {
                     self.type_env
-                        .insert_generic_type(ident.clone(), node.clone())
+                        .insert_generic_type(ident.to_string(), node.clone())
                 }
+            }
+        }
+
+        for (name, type_args) in self.generic_struct_mono_set.iter() {
+            let local_env = Rc::new(Env::make_child(self.env.clone()));
+            let local_type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
+
+            if let Some(node @ Node::Struct { generics, .. }) =
+                self.type_env.get_generic_type(name).map(|node| &**node)
+            {
+                for (generic_type, concrete_type) in generics.iter().zip(type_args.iter()) {
+                    local_type_env.insert_type_by_name(
+                        generic_type,
+                        local_type_env
+                            .get_type_by_name(concrete_type)
+                            .unwrap()
+                            .clone(),
+                    );
+                }
+
+                let mangled_name = format!("{}<{}>", name, type_args.join(","));
+                self.build_struct(
+                    &local_env,
+                    &local_type_env,
+                    node.clone().into(),
+                    Some(mangled_name.clone()),
+                );
+                self.type_env.insert_impl_env(
+                    &mangled_name,
+                    ImplEnv {
+                        env: local_env,
+                        type_env: local_type_env,
+                    },
+                )
             }
         }
     }
@@ -1716,7 +1758,7 @@ impl ModuleBuilder {
                 ..
             } = &**node
             {
-                self.build_fn_1(
+                self.set_up_function(
                     self.env.clone(),
                     self.type_env.clone(),
                     ident,
@@ -1732,38 +1774,20 @@ impl ModuleBuilder {
     fn pass4(&mut self) {
         for node in &*self.ast.clone() {
             match &**node {
-                Node::Fn {
-                    ident,
-                    body,
-                    args,
-                    is_extern,
-                    ..
-                } => {
-                    if !is_extern {
-                        self.build_fn_2(
-                            self.env.clone(),
-                            self.type_env.clone(),
-                            ident.clone(),
-                            args.clone(),
-                            body.clone().unwrap(),
-                        )
-                    }
-                }
                 Node::Impl {
                     ident: impl_ty,
                     methods,
-                    impl_generics,
                     type_generics,
+                    ..
                 } => {
                     if type_generics.len() > 0 {
                         self.type_env
                             .insert_generic_impl(impl_ty.clone(), node.clone());
                     } else {
-                        let type_env = self.type_env.clone();
-                        let env = self.env.clone();
-                        let impl_env = env.get_impl_env_mut(impl_ty).unwrap();
+                        let env = Rc::new(Env::make_child(self.env.clone()));
+                        let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
 
-                        impl_env.type_env.insert_type_by_name(
+                        type_env.insert_type_by_name(
                             "Self",
                             self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
                         );
@@ -1804,9 +1828,9 @@ impl ModuleBuilder {
                                         .insert(method_name.to_string(), mangled_name.clone());
                                 }
 
-                                self.build_fn_1(
-                                    impl_env.env.clone(),
-                                    impl_env.type_env.clone(),
+                                self.set_up_function(
+                                    env.clone(),
+                                    type_env.clone(),
                                     &mangled_name,
                                     args.clone(),
                                     ret_ty.clone(),
@@ -1825,8 +1849,6 @@ impl ModuleBuilder {
     }
 
     fn pass5(&mut self) {
-        let env = self.env.clone();
-
         for node in &*self.ast.clone() {
             if let Node::Impl {
                 ident: impl_ty,
@@ -1835,17 +1857,24 @@ impl ModuleBuilder {
                 ..
             } = &**node
             {
+                // TODO duplicated stuff here
                 if type_generics.is_empty() {
-                    let impl_env = env.get_impl_env_mut(impl_ty).unwrap();
+                    let env = Rc::new(Env::make_child(self.env.clone()));
+                    let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
+                    type_env.insert_type_by_name(
+                        "Self",
+                        self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
+                    );
+
                     for method in methods.iter() {
                         if let Node::Fn {
                             ident, args, body, ..
                         } = &**method
                         {
                             let mangled_name = format!("{}::{}", impl_ty, ident);
-                            self.build_fn_2(
-                                impl_env.env.clone(),
-                                impl_env.type_env.clone(),
+                            self.build_function(
+                                env.clone(),
+                                type_env.clone(),
                                 mangled_name.into(),
                                 args.clone(),
                                 body.clone().unwrap(),
@@ -1854,104 +1883,54 @@ impl ModuleBuilder {
                             todo!()
                         }
                     }
-                }
-            }
-        }
-    }
+                } else {
+                    let monos: Vec<Vec<String>> = self
+                        .generic_struct_mono_set
+                        .iter()
+                        .filter(|(name, _)| name == &**impl_ty)
+                        .map(|(_, concrete_types)| concrete_types.clone())
+                        .collect();
 
-    fn pass6(&mut self) {
-        let type_env = self.type_env.clone();
-        for impl_instance in type_env.get_generic_impl_instances() {
-            if let Some(Node::Impl {
-                ident: type_name,
-                methods,
-                type_generics,
-                ..
-            }) = type_env.get_generic_impl(&impl_instance.0).map(|i| &**i)
-            {
-                let env = self.env.clone();
-                let impl_env = env.get_impl_env_mut(type_name).unwrap();
-
-                let mangled_type_name = format!("{}<{}>", type_name, impl_instance.1.join(","));
-
-                for (i, t) in impl_instance.1.iter().enumerate() {
-                    type_env.insert_type_by_name(
-                        type_generics.get(i).unwrap(),
-                        type_env.get_type_by_name(t).unwrap().clone(),
-                    );
-                }
-
-                for method in methods.iter() {
-                    if let Node::Fn { .. } = &**method {
-                        impl_env.type_env.insert_type_by_name(
+                    for concrete_types in monos {
+                        let impl_ty = format!("{}<{}>", impl_ty, concrete_types.join(","));
+                        let env = Rc::new(Env::make_child(self.env.clone()));
+                        let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
+                        type_env.insert_type_by_name(
                             "Self",
-                            type_env
-                                .get_type_by_name(mangled_type_name.as_str())
-                                .unwrap()
-                                .clone(),
+                            self.type_env.get_type_by_name(&impl_ty).unwrap().clone(),
                         );
 
-                        let (static_methods, member_methods) = if let Some(Type::Struct {
-                            static_methods,
-                            member_methods,
-                            ..
-                        }) =
-                            type_env.get_type_by_name_mut(mangled_type_name.as_str())
-                        {
-                            (static_methods, member_methods)
-                        } else {
-                            todo!();
-                        };
+                        for (generic, ty) in type_generics.iter().zip(concrete_types.iter()) {
+                            type_env.insert_type_by_name(
+                                generic,
+                                type_env.get_type_by_name(ty).unwrap().clone(),
+                            );
+                        }
 
                         for method in methods.iter() {
                             if let Node::Fn {
-                                ident: method_name,
+                                ident,
                                 args,
+                                body,
                                 ret_ty,
                                 ..
                             } = &**method
                             {
-                                let is_static = if let Some(arg) = args.first() {
-                                    !(&*arg.ty == "Self" || &*arg.ty == "&Self")
-                                } else {
-                                    true
-                                };
-
-                                let mangled_name =
-                                    format!("{}::{}", mangled_type_name, method_name);
-
-                                if is_static {
-                                    static_methods
-                                        .insert(method_name.to_string(), mangled_name.clone());
-                                } else {
-                                    member_methods
-                                        .insert(method_name.to_string(), mangled_name.clone());
-                                }
-
-                                self.build_fn_1(
-                                    impl_env.env.clone(),
-                                    impl_env.type_env.clone(),
+                                let mangled_name = format!("{}::{}", impl_ty, ident);
+                                self.set_up_function(
+                                    env.clone(),
+                                    type_env.clone(),
                                     &mangled_name,
                                     args.clone(),
                                     ret_ty.clone(),
                                     false,
                                     None,
                                 );
-                            } else {
-                                todo!()
-                            }
-                        }
 
-                        let impl_env = env.get_impl_env_mut(type_name).unwrap();
-                        for method in methods.iter() {
-                            if let Node::Fn {
-                                ident, args, body, ..
-                            } = &**method
-                            {
-                                let mangled_name = format!("{}::{}", mangled_type_name, ident);
-                                self.build_fn_2(
-                                    impl_env.env.clone(),
-                                    impl_env.type_env.clone(),
+                                // TODO defer this to a later stage or member fns might not be able to resolve each other
+                                self.build_function(
+                                    env.clone(),
+                                    type_env.clone(),
                                     mangled_name.into(),
                                     args.clone(),
                                     body.clone().unwrap(),
@@ -1960,10 +1939,33 @@ impl ModuleBuilder {
                                 todo!()
                             }
                         }
-                    } else {
-                        todo!()
                     }
                 }
+            }
+        }
+    }
+
+    fn pass6(&mut self) {
+        for node in &*self.ast.clone() {
+            match &**node {
+                Node::Fn {
+                    ident,
+                    body,
+                    args,
+                    is_extern,
+                    ..
+                } => {
+                    if !is_extern {
+                        self.build_function(
+                            self.env.clone(),
+                            self.type_env.clone(),
+                            ident.clone(),
+                            args.clone(),
+                            body.clone().unwrap(),
+                        )
+                    }
+                }
+                _ => (),
             }
         }
     }
@@ -1972,8 +1974,21 @@ impl ModuleBuilder {
         TypeCollector::new(self.ast.clone())
             .collect()
             .for_each(|ty| {
-                println!("{}", ty);
-                self.type_env.get_type_by_name(ty);
+                if ty.contains('<') {
+                    let (type_name, generics) = ty.split_once('<').unwrap();
+                    let types: Vec<String> = generics
+                        .strip_suffix('>')
+                        .unwrap()
+                        .split_terminator(',')
+                        .map(|t| t.to_string())
+                        .collect();
+
+                    self.generic_struct_mono_set
+                        .push((type_name.to_owned(), types));
+                } else {
+                    // TODO this is to bring the type into scope but might/should not be necessary
+                    self.type_env.get_type_by_name(ty);
+                }
             });
 
         self.pass1();

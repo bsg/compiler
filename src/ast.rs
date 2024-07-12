@@ -5,7 +5,7 @@ use std::{
     rc::Rc,
 };
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Op {
     Assign,
     Eq,
@@ -78,19 +78,19 @@ impl Op {
 }
 pub type NodeRef = Rc<Node>;
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub struct Arg {
     pub ident: Rc<str>,
     pub ty: Rc<str>,
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub struct StructField {
     pub ident: Rc<str>,
     pub ty: Rc<str>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Node {
     NullPtr,
     Ident {
@@ -339,7 +339,12 @@ impl fmt::Debug for Node {
 
                     format!("struct {}{}{}", ident, generics_str, fields_str)
                 }
-                Node::Impl { ident, methods, impl_generics, type_generics } => {
+                Node::Impl {
+                    ident,
+                    methods,
+                    impl_generics,
+                    type_generics,
+                } => {
                     let methods_str = methods.iter().fold(String::new(), |mut acc, method| {
                         acc += "\n";
                         acc += fmt_with_indent(method, indent_level + 1, false).as_str();
@@ -358,7 +363,10 @@ impl fmt::Debug for Node {
                         "".to_string()
                     };
 
-                    format!("impl{} {}{}{}", impl_generics_str, ident, type_generics_str, methods_str)
+                    format!(
+                        "impl{} {}{}{}",
+                        impl_generics_str, ident, type_generics_str, methods_str
+                    )
                 }
                 Node::Array { elems } => {
                     let elems_str = elems.iter().fold(String::new(), |mut acc, method| {

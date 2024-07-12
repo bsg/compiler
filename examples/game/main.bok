@@ -187,23 +187,32 @@ struct Bullet {
     pos: Pos;
 }
 
-struct BulletList {
+struct EntityList<T> {
     len: u32;
     cap: u32;
     //ptr: *Sprite; TODO this fails
     ptr: *u8;
 }
 
-impl BulletList {
-    fn new(cap: u32) -> Self {
-        let list: BulletList;
-        list.len = 0;
-        list.cap = cap;
-        list.ptr = malloc(sizeof(BulletList) * cap);
-        return list;
+impl EntityList<T> {
+    fn init(self: &Self, cap: u32) {
+        self.len = 0;
+        self.cap = cap;
+        self.ptr = malloc(sizeof(T) * cap);
     }
 
-    fn spawn(self: &Self, bullet: *Bullet) -> u32 {
+    fn get(self: &Self, id: u32) -> &T {
+        if self.ptr != nullptr && id < self.len {
+            return self.ptr + (id * sizeof(T));
+        }
+        return nullptr;
+    }
+
+    fn kill(self: &Self, id: u32) {
+        self.get(id).isAlive = 0;
+    }
+
+    fn spawn(self: &Self, entity: *T) -> u32 {
         let idx: u32 = 0;
         if self.len < self.cap {
             idx = self.len;
@@ -211,7 +220,7 @@ impl BulletList {
         } else {
             let run: bool = true; // TODO we have no 'break' yet lmao
             while idx < self.len && run {
-                let b: &Bullet = self.get(idx);
+                let b: &T = self.get(idx);
                 if !b.isAlive {
                     run = false;
                 } else {
@@ -221,7 +230,7 @@ impl BulletList {
         }
         
         if self.ptr != nullptr && idx < self.len {
-            memcpy(self.ptr + (idx * sizeof(BulletList)), bullet, sizeof(BulletList));
+            memcpy(self.ptr + (idx * sizeof(T)), entity, sizeof(T));
         }
 
         return idx;
@@ -230,37 +239,16 @@ impl BulletList {
     fn despawn(self: &Self, id: u32) {
         self.get(id).isAlive = false;
     }
-
-    fn get(self: &Self, id: u32) -> &Bullet {
-        if self.ptr != nullptr && id < self.len {
-            return self.ptr + (id * sizeof(BulletList));
-        }
-        return nullptr;
-    }
-
-    fn kill(self: &Self, id: u32) {
-        self.get(id).isAlive = 0;
-    }
 }
 
 const BULLET_SPEED: u32 = 4;
 
-struct List<T> {
-    len: u64;
-    cap: u64;
-    ptr: *T;
-}
+// TODO do not treat this as a generic impl
+// impl Foo<u32> {}
+// generics for the impl should be the ones following the keyword 'impl', the struct ones should be type args
 
-impl List<T> {
-    fn foo() -> u32 {
-        return sizeof(T);
-    }
-}
 
 fn main(argc: u32) -> u32 {
-    // let u32List: List<u32>;
-    // let u8List: List<u8>;
-
     let windowW: u32 = 400;
     let windowH: u32 = 600;
 
@@ -338,7 +326,8 @@ fn main(argc: u32) -> u32 {
     player.pos.y = windowH - player.h;
 
     let shootCooldown: u32 = 0;
-    let bulletList: BulletList = BulletList::new(10);
+    let bulletList: EntityList<Bullet>;
+    bulletList.init(10);
 
     let bullet: Bullet;
 
