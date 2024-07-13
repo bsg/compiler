@@ -93,6 +93,7 @@ extern "C" fn memcpy(dest: *u8, src: *u8, n: u32) -> *u8;
 extern "C" fn free(ptr: *u8);
 extern "C" fn exit(status: u32);
 extern "C" fn sleep(seconds: u32) -> u32;
+extern "C" fn putchar (c: u32) -> i32;
 extern "C" fn puts(s: *i8) -> i32;
 extern "C" fn random() -> u32;
 extern "C" fn SDL_Init(flags: u32) -> i32;
@@ -123,6 +124,25 @@ fn abort(msg: &u8) {
 
 fn rand_range(lower: u32, upper: u32) -> u32 {
     return random() % (upper + 1 - lower) + lower;
+}
+
+fn itoa(n: u32, buf: *u8) {
+    let divisor: u32 = 1000000000;
+    
+    while n / divisor == 0 {
+        divisor = divisor / 10;
+    }
+
+    divisor = divisor * 10;
+
+    while divisor != 1 {
+        *buf = ((n % divisor) / divisor / 10 + 48);
+        divisor = divisor / 10;
+        buf = buf + 1;
+    }
+    
+    // buf = buf + 1;
+    *buf = 0;
 }
 
 struct Pos {
@@ -264,6 +284,7 @@ struct GameContext {
     window_h: u32;
     renderer: *SDL_Renderer;
     spritesheet: SpriteSheet;
+    score: u32;
     enemies: EntityList<Enemy>;
     bullets: EntityList<Bullet>;
     enemy_spawn_cooldown: u32;
@@ -331,9 +352,18 @@ fn makeEnemy(x: u32, y: u32) -> Enemy {
 }
 
 fn main(argc: u32) -> u32 {
+    let buf: [u8; 16];
+    let pBuf: *u8 = &buf;
+    itoa(12345678, pBuf);
+    puts(pBuf);
+    itoa(80084, pBuf);
+    puts(pBuf);
+
     let ctx: GameContext;
     ctx.window_w = 400;
     ctx.window_h = 600;
+    
+    ctx.score = 0;
 
     let title: [u8; 5] = "game";
     let pTitle: *u8 = &title;
@@ -462,7 +492,8 @@ fn main(argc: u32) -> u32 {
         }
 
         if ctx.enemy_spawn_ticks_left == 0 {
-            let x: u32 = rand_range(0, ctx.window_w - 32);
+            let margin_x: u32 = 10;
+            let x: u32 = rand_range(margin_x, ctx.window_w - 32 - margin_x);
             let enemy: Enemy = makeEnemy(x, 32);
             ctx.enemies.spawn(&enemy);
             ctx.enemy_spawn_ticks_left = ctx.enemy_spawn_cooldown;
@@ -528,6 +559,8 @@ fn update_enemies(ctx: &GameContext) {
                     if aabb(&enemy_rect, &bullet_rect) {
                         enemy.isAlive = false;
                         bullet.isAlive = false;
+
+                        ctx.score = ctx.score + 10;
                     }
                 }
 
