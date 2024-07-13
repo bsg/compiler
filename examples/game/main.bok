@@ -4,6 +4,9 @@
 // BEGIN BINDINGS
 // --------------------------------------------------------------------------------------------------------------------
 
+const SDL_INIT_VIDEO:         u32 = 32;
+const SDL_INIT_AUDIO:         u32 = 16;
+
 const SDL_SCANCODE_A:         u32 = 4;
 const SDL_SCANCODE_B:         u32 = 5;
 const SDL_SCANCODE_C:         u32 = 6;
@@ -94,6 +97,8 @@ struct SDL_Renderer {}
 struct SDL_Surface {}
 struct SDL_Texture {}
 struct TTF_Font {}
+struct Mix_Music {}
+struct Mix_Chunk {}
 
 // TODO some of these need usize
 extern "C" fn malloc(size: u32) -> *u8;
@@ -126,6 +131,10 @@ extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
 extern "C" fn TTF_Init() -> u32;
 extern "C" fn TTF_OpenFont(file: *u8, ptsize: u32) -> *TTF_Font;
 extern "C" fn TTF_RenderText_Solid(font: *TTF_Font, text: *u8, fg: SDL_Color) -> *SDL_Surface;
+extern "C" fn Mix_OpenAudio(frequency: u32, format: u16, channels: u32, chunksize: u32) -> u32;
+extern "C" fn Mix_LoadMUS(file: *u8) -> *Mix_Music;
+extern "C" fn Mix_LoadWAV(file: *u8) -> *Mix_Chunk;
+extern "C" fn Mix_PlayChannel(channel: u32, chunk: *Mix_Chunk, loops: u32) -> u32;
 
 // --------------------------------------------------------------------------------------------------------------------
 // END BINDINGS
@@ -257,6 +266,7 @@ struct EntityList<T> {
     ptr: *T;
 }
 
+// TODO iter()
 impl EntityList<T> {
     fn init(&self, cap: u32) {
         self.len = 0;
@@ -310,6 +320,8 @@ struct GameContext {
     renderer: *SDL_Renderer;
     spritesheet: SpriteSheet;
     font: *TTF_Font;
+    sfx_pew: *Mix_Chunk;
+    sfx_explosion: *Mix_Chunk;
     score: u32;
     enemies: EntityList<Enemy>;
     bullets: EntityList<Bullet>;
@@ -357,7 +369,7 @@ fn makePlayer(windowW: u32, windowH: u32) -> Player {
     player.animTicksLeft = 30;
     player.pos.x = 200;
     player.pos.y = windowH - player.h;
-    player.shootCooldown = 30;
+    player.shootCooldown = 45;
     player.shootTicksLeft = 0;
     return player;
 }
@@ -397,7 +409,7 @@ fn main(argc: u32) -> u32 {
     
     ctx.score = 0;
 
-    if SDL_Init(32) < 0 {
+    if SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 {
         abort(SDL_GetError());
     }
 
@@ -406,6 +418,10 @@ fn main(argc: u32) -> u32 {
     }
 
     if TTF_Init() < 0 {
+        abort(SDL_GetError());
+    }
+
+    if Mix_OpenAudio(44100, 32784 as u16, 2, 2048) < 0 {
         abort(SDL_GetError());
     }
 
@@ -439,6 +455,16 @@ fn main(argc: u32) -> u32 {
 
     ctx.font = TTF_OpenFont("arcade_n.ttf", 16);
     if ctx.font == nullptr {
+        abort(SDL_GetError());
+    }
+
+    ctx.sfx_pew = Mix_LoadWAV("pew.wav");
+    if ctx.sfx_pew == nullptr {
+        abort(SDL_GetError());
+    }
+
+    ctx.sfx_explosion = Mix_LoadWAV("explosion.wav");
+    if ctx.sfx_explosion == nullptr {
         abort(SDL_GetError());
     }
     
@@ -527,6 +553,7 @@ fn main(argc: u32) -> u32 {
                 let bullet: Bullet = makeBullet(player.pos.x, player.pos.y - 20);
                 ctx.bullets.spawn(&bullet);
                 player.shootTicksLeft = player.shootCooldown;
+                Mix_PlayChannel(-1, ctx.sfx_pew, 0);
             } 
         }
 
@@ -630,6 +657,7 @@ fn update_enemies(ctx: &GameContext) {
                         enemy.is_alive = false;
                         bullet.is_alive = false;
 
+                        Mix_PlayChannel(-1, ctx.sfx_explosion, 0);
                         ctx.score = ctx.score + 10;
                     }
                 }

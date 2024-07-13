@@ -610,6 +610,8 @@ impl Parser {
                 Token::Ge => Op::Ge,
                 Token::AmpAmp => Op::And,
                 Token::BarBar => Op::Or,
+                Token::Amp => Op::BitwiseAnd,
+                Token::Bar => Op::BitwiseOr,
                 Token::LParen => Op::Call,
                 Token::LBracket => Op::Index,
                 Token::Dot => Op::Dot,

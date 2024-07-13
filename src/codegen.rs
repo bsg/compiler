@@ -883,6 +883,38 @@ impl ModuleBuilder {
                         type_env.get_type_by_name("bool").unwrap().clone(),
                     )
                 },
+                Op::BitwiseAnd => unsafe {
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    // TODO
+                    (
+                        LLVMBuildAnd(
+                            self.builder,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        lhs_val.ty,
+                    )
+                },
+                Op::BitwiseOr => unsafe {
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    // TODO
+                    (
+                        LLVMBuildOr(
+                            self.builder,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        lhs_val.ty,
+                    )
+                },
                 Op::Eq => unsafe {
                     let lhs_val =
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
