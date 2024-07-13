@@ -323,11 +323,11 @@ mod tests {
 
     #[test]
     fn symbols() {
-        let source = "=+-!*/(){}[],;:->&||..&&.::as";
+        let source = "=+-!*/(){}[],;:->&||..&&.::as%";
         let expected = [
             Assign, Plus, Minus, Bang, Star, Slash, LParen, RParen, LBrace, RBrace, LBracket,
             RBracket, Comma, Semicolon, Colon, Arrow, Amp, BarBar, DotDot, AmpAmp, Dot, ColonColon,
-            As,
+            As, Percent
         ];
         let mut tokens = Lexer::new(source).tokens();
         expected

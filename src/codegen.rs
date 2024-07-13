@@ -84,13 +84,11 @@ impl Type {
                 _ => todo!(),
             },
             Type::Ref { referent_type_name } => unsafe {
-                LLVMPointerType(
-                    type_env
-                        .get_type_by_name(referent_type_name)
-                        .unwrap()
-                        .llvm_type(type_env.clone()),
-                    0,
-                )
+                if let Some(ty) = type_env.get_type_by_name(referent_type_name) {
+                    LLVMPointerType(ty.llvm_type(type_env.clone()), 0)
+                } else {
+                    panic!("unresolved type {}", referent_type_name);
+                }
             },
             Type::Ptr { pointee_type_name } => unsafe {
                 LLVMPointerType(
@@ -532,7 +530,6 @@ impl std::fmt::Debug for TypeEnv {
 
 #[derive(Debug)]
 pub struct ImplEnv {
-    env: Rc<Env>,
     type_env: Rc<TypeEnv>,
 }
 
@@ -832,6 +829,22 @@ impl ModuleBuilder {
                     // TODO
                     (
                         LLVMBuildUDiv(
+                            self.builder,
+                            lhs_val.llvm_val,
+                            rhs_val.llvm_val,
+                            "".to_cstring().as_ptr(),
+                        ),
+                        type_env.get_type_by_name("u32").unwrap().clone(),
+                    )
+                },
+                Op::Mod => unsafe {
+                    let lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                    let rhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    // TODO
+                    (
+                        LLVMBuildURem(
                             self.builder,
                             lhs_val.llvm_val,
                             rhs_val.llvm_val,
@@ -1719,14 +1732,15 @@ impl ModuleBuilder {
             if let Some(node @ Node::Struct { generics, .. }) =
                 self.type_env.get_generic_type(name).map(|node| &**node)
             {
-                for (generic_type, concrete_type) in generics.iter().zip(type_args.iter()) {
-                    local_type_env.insert_type_by_name(
-                        generic_type,
+                for (generic_type_name, concrete_type_name) in generics.iter().zip(type_args.iter())
+                {
+                    if let Some(concrete_type) = local_type_env.get_type_by_name(concrete_type_name)
+                    {
                         local_type_env
-                            .get_type_by_name(concrete_type)
-                            .unwrap()
-                            .clone(),
-                    );
+                            .insert_type_by_name(generic_type_name, concrete_type.clone());
+                    } else {
+                        panic!("unresolved type {}", concrete_type_name);
+                    }
                 }
 
                 let mangled_name = format!("{}<{}>", name, type_args.join(","));
@@ -1739,7 +1753,6 @@ impl ModuleBuilder {
                 self.type_env.insert_impl_env(
                     &mangled_name,
                     ImplEnv {
-                        env: local_env,
                         type_env: local_type_env,
                     },
                 )

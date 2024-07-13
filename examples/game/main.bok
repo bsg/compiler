@@ -1,24 +1,8 @@
+// TODO camel case vs. snake case
+
 // --------------------------------------------------------------------------------------------------------------------
 // BEGIN BINDINGS
 // --------------------------------------------------------------------------------------------------------------------
-
-struct SDL_Keysym {
-    scancode: u32;
-    sym: u32;
-    mod: u16;
-    unused: u32;
-}
-
-struct SDL_KeyboardEvent {
-    type: u32;
-    timestamp: u32;
-    windowID: u32;
-    state: u8;
-    repeat: u8;
-    padding2: u8;
-    padding3: u8;
-    keysym: SDL_Keysym;
-}
 
 const SDL_SCANCODE_A:         u32 = 4;
 const SDL_SCANCODE_B:         u32 = 5;
@@ -62,6 +46,28 @@ const SDL_SCANCODE_BACKSPACE: u32 = 42;
 const SDL_SCANCODE_TAB:       u32 = 43;
 const SDL_SCANCODE_SPACE:     u32 = 44;
 
+const SDL_QUIT:               u32 = 256;
+const SDL_KEYDOWN:            u32 = 768;
+const SDL_KEYUP:              u32 = 769;
+
+struct SDL_Keysym {
+    scancode: u32;
+    sym: u32;
+    mod: u16;
+    unused: u32;
+}
+
+struct SDL_KeyboardEvent {
+    type: u32;
+    timestamp: u32;
+    windowID: u32;
+    state: u8;
+    repeat: u8;
+    padding2: u8;
+    padding3: u8;
+    keysym: SDL_Keysym;
+}
+
 struct SDL_Event {
     type: u32;
     // TODO the rest, once we have unions
@@ -88,6 +94,7 @@ extern "C" fn free(ptr: *u8);
 extern "C" fn exit(status: u32);
 extern "C" fn sleep(seconds: u32) -> u32;
 extern "C" fn puts(s: *i8) -> i32;
+extern "C" fn random() -> u32;
 extern "C" fn SDL_Init(flags: u32) -> i32;
 extern "C" fn SDL_CreateWindow(title: *u8, x: u32, y: u32, w: u32, h: u32, flags: u32) -> *SDL_Window;
 extern "C" fn SDL_PollEvent(ev: *u32) -> u32;
@@ -112,6 +119,10 @@ extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
 fn abort(msg: &u8) {
     puts(msg);
     exit(1);
+}
+
+fn rand_range(lower: u32, upper: u32) -> u32 {
+    return random() % (upper + 1 - lower) + lower;
 }
 
 struct Pos {
@@ -140,11 +151,12 @@ impl SpriteSheet {
     }
 
     fn drawTile(self: &Self, renderer: *SDL_Renderer, sprite: &Sprite, dstRect: &SDL_Rect) {
-        let srcRect: SDL_Rect;
-        srcRect.x = sprite.tileX * self.tileSize;
-        srcRect.y = sprite.tileY * self.tileSize;
-        srcRect.w = sprite.tileW * self.tileSize;
-        srcRect.h = sprite.tileH * self.tileSize;
+        let srcRect: SDL_Rect = makeRect(
+            sprite.tileX * self.tileSize,
+            sprite.tileY * self.tileSize,
+            sprite.tileW * self.tileSize,
+            sprite.tileH * self.tileSize
+        );
 
         if SDL_RenderCopy(renderer, self.tex, &srcRect, dstRect) < 0 {
             puts(SDL_GetError());
@@ -180,6 +192,8 @@ struct Player {
     speed: u32;
     animState: u32;
     animTicksLeft: u32;
+    shootCooldown: u32;
+    shootTicksLeft: u32;
 }
 
 struct Bullet {
@@ -187,11 +201,15 @@ struct Bullet {
     pos: Pos;
 }
 
+struct Enemy {
+    isAlive: bool;
+    pos: Pos;
+}
+
 struct EntityList<T> {
     len: u32;
     cap: u32;
-    //ptr: *Sprite; TODO this fails
-    ptr: *u8;
+    ptr: *T;
 }
 
 impl EntityList<T> {
@@ -203,7 +221,7 @@ impl EntityList<T> {
 
     fn get(self: &Self, id: u32) -> &T {
         if self.ptr != nullptr && id < self.len {
-            return self.ptr + (id * sizeof(T));
+            return self.ptr + id;
         }
         return nullptr;
     }
@@ -230,7 +248,7 @@ impl EntityList<T> {
         }
         
         if self.ptr != nullptr && idx < self.len {
-            memcpy(self.ptr + (idx * sizeof(T)), entity, sizeof(T));
+            memcpy(self.ptr + idx, entity, sizeof(T));
         }
 
         return idx;
@@ -241,16 +259,81 @@ impl EntityList<T> {
     }
 }
 
+struct GameContext {
+    window_w: u32;
+    window_h: u32;
+    renderer: *SDL_Renderer;
+    spritesheet: SpriteSheet;
+    enemies: EntityList<Enemy>;
+    bullets: EntityList<Bullet>;
+    enemy_spawn_cooldown: u32;
+    enemy_spawn_ticks_left: u32;
+}
+
 const BULLET_SPEED: u32 = 4;
 
 // TODO do not treat this as a generic impl
 // impl Foo<u32> {}
 // generics for the impl should be the ones following the keyword 'impl', the struct ones should be type args
 
+// TODO remove when we have struct literals
+fn makeRect(x: u32, y: u32, w: u32, h: u32) -> SDL_Rect {
+    let rect: SDL_Rect;
+    rect.x = x;
+    rect.y = y;
+    rect.w = w;
+    rect.h = h;
+    return rect;
+}
+
+// TODO remove when we have struct literals
+fn makeSprite(tileX: u32, tileY: u32, tileW: u32, tileH: u32) -> Sprite {
+    let sprite: Sprite;
+    sprite.tileX = tileX;
+    sprite.tileY = tileY;
+    sprite.tileW = tileW;
+    sprite.tileH = tileH;
+    return sprite;
+}
+
+// TODO remove when we have struct literals
+fn makePlayer(windowW: u32, windowH: u32) -> Player {
+    let player: Player;
+    player.sprite = makeSprite(0, 0, 1, 2);
+    player.w = 32;
+    player.h = 64;
+    player.speed = 3;
+    player.animState = 0;
+    player.animTicksLeft = 30;
+    player.pos.x = 200;
+    player.pos.y = windowH - player.h;
+    player.shootCooldown = 30;
+    player.shootTicksLeft = 0;
+    return player;
+}
+
+// TODO remove when we have struct literals
+fn makeBullet(x: u32, y: u32) -> Bullet {
+    let bullet: Bullet;
+    bullet.isAlive = true;
+    bullet.pos.x = x;
+    bullet.pos.y = y;
+    return bullet;
+}
+
+// TODO remove when we have struct literals
+fn makeEnemy(x: u32, y: u32) -> Enemy {
+    let enemy: Enemy;
+    enemy.isAlive = true;
+    enemy.pos.x = x;
+    enemy.pos.y = y;
+    return enemy;
+}
 
 fn main(argc: u32) -> u32 {
-    let windowW: u32 = 400;
-    let windowH: u32 = 600;
+    let ctx: GameContext;
+    ctx.window_w = 400;
+    ctx.window_h = 600;
 
     let title: [u8; 5] = "game";
     let pTitle: *u8 = &title;
@@ -266,13 +349,13 @@ fn main(argc: u32) -> u32 {
         abort(SDL_GetError());
     }
 
-    let window: *SDL_Window = SDL_CreateWindow(pTitle, 0, 0, windowW, windowH, 4);
+    let window: *SDL_Window = SDL_CreateWindow(pTitle, 800, 400, ctx.window_w, ctx.window_h, 4);
     if window == nullptr {
         abort(SDL_GetError());
     }
 
-    let renderer: *SDL_Renderer = SDL_CreateRenderer(window, -1, 1);
-    if renderer == nullptr {
+    ctx.renderer = SDL_CreateRenderer(window, -1, 1);
+    if ctx.renderer == nullptr {
         abort(SDL_GetError());
     }
 
@@ -286,64 +369,34 @@ fn main(argc: u32) -> u32 {
         abort(SDL_GetError());
     }
 
-    let texSpritesheet: *SDL_Texture = SDL_CreateTextureFromSurface(renderer, img);
+    let texSpritesheet: *SDL_Texture = SDL_CreateTextureFromSurface(ctx.renderer, img);
     SDL_FreeSurface(img);
     if texSpritesheet == nullptr {
         abort(SDL_GetError());
     }
     
-    let spritesheet: SpriteSheet = SpriteSheet::new(16, texSpritesheet);
-
-    let srcRect: SDL_Rect;
-    srcRect.x = 0;
-    srcRect.y = 0;
-    srcRect.w = 16;
-    srcRect.h = 32;
-
-    let dstRect: SDL_Rect;
-    dstRect.x = 200;
-    dstRect.y = 100;
-    dstRect.w = 80;
-    dstRect.h = 80;
+    ctx.spritesheet = SpriteSheet::new(16, texSpritesheet);
     
     let ev: SDL_Event;
     let kb_event: SDL_KeyboardEvent;
 
     let input: InputState = InputState::new();
 
-    // TODO really need struct literals
-    let player: Player;
-    player.sprite.tileW = 1;
-    player.sprite.tileH = 2;
-    player.sprite.tileX = 0;
-    player.sprite.tileY = 0;
-    player.w = 32;
-    player.h = 64;
-    player.speed = 3;
-    player.animState = 0;
-    player.animTicksLeft = 30;
-    player.pos.x = 200;
-    player.pos.y = windowH - player.h;
+    let player: Player = makePlayer(ctx.window_w, ctx.window_h);
 
-    let shootCooldown: u32 = 0;
-    let bulletList: EntityList<Bullet>;
-    bulletList.init(10);
+    ctx.bullets.init(100);
+    ctx.enemies.init(100);
 
-    let bullet: Bullet;
-
-    let bulletSprite: Sprite;
-    bulletSprite.tileX = 10;
-    bulletSprite.tileY = 0;
-    bulletSprite.tileW = 1;
-    bulletSprite.tileH = 1;
+    ctx.enemy_spawn_cooldown = 60;
+    ctx.enemy_spawn_ticks_left = 0;
 
     while true {
         while SDL_PollEvent(&ev) == 1 {
-            if ev.type == 256 { // quit event
+            if ev.type == SDL_QUIT {
                 exit(0);
             }
 
-            if ev.type == 768 { // keydown event
+            if ev.type == SDL_KEYDOWN {
                 kb_event = ev;
                 if kb_event.keysym.scancode == SDL_SCANCODE_ESCAPE {
                     exit(0);
@@ -365,7 +418,7 @@ fn main(argc: u32) -> u32 {
                 }
             }
 
-            if ev.type == 769 { // keydown event
+            if ev.type == SDL_KEYUP {
                 kb_event = ev;
                 if kb_event.keysym.scancode == SDL_SCANCODE_W {
                     input.up = false;
@@ -391,26 +444,33 @@ fn main(argc: u32) -> u32 {
         if input.left && player.pos.x > 0 {
             player.pos.x = player.pos.x - player.speed;
         }
-        if input.down && player.pos.y < (windowH - player.h) {
+        if input.down && player.pos.y < (ctx.window_h - player.h) {
             player.pos.y = player.pos.y + player.speed;
         }
-        if input.right && player.pos.x < (windowW - player.w) {
+        if input.right && player.pos.x < (ctx.window_w - player.w) {
             player.pos.x = player.pos.x + player.speed;
         }
         
-        if shootCooldown > 0 {
-            shootCooldown = shootCooldown - 1;
+        if player.shootTicksLeft > 0 {
+            player.shootTicksLeft = player.shootTicksLeft - 1;
         } else {
             if input.shoot {
-                bullet.isAlive = true;
-                bullet.pos.x = player.pos.x + 8;
-                bullet.pos.y = player.pos.y - 20;
-                bulletList.spawn(&bullet);
-                shootCooldown = 30;
+                let bullet: Bullet = makeBullet(player.pos.x + 8, player.pos.y - 20);
+                ctx.bullets.spawn(&bullet);
+                player.shootTicksLeft = player.shootCooldown;
             } 
         }
 
-        SDL_RenderClear(renderer);
+        if ctx.enemy_spawn_ticks_left == 0 {
+            let x: u32 = rand_range(0, ctx.window_w - 32);
+            let enemy: Enemy = makeEnemy(x, 32);
+            ctx.enemies.spawn(&enemy);
+            ctx.enemy_spawn_ticks_left = ctx.enemy_spawn_cooldown;
+        } else {
+            ctx.enemy_spawn_ticks_left = ctx.enemy_spawn_ticks_left - 1;
+        }
+
+        SDL_RenderClear(ctx.renderer);
 
         if player.animTicksLeft == 0 {
             if player.animState == 0 {
@@ -425,35 +485,83 @@ fn main(argc: u32) -> u32 {
             player.animTicksLeft = player.animTicksLeft - 1;
         }
 
-        dstRect.x = player.pos.x;
-        dstRect.y = player.pos.y;
-        dstRect.w = player.w;
-        dstRect.h = player.h;
+        let dstRect: SDL_Rect = makeRect(player.pos.x, player.pos.y, player.w, player.h);
+        ctx.spritesheet.drawTile(ctx.renderer, &player.sprite, &dstRect);
 
-        spritesheet.drawTile(renderer, &player.sprite, &dstRect);
+        // FIXME
+        // spritesheet.drawTile(renderer, &player.sprite, &makeRect(player.pos.x, player.pos.y, player.w, player.h));
 
-        let i: u32 = 0;
-        while i < bulletList.len {
-            let bullet: &Bullet = bulletList.get(i);
+        update_enemies(&ctx);
+        update_bullets(&ctx);
 
-            if bullet.isAlive {
-                dstRect.x = bullet.pos.x;
-                dstRect.y = bullet.pos.y;
-                dstRect.w = 16;
-                dstRect.h = 16;
-                spritesheet.drawTile(renderer, &bulletSprite, &dstRect);
-
-                bullet.pos.y = bullet.pos.y - BULLET_SPEED;
-                if bullet.pos.y < 0 {
-                    bulletList.despawn(i);
-                }
-            }
-            i = i + 1;
-        }
-
-        SDL_RenderPresent(renderer);
+        SDL_RenderPresent(ctx.renderer);
         SDL_Delay(16);
     }
 
     return 0;
+}
+
+fn aabb(a: &SDL_Rect, b: &SDL_Rect) -> bool {
+    return
+        a.x < b.x + b.w &&
+        a.x + a.w > b.x &&
+        a.y < b.y + b.h &&
+        a.y + a.h > b.y;
+}
+
+// TODO these should take a &Ctx
+fn update_enemies(ctx: &GameContext) {
+    let sprite: Sprite = makeSprite(9, 0, 1, 1);
+
+    let i: u32 = 0;
+    while i < ctx.enemies.len {
+        let enemy: &Enemy = ctx.enemies.get(i);
+        if enemy.isAlive {
+            // Check bullet collisions
+            let bullet_idx: u32 = 0;
+            while bullet_idx < ctx.bullets.len {
+                let bullet: &Bullet = ctx.bullets.get(bullet_idx);
+                if bullet.isAlive {
+                    let enemy_rect:  SDL_Rect = makeRect(enemy.pos.x, enemy.pos.y, 32, 32);
+                    let bullet_rect: SDL_Rect = makeRect(bullet.pos.x, bullet.pos.y, 16, 16);
+    
+                    if aabb(&enemy_rect, &bullet_rect) {
+                        enemy.isAlive = false;
+                        bullet.isAlive = false;
+                    }
+                }
+
+                bullet_idx = bullet_idx + 1;
+            }
+
+            enemy.pos.y = enemy.pos.y + 2;
+            if enemy.pos.y > ctx.window_h {
+                enemy.isAlive = false;
+            }
+
+            // Draw
+            let dstRect: SDL_Rect = makeRect(enemy.pos.x, enemy.pos.y, 32, 32);
+            ctx.spritesheet.drawTile(ctx.renderer, &sprite, &dstRect);
+        }
+        i = i + 1;
+    }
+}
+
+fn update_bullets(ctx: &GameContext) {
+    let sprite: Sprite = makeSprite(10, 0, 1, 1);
+
+    let i: u32 = 0;
+    while i < ctx.bullets.len {
+        let bullet: &Bullet = ctx.bullets.get(i);
+        if bullet.isAlive {
+            let dstRect: SDL_Rect = makeRect(bullet.pos.x, bullet.pos.y, 16, 16);
+            ctx.spritesheet.drawTile(ctx.renderer, &sprite, &dstRect);
+
+            bullet.pos.y = bullet.pos.y - BULLET_SPEED;
+            if bullet.pos.y < 0 {
+                ctx.bullets.despawn(i);
+            }
+        }
+        i = i + 1;
+    }
 }

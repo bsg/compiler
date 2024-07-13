@@ -29,14 +29,6 @@ impl Parser {
 
     // TODO this is fucked
     fn parse_type(&mut self) -> Option<Rc<str>> {
-        fn get_ident_str(ident: &Token) -> Option<&str> {
-            if let Token::Ident(name) = ident {
-                Some(name)
-            } else {
-                None
-            }
-        }
-
         let ty = match self.curr_token.clone() {
             Token::Ident(ident) => {
                 if self.peek_token == Token::Lt {
@@ -60,19 +52,11 @@ impl Parser {
             }
             Token::Star => {
                 self.next_token();
-                if let Some(ty) = get_ident_str(&self.curr_token) {
-                    Some(("*".to_owned() + ty).into())
-                } else {
-                    Some(("*".to_owned() + &self.parse_type().unwrap()).into())
-                }
+                Some(("*".to_owned() + &self.parse_type().unwrap()).into())
             }
             Token::Amp => {
                 self.next_token();
-                if let Some(ty) = get_ident_str(&self.curr_token) {
-                    Some(("&".to_owned() + ty).into())
-                } else {
-                    Some(("&".to_owned() + &self.parse_type().unwrap()).into())
-                }
+                Some(("&".to_owned() + &self.parse_type().unwrap()).into())
             }
             Token::LBracket => {
                 self.next_token();
