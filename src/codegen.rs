@@ -1538,13 +1538,13 @@ impl ModuleBuilder {
         let mut arg_tys: Vec<Type> = Vec::new();
         let mut arg_vals: Vec<LLVMTypeRef> = Vec::new();
         for arg in args.iter() {
-            let arg_ty = type_env.get_type_by_name(&arg.ty);
+            let arg_ty = type_env.get_type_by_name(&arg.ty());
 
             if let Some(ty) = arg_ty {
                 arg_tys.push(ty.clone());
                 arg_vals.push(ty.llvm_type(type_env.clone()));
             } else {
-                panic!("unresolved type {}", &arg.ty);
+                panic!("unresolved type {}", &arg.ty());
             }
         }
         let func_ty = unsafe {
@@ -1604,9 +1604,9 @@ impl ModuleBuilder {
             unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_entry) };
 
             for (i, arg) in args.iter().enumerate() {
-                let ty = match type_env.get_type_by_name(&arg.ty) {
+                let ty = match type_env.get_type_by_name(&arg.ty()) {
                     Some(ty) => ty,
-                    None => panic!("unresolved type {}", arg.ty),
+                    None => panic!("unresolved type {}", arg.ty()),
                 };
                 let argp = unsafe {
                     LLVMBuildAlloca(
@@ -1622,7 +1622,7 @@ impl ModuleBuilder {
                         argp,
                     )
                 };
-                func.env.insert_var(&arg.ident, argp, ty.clone());
+                func.env.insert_var(&arg.ident(), argp, ty.clone());
             }
 
             unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_body) };
@@ -1786,6 +1786,7 @@ impl ModuleBuilder {
 
     fn pass4(&mut self) {
         for node in &*self.ast.clone() {
+            #[allow(clippy::single_match)]
             match &**node {
                 Node::Impl {
                     ident: impl_ty,
@@ -1826,7 +1827,7 @@ impl ModuleBuilder {
                             } = &**method
                             {
                                 let is_static = if let Some(arg) = args.first() {
-                                    !(&*arg.ty == "Self" || &*arg.ty == "&Self")
+                                    !(&*arg.ty() == "Self" || &*arg.ty() == "&Self")
                                 } else {
                                     true
                                 };

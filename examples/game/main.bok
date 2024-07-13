@@ -170,7 +170,7 @@ impl SpriteSheet {
         return spritesheet;
     }
 
-    fn drawTile(self: &Self, renderer: *SDL_Renderer, sprite: &Sprite, dstRect: &SDL_Rect) {
+    fn drawTile(&self, renderer: *SDL_Renderer, sprite: &Sprite, dstRect: &SDL_Rect) {
         let srcRect: SDL_Rect = makeRect(
             sprite.tileX * self.tileSize,
             sprite.tileY * self.tileSize,
@@ -233,24 +233,24 @@ struct EntityList<T> {
 }
 
 impl EntityList<T> {
-    fn init(self: &Self, cap: u32) {
+    fn init(&self, cap: u32) {
         self.len = 0;
         self.cap = cap;
         self.ptr = malloc(sizeof(T) * cap);
     }
 
-    fn get(self: &Self, id: u32) -> &T {
+    fn get(&self, id: u32) -> &T {
         if self.ptr != nullptr && id < self.len {
             return self.ptr + id;
         }
         return nullptr;
     }
 
-    fn kill(self: &Self, id: u32) {
+    fn kill(&self, id: u32) {
         self.get(id).isAlive = 0;
     }
 
-    fn spawn(self: &Self, entity: *T) -> u32 {
+    fn spawn(&self, entity: *T) -> u32 {
         let idx: u32 = 0;
         if self.len < self.cap {
             idx = self.len;
@@ -274,7 +274,7 @@ impl EntityList<T> {
         return idx;
     }
 
-    fn despawn(self: &Self, id: u32) {
+    fn despawn(&self, id: u32) {
         self.get(id).isAlive = false;
     }
 }

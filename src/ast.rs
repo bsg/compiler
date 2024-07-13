@@ -79,9 +79,28 @@ impl Op {
 pub type NodeRef = Rc<Node>;
 
 #[derive(PartialEq, Eq, Hash, Clone)]
-pub struct Arg {
-    pub ident: Rc<str>,
-    pub ty: Rc<str>,
+pub enum Arg {
+    SelfVal,
+    SelfRef,
+    Pair { ident: Rc<str>, ty: Rc<str> },
+}
+
+impl Arg {
+    pub fn ident(&self) -> Rc<str> {
+        match self {
+            Arg::SelfVal => "self".into(),
+            Arg::SelfRef => "self".into(),
+            Arg::Pair { ident, .. } => ident.clone(),
+        }
+    }
+
+    pub fn ty(&self) -> Rc<str> {
+        match self {
+            Arg::SelfVal => "Self".into(),
+            Arg::SelfRef => "&Self".into(),
+            Arg::Pair { ty, .. } => ty.clone(),
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone)]
@@ -279,7 +298,7 @@ impl fmt::Debug for Node {
                 } => {
                     let args_str = args
                         .iter()
-                        .map(|arg| format!("{}: {}", arg.ident, arg.ty))
+                        .map(|arg| format!("{}: {}", arg.ident(), arg.ty()))
                         .collect::<Vec<String>>()
                         .join(", ");
 

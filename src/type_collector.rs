@@ -72,7 +72,7 @@ impl TypeCollector {
             } => {
                 self.types.insert((&**ret_ty).into());
                 for arg in args.iter() {
-                    self.types.insert((&*arg.ty).into());
+                    self.types.insert((&*arg.ty()).into());
                 }
                 if let Some(body) = body {
                     self.collect_recursively(body.clone());

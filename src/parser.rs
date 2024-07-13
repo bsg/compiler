@@ -195,17 +195,35 @@ impl Parser {
             loop {
                 match &self.curr_token.clone() {
                     Token::Ident(arg_ident) => {
-                        self.next_token();
-                        assert_eq!(Token::Colon, self.curr_token);
-                        self.next_token();
+                        if &**arg_ident == "self" {
+                            args.push(Arg::SelfVal);
 
-                        if let Some(ty) = self.parse_type() {
-                            args.push(Arg {
-                                ident: arg_ident.clone(),
-                                ty,
-                            });
+                            self.next_token();
                         } else {
-                            todo!()
+                            self.next_token();
+                            assert_eq!(Token::Colon, self.curr_token);
+                            self.next_token();
+
+                            if let Some(ty) = self.parse_type() {
+                                args.push(Arg::Pair {
+                                    ident: arg_ident.clone(),
+                                    ty,
+                                });
+                            } else {
+                                todo!()
+                            }
+                        }
+                    }
+                    Token::Amp => {
+                        if let Token::Ident(ident) = &self.peek_token {
+                            if &**ident == "self" {
+                                args.push(Arg::SelfRef);
+                            } else {
+                                todo!()
+                            }
+
+                            self.next_token();
+                            self.next_token();
                         }
                     }
                     Token::Comma => (),
