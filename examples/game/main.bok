@@ -81,10 +81,19 @@ struct SDL_Rect {
     h: u32;
 }
 
+// TODO
+struct SDL_Color {
+    r: u8;
+    g: u8;
+    b: u8;
+    a: u8;
+}
+
 struct SDL_Window {}
 struct SDL_Renderer {}
 struct SDL_Surface {}
 struct SDL_Texture {}
+struct TTF_Font {}
 
 // TODO some of these need usize
 extern "C" fn malloc(size: u32) -> *u8;
@@ -107,11 +116,16 @@ extern "C" fn SDL_CreateRenderer(window: *SDL_Window, index: i32, flags: u32) ->
 extern "C" fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: *SDL_Rect, dstrect: *SDL_Rect) -> u32;
 extern "C" fn SDL_CreateTextureFromSurface(renderer: *SDL_Renderer, surface: *SDL_Surface) -> *SDL_Texture;
 extern "C" fn SDL_FreeSurface(surface: *SDL_Surface);
+extern "C" fn SDL_DestroyTexture(texture: *SDL_Texture);
 extern "C" fn SDL_RenderPresent(renderer: *SDL_Renderer);
 extern "C" fn SDL_Delay(ms: u32);
 extern "C" fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
+extern "C" fn SDL_QueryTexture(texture: *SDL_Texture, format: *u32, access: *u32, w: *u32, h: *u32) -> u32;
 extern "C" fn IMG_Init(flags: i32) -> i32;
 extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
+extern "C" fn TTF_Init() -> u32;
+extern "C" fn TTF_OpenFont(file: *u8, ptsize: u32) -> *TTF_Font;
+extern "C" fn TTF_RenderText_Solid(font: *TTF_Font, text: *u8, fg: SDL_Color) -> *SDL_Surface;
 
 // --------------------------------------------------------------------------------------------------------------------
 // END BINDINGS
@@ -127,22 +141,27 @@ fn rand_range(lower: u32, upper: u32) -> u32 {
 }
 
 fn itoa(n: u32, buf: *u8) {
-    let divisor: u32 = 1000000000;
-    
-    while n / divisor == 0 {
-        divisor = divisor / 10;
-    }
-
-    divisor = divisor * 10;
-
-    while divisor != 1 {
-        *buf = ((n % divisor) / divisor / 10 + 48);
-        divisor = divisor / 10;
+    if n == 0 {
+        *buf = '0';
         buf = buf + 1;
+        *buf = 0;
+    } else {
+        let divisor: u32 = 1000000000;
+
+        while n / divisor == 0 {
+            divisor = divisor / 10;
+        }
+
+        divisor = divisor * 10;
+
+        while divisor != 1 {
+            *buf = ((n % divisor) / divisor / 10 + 48);
+            divisor = divisor / 10;
+            buf = buf + 1;
+        }
+
+        *buf = 0;
     }
-    
-    // buf = buf + 1;
-    *buf = 0;
 }
 
 struct Pos {
@@ -226,6 +245,12 @@ struct Enemy {
     pos: Pos;
 }
 
+struct Particle {
+    is_alive: bool;
+    pos: Pos;
+    speed: u32;
+}
+
 struct EntityList<T> {
     len: u32;
     cap: u32;
@@ -284,11 +309,15 @@ struct GameContext {
     window_h: u32;
     renderer: *SDL_Renderer;
     spritesheet: SpriteSheet;
+    font: *TTF_Font;
     score: u32;
     enemies: EntityList<Enemy>;
     bullets: EntityList<Bullet>;
+    particles: EntityList<Particle>;
     enemy_spawn_cooldown: u32;
     enemy_spawn_ticks_left: u32;
+    particle_spawn_cooldown: u32;
+    particle_spawn_ticks_left: u32;
 }
 
 const BULLET_SPEED: u32 = 6;
@@ -351,14 +380,17 @@ fn makeEnemy(x: u32, y: u32) -> Enemy {
     return enemy;
 }
 
-fn main(argc: u32) -> u32 {
-    let buf: [u8; 16];
-    let pBuf: *u8 = &buf;
-    itoa(12345678, pBuf);
-    puts(pBuf);
-    itoa(80084, pBuf);
-    puts(pBuf);
+// TODO remove when we have struct literals
+fn makeParticle(x: u32, y: u32, speed: u32) -> Particle {
+    let particle: Particle;
+    particle.is_alive = true;
+    particle.pos.x = x;
+    particle.pos.y = y;
+    particle.speed = speed;
+    return particle;
+}
 
+fn main(argc: u32) -> u32 {
     let ctx: GameContext;
     ctx.window_w = 400;
     ctx.window_h = 600;
@@ -370,6 +402,10 @@ fn main(argc: u32) -> u32 {
     }
 
     if IMG_Init(2) < 0 {
+        abort(SDL_GetError());
+    }
+
+    if TTF_Init() < 0 {
         abort(SDL_GetError());
     }
 
@@ -400,6 +436,11 @@ fn main(argc: u32) -> u32 {
     }
     
     ctx.spritesheet = SpriteSheet::new(16, texSpritesheet);
+
+    ctx.font = TTF_OpenFont("arcade_n.ttf", 16);
+    if ctx.font == nullptr {
+        abort(SDL_GetError());
+    }
     
     let ev: SDL_Event;
     let kb_event: SDL_KeyboardEvent;
@@ -410,9 +451,13 @@ fn main(argc: u32) -> u32 {
 
     ctx.bullets.init(100);
     ctx.enemies.init(100);
+    ctx.particles.init(100);
 
     ctx.enemy_spawn_cooldown = 60;
     ctx.enemy_spawn_ticks_left = 0;
+
+    ctx.particle_spawn_cooldown = 20;
+    ctx.particle_spawn_ticks_left = 0;
 
     while true {
         while SDL_PollEvent(&ev) == 1 {
@@ -488,11 +533,21 @@ fn main(argc: u32) -> u32 {
         if ctx.enemy_spawn_ticks_left == 0 {
             let margin_x: u32 = 10;
             let x: u32 = rand_range(margin_x, ctx.window_w - 32 - margin_x);
-            let enemy: Enemy = makeEnemy(x, 32);
+            let enemy: Enemy = makeEnemy(x, 0);
             ctx.enemies.spawn(&enemy);
-            ctx.enemy_spawn_ticks_left = ctx.enemy_spawn_cooldown;
+            ctx.enemy_spawn_ticks_left = rand_range(ctx.enemy_spawn_cooldown - 20, ctx.enemy_spawn_cooldown + 20);
         } else {
             ctx.enemy_spawn_ticks_left = ctx.enemy_spawn_ticks_left - 1;
+        }
+
+        if ctx.particle_spawn_ticks_left == 0 {
+            let x: u32 = rand_range(0, ctx.window_w - 32);
+            let particle: Particle = makeParticle(x, 0, rand_range(4, 8));
+            // ctx.particles.spawn(&enemy); how the fuck is 'enemy' in scope?
+            ctx.particles.spawn(&particle);
+            ctx.particle_spawn_ticks_left = ctx.particle_spawn_cooldown;
+        } else {
+            ctx.particle_spawn_ticks_left = ctx.particle_spawn_ticks_left - 1;
         }
 
         SDL_RenderClear(ctx.renderer);
@@ -516,8 +571,29 @@ fn main(argc: u32) -> u32 {
         // FIXME
         // spritesheet.drawTile(renderer, &player.sprite, &makeRect(player.pos.x, player.pos.y, player.w, player.h));
 
+        update_particles(&ctx);
         update_enemies(&ctx);
         update_bullets(&ctx);
+
+        let white: SDL_Color;
+        white.r = 255 as u8;
+        white.g = 255 as u8;
+        white.b = 255 as u8;
+        white.a = 255 as u8;
+
+        // Render score
+        let buf: [u8; 16];
+        let pBuf: *u8 = &buf;
+        itoa(ctx.score, pBuf);
+        let surface_text: *SDL_Surface = TTF_RenderText_Solid(ctx.font, pBuf, white);
+        let tex_score: *SDL_Texture = SDL_CreateTextureFromSurface(ctx.renderer, surface_text);
+        let w: u32;
+        let h: u32;
+        SDL_QueryTexture(tex_score, nullptr, nullptr, &w, &h);
+        let rect: SDL_Rect = makeRect(ctx.window_w / 2 - w / 2, 10, w, h);
+        SDL_RenderCopy(ctx.renderer, tex_score, nullptr, &rect);
+        SDL_FreeSurface(surface_text);
+        SDL_DestroyTexture(tex_score);
 
         SDL_RenderPresent(ctx.renderer);
         SDL_Delay(16);
@@ -587,6 +663,25 @@ fn update_bullets(ctx: &GameContext) {
             bullet.pos.y = bullet.pos.y - BULLET_SPEED;
             if bullet.pos.y < 0 {
                 ctx.bullets.despawn(i);
+            }
+        }
+        i = i + 1;
+    }
+}
+
+fn update_particles(ctx: &GameContext) {
+    let sprite: Sprite = makeSprite(4, 0, 1, 1);
+
+    let i: u32 = 0;
+    while i < ctx.particles.len {
+        let particle: &Particle = ctx.particles.get(i);
+        if particle.is_alive {
+            let dstRect: SDL_Rect = makeRect(particle.pos.x, particle.pos.y, 32, 32);
+            ctx.spritesheet.drawTile(ctx.renderer, &sprite, &dstRect);
+
+            particle.pos.y = particle.pos.y + particle.speed;
+            if particle.pos.y > ctx.window_h {
+                ctx.particles.despawn(i);
             }
         }
         i = i + 1;
