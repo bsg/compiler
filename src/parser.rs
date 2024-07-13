@@ -223,7 +223,6 @@ impl Parser {
                             }
 
                             self.next_token();
-                            self.next_token();
                         }
                     }
                     Token::Comma => (),

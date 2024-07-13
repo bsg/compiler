@@ -91,13 +91,11 @@ impl Type {
                 }
             },
             Type::Ptr { pointee_type_name } => unsafe {
-                LLVMPointerType(
-                    type_env
-                        .get_type_by_name(pointee_type_name)
-                        .unwrap()
-                        .llvm_type(type_env.clone()),
-                    0,
-                )
+                if let Some(ty) = type_env.get_type_by_name(pointee_type_name) {
+                    LLVMPointerType(ty.llvm_type(type_env.clone()), 0)
+                } else {
+                    panic!("unresolved type {}", pointee_type_name);
+                }
             },
             Type::Struct {
                 name,
@@ -1247,14 +1245,14 @@ impl ModuleBuilder {
     }
 
     fn build_string(&mut self, type_env: Rc<TypeEnv>, value: Rc<str>) -> Val {
-        let ty = type_env.get_type_by_name("i8").unwrap();
+        let ty = type_env.get_type_by_name("u8").unwrap();
         let bytes: Vec<u8> = value.bytes().collect();
 
         let llvm_val = unsafe {
-            LLVMConstString(
+            LLVMBuildGlobalString(
+                self.builder,
                 bytes.as_slice().as_ptr() as *const i8,
-                bytes.len() as u32,
-                0,
+                "".to_cstring().as_ptr(),
             )
         };
 
