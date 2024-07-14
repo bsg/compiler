@@ -19,6 +19,7 @@ use llvm_sys::target::LLVMPointerSize;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::ptr::null_mut;
 use std::rc::Rc;
 
 use crate::ast::*;
@@ -1392,6 +1393,78 @@ impl ModuleBuilder {
             }
             Node::Array { elems } => self.build_array(env, type_env, elems),
             Node::Str { value } => self.build_string(type_env, value.clone()),
+            Node::StructLiteral { ident, fields } => {
+                // TODO this shares common behaviour with the dot operator on structs.
+                // maybe have something like build_store_struct_member()
+                // TODO in (for instance) let ... = T {...}, alloca and load here are redundant
+                if let Some(
+                    ty @ Type::Struct {
+                        field_indices,
+                        ..
+                    },
+                ) = type_env.get_type_by_name(ident)
+                {
+                    let func = self.env.get_func(&self.current_func_ident.clone().unwrap());
+
+                    // TODO this is also used in 'let'. could be a helper function like build_alloca(...)
+                    let reg = unsafe {
+                        let bb_current = LLVMGetInsertBlock(self.builder);
+
+                        LLVMPositionBuilderAtEnd(self.builder, func.unwrap().bb_entry.unwrap());
+
+                        let reg = LLVMBuildAlloca(
+                            self.builder,
+                            ty.llvm_type(type_env.clone()),
+                            "".to_cstring().as_ptr(),
+                        );
+
+                        LLVMPositionBuilderAtEnd(self.builder, bb_current);
+                        reg
+                    };
+
+                    for field in fields.iter() {
+                        let field_idx = if let Some(idx) = field_indices.get(&*field.ident) {
+                            idx
+                        } else {
+                            panic!("unresolved field {} in struct literal", field.ident);
+                        };
+
+                        let ptr = unsafe {
+                            LLVMBuildStructGEP2(
+                                self.builder,
+                                ty.llvm_type(type_env.clone()),
+                                reg,
+                                *field_idx as u32,
+                                "".to_cstring().as_ptr(),
+                            )
+                        };
+
+                        let val = self.build_expr(
+                            env.clone(),
+                            type_env.clone(),
+                            field.val.clone(),
+                            false,
+                        );
+                        unsafe { LLVMBuildStore(self.builder, val.llvm_val, ptr) };
+                    }
+
+                    let llvm_val = unsafe {
+                        LLVMBuildLoad2(
+                            self.builder,
+                            ty.llvm_type(type_env.clone()),
+                            reg,
+                            "".to_cstring().as_ptr(),
+                        )
+                    };
+
+                    Val {
+                        ty: ty.clone(),
+                        llvm_val,
+                    }
+                } else {
+                    todo!()
+                }
+            }
             _ => panic!("unimplemented!\n {:?}", node),
         }
     }
@@ -1671,7 +1744,7 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_struct(&self, env: &Env, type_env: &TypeEnv, node: NodeRef, name: Option<String>) {
+    fn register_struct(&self, env: &Env, type_env: &TypeEnv, node: NodeRef, name: Option<String>) {
         if let Node::Struct {
             ident,
             fields,
@@ -1747,7 +1820,7 @@ impl ModuleBuilder {
 
                 // TODO build a dependency tree and gen structs depth first
                 if generics.len() == 0 {
-                    self.build_struct(&local_env, &local_type_env, node.clone(), None);
+                    self.register_struct(&local_env, &local_type_env, node.clone(), None);
                 } else {
                     self.type_env
                         .insert_generic_type(ident.to_string(), node.clone())
@@ -1774,7 +1847,7 @@ impl ModuleBuilder {
                 }
 
                 let mangled_name = format!("{}<{}>", name, type_args.join(","));
-                self.build_struct(
+                self.register_struct(
                     &local_env,
                     &local_type_env,
                     node.clone().into(),

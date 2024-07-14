@@ -1,23 +1,29 @@
 // TODO we need a ParseResult -- do we? why not just panic?
 
-use std::iter::Peekable;
 use std::rc::Rc;
+
+use peekmore::{PeekMore, PeekMoreIterator};
 
 use crate::ast::*;
 use crate::lexer::{Lexer, Token, Tokens};
 
 pub struct Parser {
-    tokens: Peekable<Tokens>,
+    tokens: PeekMoreIterator<Tokens>,
     curr_token: Token,
     peek_token: Token,
+    // FIXME disgusting
+    peek_token2: Token,
+    peek_token3: Token,
 }
 
 impl Parser {
     pub fn new(input: &str) -> Parser {
         Parser {
-            tokens: Lexer::new(input).tokens().peekable(),
+            tokens: Lexer::new(input).tokens().peekmore(),
             curr_token: Token::None,
             peek_token: Token::None,
+            peek_token2: Token::None,
+            peek_token3: Token::None,
         }
     }
 
@@ -25,6 +31,11 @@ impl Parser {
     fn next_token(&mut self) {
         self.curr_token = self.tokens.next().unwrap_or(Token::None);
         self.peek_token = self.tokens.peek().cloned().unwrap_or(Token::None);
+        self.tokens.advance_cursor();
+        self.peek_token2 = self.tokens.peek().cloned().unwrap_or(Token::None);
+        self.tokens.advance_cursor();
+        self.peek_token3 = self.tokens.peek().cloned().unwrap_or(Token::None);
+        self.tokens.reset_cursor();
     }
 
     // TODO this is fucked
@@ -617,7 +628,10 @@ impl Parser {
                 Token::Dot => Op::Dot,
                 Token::ColonColon => Op::ScopeRes,
                 Token::As => Op::Cast,
-                Token::LBrace => Op::StructLiteral,
+                Token::LBrace => match (self.peek_token2.clone(), self.peek_token3.clone()) {
+                    (Token::Ident(..), Token::Colon) => Op::StructLiteral,
+                    _ => return Some(lhs),
+                },
                 _ => break,
             };
 
@@ -662,6 +676,7 @@ impl Parser {
                                 if let Token::Ident(field_name) = self.curr_token.clone() {
                                     field_name
                                 } else {
+                                    println!("{:?}", lhs);
                                     todo!();
                                 };
 
@@ -1314,12 +1329,14 @@ fn f(x: *u32) -> *u32
     #[test]
     fn while_loop() {
         assert_parse!(
-            "while x < 5 {a = x + 1;}",
+            "while x < 5 && c {a = x + 1;}",
             "\
 while
-    lt
-        ident x
-        5
+    and
+        lt
+            ident x
+            5
+        ident c
     block
         assign
             ident a
@@ -1494,6 +1511,23 @@ impl<A,B> T<A,B>
 
     #[test]
     fn struct_literal() {
+        assert_parse!(
+            "let rect: Rect = Rect {x: 0, y: 0, w: 10, h: 10};",
+            "\
+let Rect
+    ident rect
+    struct_literal Rect
+        x
+            0
+        y
+            0
+        w
+            10
+        h
+            10
+"
+        );
+
         assert_parse!(
             "let _: Foo = Foo {a: 1 + 2, b: Bar {x: 5}};",
             "\

@@ -9,3 +9,4 @@ debug = true
 [dependencies]
 clap = { version = "4.4.7", features = ["derive"] }
 llvm-sys = "181.0.0"
+peekmore = "1.3.0"
