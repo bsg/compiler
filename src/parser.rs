@@ -1512,19 +1512,21 @@ impl<A,B> T<A,B>
     #[test]
     fn struct_literal() {
         assert_parse!(
-            "let rect: Rect = Rect {x: 0, y: 0, w: 10, h: 10};",
+            "foo.bar(1, Rect {x: 0, y: 0, w: 10, h: 10});",
             "\
-let Rect
-    ident rect
-    struct_literal Rect
-        x
-            0
-        y
-            0
-        w
-            10
-        h
-            10
+dot
+    ident foo
+    call bar
+        1
+        struct_literal Rect
+            x
+                0
+            y
+                0
+            w
+                10
+            h
+                10
 "
         );
 
@@ -1542,6 +1544,18 @@ let Foo
             struct_literal Bar
                 x
                     5
+"
+        );
+
+        assert_parse!(
+            "let _: A = &A {x: 1};",
+            "\
+let A
+    ident _
+    ref
+        struct_literal A
+            x
+                1
 "
         );
     }

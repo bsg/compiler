@@ -83,6 +83,8 @@ struct SDL_Rect {
     w: u32;
     h: u32;
 }
+// TODO
+// type Rect = SDL_Rect;
 
 // TODO
 struct SDL_Color {
@@ -179,10 +181,10 @@ struct Pos {
 }
 
 struct Sprite {
-    tileX: u32;
-    tileY: u32;
-    tileW: u32;
-    tileH: u32;
+    tile_x: u32;
+    tile_y: u32;
+    tile_w: u32;
+    tile_h: u32;
 }
 
 struct SpriteSheet {
@@ -200,10 +202,10 @@ impl SpriteSheet {
 
     fn drawTile(&self, renderer: *SDL_Renderer, sprite: &Sprite, dstRect: &SDL_Rect) {
         let srcRect: SDL_Rect = SDL_Rect {
-            x: sprite.tileX * self.tileSize,
-            y: sprite.tileY * self.tileSize,
-            w: sprite.tileW * self.tileSize,
-            h: sprite.tileH * self.tileSize
+            x: sprite.tile_x * self.tileSize,
+            y: sprite.tile_y * self.tileSize,
+            w: sprite.tile_w * self.tileSize,
+            h: sprite.tile_h * self.tileSize
         };
 
         if SDL_RenderCopy(renderer, self.tex, &srcRect, dstRect) < 0 {
@@ -338,60 +340,6 @@ const BULLET_SPEED: u32 = 6;
 // impl Foo<u32> {}
 // generics for the impl should be the ones following the keyword 'impl', the struct ones should be type args
 
-// TODO remove when we have struct literals
-fn makeSprite(tileX: u32, tileY: u32, tileW: u32, tileH: u32) -> Sprite {
-    let sprite: Sprite;
-    sprite.tileX = tileX;
-    sprite.tileY = tileY;
-    sprite.tileW = tileW;
-    sprite.tileH = tileH;
-    return sprite;
-}
-
-// TODO remove when we have struct literals
-fn makePlayer(windowW: u32, windowH: u32) -> Player {
-    let player: Player;
-    player.sprite = makeSprite(0, 0, 1, 1);
-    player.w = 32;
-    player.h = 32;
-    player.speed = 3;
-    player.animState = 0;
-    player.animTicksLeft = 30;
-    player.pos.x = 200;
-    player.pos.y = windowH - player.h;
-    player.shootCooldown = 45;
-    player.shootTicksLeft = 0;
-    return player;
-}
-
-// TODO remove when we have struct literals
-fn makeBullet(x: u32, y: u32) -> Bullet {
-    let bullet: Bullet;
-    bullet.is_alive = true;
-    bullet.pos.x = x;
-    bullet.pos.y = y;
-    return bullet;
-}
-
-// TODO remove when we have struct literals
-fn makeEnemy(x: u32, y: u32) -> Enemy {
-    let enemy: Enemy;
-    enemy.is_alive = true;
-    enemy.pos.x = x;
-    enemy.pos.y = y;
-    return enemy;
-}
-
-// TODO remove when we have struct literals
-fn makeParticle(x: u32, y: u32, speed: u32) -> Particle {
-    let particle: Particle;
-    particle.is_alive = true;
-    particle.pos.x = x;
-    particle.pos.y = y;
-    particle.speed = speed;
-    return particle;
-}
-
 fn main(argc: u32) -> u32 {
     let ctx: GameContext;
     ctx.window_w = 400;
@@ -463,7 +411,17 @@ fn main(argc: u32) -> u32 {
 
     let input: InputState = InputState::new();
 
-    let player: Player = makePlayer(ctx.window_w, ctx.window_h);
+    let player: Player = Player {
+        sprite: Sprite {tile_x: 0, tile_y: 0, tile_w: 1, tile_h: 1},
+        w: 32,
+        h: 32,
+        speed: 3,
+        animState: 0,
+        animTicksLeft: 30,
+        pos: Pos {x: 200, y: ctx.window_h - 32},
+        shootCooldown: 45,
+        shootTicksLeft: 0
+    };
 
     ctx.bullets.init(100);
     ctx.enemies.init(100);
@@ -540,7 +498,7 @@ fn main(argc: u32) -> u32 {
             player.shootTicksLeft = player.shootTicksLeft - 1;
         } else {
             if input.shoot {
-                let bullet: Bullet = makeBullet(player.pos.x, player.pos.y - 20);
+                let bullet: Bullet = Bullet {is_alive: true, pos: Pos {x: player.pos.x, y: player.pos.y - 20}};
                 ctx.bullets.spawn(&bullet);
                 player.shootTicksLeft = player.shootCooldown;
                 Mix_PlayChannel(-1, ctx.sfx_pew, 0);
@@ -550,7 +508,7 @@ fn main(argc: u32) -> u32 {
         if ctx.enemy_spawn_ticks_left == 0 {
             let margin_x: u32 = 10;
             let x: u32 = rand_range(margin_x, ctx.window_w - 32 - margin_x);
-            let enemy: Enemy = makeEnemy(x, 0);
+            let enemy: Enemy = Enemy {is_alive: true, pos: Pos {x: x, y: 0}};
             ctx.enemies.spawn(&enemy);
             ctx.enemy_spawn_ticks_left = rand_range(ctx.enemy_spawn_cooldown - 20, ctx.enemy_spawn_cooldown + 20);
         } else {
@@ -559,8 +517,8 @@ fn main(argc: u32) -> u32 {
 
         if ctx.particle_spawn_ticks_left == 0 {
             let x: u32 = rand_range(0, ctx.window_w - 32);
-            let particle: Particle = makeParticle(x, 0, rand_range(4, 8));
-            // ctx.particles.spawn(&enemy); how the fuck is 'enemy' in scope?
+            let particle: Particle = Particle {is_alive: true, pos: Pos {x: x, y: 0}, speed: rand_range(4, 8)};
+            // ctx.particles.spawn(&enemy); how the fuck is 'enemy' in scope? -- impl proper block scope
             ctx.particles.spawn(&particle);
             ctx.particle_spawn_ticks_left = ctx.particle_spawn_cooldown;
         } else {
@@ -572,31 +530,27 @@ fn main(argc: u32) -> u32 {
         if player.animTicksLeft == 0 {
             if player.animState == 0 {
                 player.animState = 1;
-                player.sprite.tileX = 1;
+                player.sprite.tile_x = 1;
             } else {
                 player.animState = 0;
-                player.sprite.tileX = 0;
+                player.sprite.tile_x = 0;
             }
             player.animTicksLeft = 30; 
         } else {
             player.animTicksLeft = player.animTicksLeft - 1;
         }
 
-        let dstRect: SDL_Rect = SDL_Rect {x: player.pos.x, y: player.pos.y, w: player.w, h: player.h};
-        ctx.spritesheet.drawTile(ctx.renderer, &player.sprite, &dstRect);
-
-        // FIXME
-        // spritesheet.drawTile(renderer, &player.sprite, &makeRect(player.pos.x, player.pos.y, player.w, player.h));
+        ctx.spritesheet.drawTile(
+            ctx.renderer,
+            &player.sprite,
+            &SDL_Rect {x: player.pos.x, y: player.pos.y, w: player.w, h: player.h}
+        );
 
         update_particles(&ctx);
         update_enemies(&ctx);
         update_bullets(&ctx);
 
-        let white: SDL_Color;
-        white.r = 255 as u8;
-        white.g = 255 as u8;
-        white.b = 255 as u8;
-        white.a = 255 as u8;
+        let white: SDL_Color = SDL_Color {r: 255, g: 255, b: 255, a: 255};
 
         // Render score
         let buf: [u8; 16];
@@ -629,7 +583,7 @@ fn aabb(a: &SDL_Rect, b: &SDL_Rect) -> bool {
 
 // TODO these should take a &Ctx
 fn update_enemies(ctx: &GameContext) {
-    let sprite: Sprite = makeSprite(3, 0, 1, 1);
+    let sprite: Sprite = Sprite {tile_x: 3, tile_y: 0, tile_w: 1, tile_h: 1};
 
     let i: u32 = 0;
     while i < ctx.enemies.len {
@@ -639,11 +593,11 @@ fn update_enemies(ctx: &GameContext) {
             let bullet_idx: u32 = 0;
             while bullet_idx < ctx.bullets.len {
                 let bullet: &Bullet = ctx.bullets.get(bullet_idx);
-                if bullet.is_alive {
-                    let enemy_rect:  SDL_Rect = SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32};
-                    let bullet_rect: SDL_Rect = SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 16, h: 16};
-    
-                    if aabb(&enemy_rect, &bullet_rect) {
+                if bullet.is_alive {  
+                    if aabb(
+                        &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32},
+                        &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 16, h: 16})
+                    {
                         enemy.is_alive = false;
                         bullet.is_alive = false;
 
@@ -660,23 +614,21 @@ fn update_enemies(ctx: &GameContext) {
                 enemy.is_alive = false;
             }
 
-            // Draw
-            let dstRect: SDL_Rect = SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32};
-            ctx.spritesheet.drawTile(ctx.renderer, &sprite, &dstRect);
+            // Render
+            ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32});
         }
         i = i + 1;
     }
 }
 
 fn update_bullets(ctx: &GameContext) {
-    let sprite: Sprite = makeSprite(2, 0, 1, 1);
+    let sprite: Sprite = Sprite {tile_x: 2, tile_y: 0, tile_w: 1, tile_h: 1};
 
     let i: u32 = 0;
     while i < ctx.bullets.len {
         let bullet: &Bullet = ctx.bullets.get(i);
         if bullet.is_alive {
-            let dstRect: SDL_Rect = SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32};
-            ctx.spritesheet.drawTile(ctx.renderer, &sprite, &dstRect);
+            ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
 
             bullet.pos.y = bullet.pos.y - BULLET_SPEED;
             if bullet.pos.y < 0 {
@@ -688,14 +640,15 @@ fn update_bullets(ctx: &GameContext) {
 }
 
 fn update_particles(ctx: &GameContext) {
-    let sprite: Sprite = makeSprite(4, 0, 1, 1);
-
     let i: u32 = 0;
     while i < ctx.particles.len {
         let particle: &Particle = ctx.particles.get(i);
         if particle.is_alive {
-            let dstRect: SDL_Rect = SDL_Rect {x: particle.pos.x, y: particle.pos.y, w: 32, h: 32};
-            ctx.spritesheet.drawTile(ctx.renderer, &sprite, &dstRect);
+            ctx.spritesheet.drawTile(
+                ctx.renderer,
+                &Sprite {tile_x: 4, tile_y: 0, tile_w: 1, tile_h: 1},
+                &SDL_Rect {x: particle.pos.x, y: particle.pos.y, w: 32, h: 32}
+            );
 
             particle.pos.y = particle.pos.y + particle.speed;
             if particle.pos.y > ctx.window_h {

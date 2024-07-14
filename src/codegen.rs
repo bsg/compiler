@@ -11,6 +11,7 @@
 // FIXME top level consts dependent will not resolve compound types on account of type not being available
 // when the const is being generated
 // TODO intern strings
+// TODO struct default values
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -19,7 +20,6 @@ use llvm_sys::target::LLVMPointerSize;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::ptr::null_mut;
 use std::rc::Rc;
 
 use crate::ast::*;
@@ -687,7 +687,9 @@ impl ModuleBuilder {
         if let Node::UnOp { op, rhs } = &*node {
             match op {
                 Op::Ref => {
-                    let val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true);
+                    let val = match &**rhs {
+                        _ => self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true),
+                    };
 
                     Val {
                         ty: val.ty.to_ref_type(),
@@ -1397,12 +1399,8 @@ impl ModuleBuilder {
                 // TODO this shares common behaviour with the dot operator on structs.
                 // maybe have something like build_store_struct_member()
                 // TODO in (for instance) let ... = T {...}, alloca and load here are redundant
-                if let Some(
-                    ty @ Type::Struct {
-                        field_indices,
-                        ..
-                    },
-                ) = type_env.get_type_by_name(ident)
+                if let Some(ty @ Type::Struct { field_indices, .. }) =
+                    type_env.get_type_by_name(ident)
                 {
                     let func = self.env.get_func(&self.current_func_ident.clone().unwrap());
 
@@ -1426,7 +1424,11 @@ impl ModuleBuilder {
                         let field_idx = if let Some(idx) = field_indices.get(&*field.ident) {
                             idx
                         } else {
-                            panic!("unresolved field {} in struct literal", field.ident);
+                            panic!(
+                                "unresolved field {} in struct literal {}",
+                                field.ident,
+                                ty.name()
+                            );
                         };
 
                         let ptr = unsafe {
@@ -1448,13 +1450,17 @@ impl ModuleBuilder {
                         unsafe { LLVMBuildStore(self.builder, val.llvm_val, ptr) };
                     }
 
-                    let llvm_val = unsafe {
-                        LLVMBuildLoad2(
-                            self.builder,
-                            ty.llvm_type(type_env.clone()),
-                            reg,
-                            "".to_cstring().as_ptr(),
-                        )
+                    let llvm_val = if as_lvalue {
+                        reg
+                    } else {
+                        unsafe {
+                            LLVMBuildLoad2(
+                                self.builder,
+                                ty.llvm_type(type_env.clone()),
+                                reg,
+                                "".to_cstring().as_ptr(),
+                            )
+                        }
                     };
 
                     Val {

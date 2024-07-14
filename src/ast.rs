@@ -80,7 +80,7 @@ impl Op {
             Op::Add | Op::Sub => 3,
             Op::Mul | Op::Div | Op::Mod => 4,
             Op::Cast => 5,
-            Op::Neg | Op::Not | Op::Ref | Op::Deref | Op::Dot | Op::ScopeRes | Op::Index => 6,
+            Op::Neg | Op::Not | Op::Ref | Op::Deref | Op::Dot | Op::ScopeRes | Op::Index | Op::StructLiteral => 6,
             Op::Call => 7,
             _ => 0,
         }
