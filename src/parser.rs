@@ -617,6 +617,7 @@ impl Parser {
                 Token::Dot => Op::Dot,
                 Token::ColonColon => Op::ScopeRes,
                 Token::As => Op::Cast,
+                Token::LBrace => Op::StructLiteral,
                 _ => break,
             };
 
@@ -643,6 +644,55 @@ impl Parser {
                         lhs,
                         rhs: Node::Ident { name: type_ident }.into(),
                     })
+                }
+                Op::StructLiteral => {
+                    if let Node::Ident { name } = &*lhs {
+                        self.next_token();
+                        assert_eq!(Token::LBrace, self.curr_token);
+                        self.next_token();
+
+                        let mut fields: Vec<StructLiteralField> = Vec::new();
+
+                        while self.curr_token != Token::RBrace {
+                            if let Token::Comma = self.curr_token {
+                                self.next_token();
+                            }
+
+                            let field_name =
+                                if let Token::Ident(field_name) = self.curr_token.clone() {
+                                    field_name
+                                } else {
+                                    todo!();
+                                };
+
+                            self.next_token();
+                            assert_eq!(Token::Colon, self.curr_token);
+                            self.next_token();
+
+                            let val = if let Some(expr) = self.parse_expression(0) {
+                                expr
+                            } else {
+                                todo!();
+                            };
+
+                            fields.push(StructLiteralField {
+                                ident: field_name.clone(),
+                                val,
+                            });
+
+                            self.next_token();
+                        }
+
+                        return Some(
+                            Node::StructLiteral {
+                                ident: name.clone(),
+                                fields: fields.as_slice().into(),
+                            }
+                            .into(),
+                        );
+                    } else {
+                        break;
+                    }
                 }
                 op => {
                     if op == Op::Dot {
@@ -1317,7 +1367,7 @@ mul
         assert_parse!(
             "impl T {\
                 fn a() -> u32 {return 0;}
-                fn b(self: &Self, other: *T) -> u8 {return 0;}
+                fn b(&self, other: *T) -> u8 {return 0;}
             }",
             "\
 impl T
@@ -1438,6 +1488,26 @@ impl T<A,B>
             "impl<A, B> T<A, B> {}",
             "\
 impl<A,B> T<A,B>
+"
+        );
+    }
+
+    #[test]
+    fn struct_literal() {
+        assert_parse!(
+            "let _: Foo = Foo {a: 1 + 2, b: Bar {x: 5}};",
+            "\
+let Foo
+    ident _
+    struct_literal Foo
+        a
+            add
+                1
+                2
+        b
+            struct_literal Bar
+                x
+                    5
 "
         );
     }

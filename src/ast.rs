@@ -34,6 +34,7 @@ pub enum Op {
     Dot,
     ScopeRes,
     Cast,
+    StructLiteral,
 }
 
 impl std::fmt::Debug for Op {
@@ -66,6 +67,7 @@ impl std::fmt::Debug for Op {
             Op::Dot => write!(f, "dot"),
             Op::ScopeRes => write!(f, "scoperes"),
             Op::Cast => write!(f, "cast"),
+            Op::StructLiteral => write!(f, "struct_literal"),
         }
     }
 }
@@ -115,6 +117,12 @@ impl Arg {
 pub struct StructField {
     pub ident: Rc<str>,
     pub ty: Rc<str>,
+}
+
+#[derive(PartialEq, Eq, Hash, Clone)]
+pub struct StructLiteralField {
+    pub ident: Rc<str>,
+    pub val: NodeRef,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -195,6 +203,10 @@ pub enum Node {
     },
     Array {
         elems: Rc<[NodeRef]>,
+    },
+    StructLiteral {
+        ident: Rc<str>,
+        fields: Rc<[StructLiteralField]>,
     },
 }
 
@@ -403,6 +415,17 @@ impl fmt::Debug for Node {
                     });
 
                     format!("array{}", elems_str)
+                }
+                Node::StructLiteral { ident, fields } => {
+                    let fields_str = fields.iter().fold(String::new(), |mut acc, field| {
+                        acc += "\n";
+                        acc += &"    ".repeat(indent_level + 1);
+                        acc += &field.ident;
+                        acc += "\n";
+                        acc += &fmt_with_indent(&field.val, indent_level + 2, false);
+                        acc
+                    });
+                    format!("struct_literal {}{}", ident, fields_str)
                 }
             }
             .as_str();
