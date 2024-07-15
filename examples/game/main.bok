@@ -154,21 +154,21 @@ fn rand_range(lower: u32, upper: u32) -> u32 {
 fn itoa(n: u32, buf: *u8) {
     if n == 0 {
         *buf = '0';
-        buf = buf + 1;
+        buf += 1;
         *buf = 0;
     } else {
         let divisor: u32 = 1000000000;
 
         while n / divisor == 0 {
-            divisor = divisor / 10;
+            divisor /= 10;
         }
 
-        divisor = divisor * 10;
+        divisor *= 10;
 
         while divisor != 1 {
             *buf = ((n % divisor) / divisor / 10 + 48);
-            divisor = divisor / 10;
-            buf = buf + 1;
+            divisor /= 10;
+            buf += 1;
         }
 
         *buf = 0;
@@ -291,7 +291,7 @@ impl EntityList<T> {
         let idx: u32 = 0;
         if self.len < self.cap {
             idx = self.len;
-            self.len = self.len + 1;
+            self.len += 1;
         } else {
             let run: bool = true; // TODO we have no 'break' yet lmao
             while idx < self.len && run {
@@ -299,7 +299,7 @@ impl EntityList<T> {
                 if !b.is_alive {
                     run = false;
                 } else {
-                    idx = idx + 1;
+                    idx += 1;
                 }
             }
         }
@@ -341,11 +341,8 @@ const BULLET_SPEED: u32 = 6;
 // generics for the impl should be the ones following the keyword 'impl', the struct ones should be type args
 
 fn main(argc: u32) -> u32 {
-    let ctx: GameContext;
-    ctx.window_w = 400;
-    ctx.window_h = 600;
-    
-    ctx.score = 0;
+    // TODO spread op
+    let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};
 
     if SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 {
         abort(SDL_GetError());
@@ -405,11 +402,6 @@ fn main(argc: u32) -> u32 {
     if ctx.sfx_explosion == nullptr {
         abort(SDL_GetError());
     }
-    
-    let ev: SDL_Event;
-    let kb_event: SDL_KeyboardEvent;
-
-    let input: InputState = InputState::new();
 
     let player: Player = Player {
         sprite: Sprite {tile_x: 0, tile_y: 0, tile_w: 1, tile_h: 1},
@@ -430,8 +422,13 @@ fn main(argc: u32) -> u32 {
     ctx.enemy_spawn_cooldown = 60;
     ctx.enemy_spawn_ticks_left = 0;
 
-    ctx.particle_spawn_cooldown = 20;
+    ctx.particle_spawn_cooldown = 10;
     ctx.particle_spawn_ticks_left = 0;
+
+    let ev: SDL_Event;
+    let kb_event: SDL_KeyboardEvent;
+
+    let input: InputState = InputState::new();
 
     while true {
         while SDL_PollEvent(&ev) == 1 {
@@ -482,20 +479,20 @@ fn main(argc: u32) -> u32 {
         }
         
         if input.up && player.pos.y > 0 {
-            player.pos.y = player.pos.y - player.speed;
+            player.pos.y -= player.speed;
         }
         if input.left && player.pos.x > 0 {
-            player.pos.x = player.pos.x - player.speed;
+            player.pos.x -= player.speed;
         }
         if input.down && player.pos.y < (ctx.window_h - player.h) {
-            player.pos.y = player.pos.y + player.speed;
+            player.pos.y += player.speed;
         }
         if input.right && player.pos.x < (ctx.window_w - player.w) {
-            player.pos.x = player.pos.x + player.speed;
+            player.pos.x += player.speed;
         }
         
         if player.shootTicksLeft > 0 {
-            player.shootTicksLeft = player.shootTicksLeft - 1;
+            player.shootTicksLeft -= 1;
         } else {
             if input.shoot {
                 let bullet: Bullet = Bullet {is_alive: true, pos: Pos {x: player.pos.x, y: player.pos.y - 20}};
@@ -512,7 +509,7 @@ fn main(argc: u32) -> u32 {
             ctx.enemies.spawn(&enemy);
             ctx.enemy_spawn_ticks_left = rand_range(ctx.enemy_spawn_cooldown - 20, ctx.enemy_spawn_cooldown + 20);
         } else {
-            ctx.enemy_spawn_ticks_left = ctx.enemy_spawn_ticks_left - 1;
+            ctx.enemy_spawn_ticks_left -= 1;
         }
 
         if ctx.particle_spawn_ticks_left == 0 {
@@ -522,7 +519,7 @@ fn main(argc: u32) -> u32 {
             ctx.particles.spawn(&particle);
             ctx.particle_spawn_ticks_left = ctx.particle_spawn_cooldown;
         } else {
-            ctx.particle_spawn_ticks_left = ctx.particle_spawn_ticks_left - 1;
+            ctx.particle_spawn_ticks_left -= 1;
         }
 
         SDL_RenderClear(ctx.renderer);
@@ -537,7 +534,7 @@ fn main(argc: u32) -> u32 {
             }
             player.animTicksLeft = 30; 
         } else {
-            player.animTicksLeft = player.animTicksLeft - 1;
+            player.animTicksLeft -= 1;
         }
 
         ctx.spritesheet.drawTile(
@@ -602,14 +599,14 @@ fn update_enemies(ctx: &GameContext) {
                         bullet.is_alive = false;
 
                         Mix_PlayChannel(-1, ctx.sfx_explosion, 0);
-                        ctx.score = ctx.score + 10;
+                        ctx.score += 10;
                     }
                 }
 
-                bullet_idx = bullet_idx + 1;
+                bullet_idx += 1;
             }
 
-            enemy.pos.y = enemy.pos.y + 2;
+            enemy.pos.y += 2;
             if enemy.pos.y > ctx.window_h {
                 enemy.is_alive = false;
             }
@@ -617,7 +614,7 @@ fn update_enemies(ctx: &GameContext) {
             // Render
             ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32});
         }
-        i = i + 1;
+        i += 1;
     }
 }
 
@@ -630,12 +627,12 @@ fn update_bullets(ctx: &GameContext) {
         if bullet.is_alive {
             ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
 
-            bullet.pos.y = bullet.pos.y - BULLET_SPEED;
+            bullet.pos.y -= BULLET_SPEED;
             if bullet.pos.y < 0 {
                 ctx.bullets.despawn(i);
             }
         }
-        i = i + 1;
+        i += 1;
     }
 }
 
@@ -647,14 +644,14 @@ fn update_particles(ctx: &GameContext) {
             ctx.spritesheet.drawTile(
                 ctx.renderer,
                 &Sprite {tile_x: 4, tile_y: 0, tile_w: 1, tile_h: 1},
-                &SDL_Rect {x: particle.pos.x, y: particle.pos.y, w: 32, h: 32}
+                &SDL_Rect {x: particle.pos.x, y: particle.pos.y, w: 16, h: 16}
             );
 
-            particle.pos.y = particle.pos.y + particle.speed;
+            particle.pos.y += particle.speed;
             if particle.pos.y > ctx.window_h {
                 ctx.particles.despawn(i);
             }
         }
-        i = i + 1;
+        i += 1;
     }
 }

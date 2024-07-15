@@ -7,7 +7,7 @@ use std::{
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Op {
-    Assign,
+    Assign(Option<Rc<Op>>), // TODO this is kinda stupid and inefficient, maybe make separate variants for each case
     Eq,
     NotEq,
     Lt,
@@ -40,7 +40,13 @@ pub enum Op {
 impl std::fmt::Debug for Op {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Op::Assign => write!(f, "assign"),
+            Op::Assign(op) => {
+                if let Some(op) = op {
+                    write!(f, "{:?} assign", op)
+                } else {
+                    write!(f, "assign")
+                }
+            },
             Op::Eq => write!(f, "eq"),
             Op::NotEq => write!(f, "neq"),
             Op::Lt => write!(f, "lt"),

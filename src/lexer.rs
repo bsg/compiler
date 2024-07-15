@@ -32,6 +32,10 @@ pub enum Token {
     DotDot,
     ColonColon,
     As,
+    PlusAssign,
+    MinusAssign,
+    StarAssign,
+    SlashAssign,
 
     // Delimiters
     Comma,
@@ -147,11 +151,21 @@ impl Tokens {
                 }
                 _ => Token::Assign,
             },
-            Some(b'+') => Token::Plus,
+            Some(b'+') => match self.peek_char() {
+                Some(b'=') => {
+                    self.read_char();
+                    Token::PlusAssign
+                }
+                _ => Token::Plus,
+            },
             Some(b'-') => match self.peek_char() {
                 Some(b'>') => {
                     self.read_char();
                     Token::Arrow
+                }
+                Some(b'=') => {
+                    self.read_char();
+                    Token::MinusAssign
                 }
                 _ => Token::Minus,
             },
@@ -162,7 +176,13 @@ impl Tokens {
                 }
                 _ => Token::Bang,
             },
-            Some(b'*') => Token::Star,
+            Some(b'*') => match self.peek_char() {
+                Some(b'=') => {
+                    self.read_char();
+                    Token::StarAssign
+                }
+                _ => Token::Star,
+            },
             Some(b'<') => match self.peek_char() {
                 Some(b'=') => {
                     self.read_char();
@@ -188,6 +208,10 @@ impl Tokens {
                         return Token::None;
                     }
                 },
+                Some(b'=') => {
+                    self.read_char();
+                    Token::SlashAssign
+                }
                 _ => Token::Slash,
             },
             Some(b'%') => Token::Percent,
@@ -234,10 +258,8 @@ impl Tokens {
                     };
 
                     match self.ch {
-                        Some(b'\'') => {                            
-                            Token::Char(ch.into())
-                        }
-                        _ => todo!()
+                        Some(b'\'') => Token::Char(ch.into()),
+                        _ => todo!(),
                     }
                 } else {
                     todo!()
@@ -323,11 +345,11 @@ mod tests {
 
     #[test]
     fn symbols() {
-        let source = "=+-!*/(){}[],;:->&||..&&.::as%";
+        let source = "=+-!*/(){}[],;:->&||..&&.::as%+=";
         let expected = [
             Assign, Plus, Minus, Bang, Star, Slash, LParen, RParen, LBrace, RBrace, LBracket,
             RBracket, Comma, Semicolon, Colon, Arrow, Amp, BarBar, DotDot, AmpAmp, Dot, ColonColon,
-            As, Percent
+            As, Percent, PlusAssign
         ];
         let mut tokens = Lexer::new(source).tokens();
         expected

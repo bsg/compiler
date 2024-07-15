@@ -612,7 +612,7 @@ impl Parser {
 
         loop {
             let op = match self.peek_token {
-                Token::Assign => Op::Assign,
+                Token::Assign => Op::Assign(None),
                 Token::Plus => Op::Add,
                 Token::Minus => Op::Sub,
                 Token::Star => Op::Mul,
@@ -633,6 +633,10 @@ impl Parser {
                 Token::Dot => Op::Dot,
                 Token::ColonColon => Op::ScopeRes,
                 Token::As => Op::Cast,
+                Token::PlusAssign => Op::Assign(Some(Op::Add.into())),
+                Token::MinusAssign => Op::Assign(Some(Op::Sub.into())),
+                Token::StarAssign => Op::Assign(Some(Op::Mul.into())),
+                Token::SlashAssign => Op::Assign(Some(Op::Div.into())),
                 Token::LBrace => match (self.peek_token2.clone(), self.peek_token3.clone()) {
                     (Token::Ident(..), Token::Colon) => Op::StructLiteral,
                     _ => return Some(lhs),

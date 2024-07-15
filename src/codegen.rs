@@ -20,6 +20,7 @@ use llvm_sys::target::LLVMPointerSize;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::ops::Add;
 use std::rc::Rc;
 
 use crate::ast::*;
@@ -95,7 +96,11 @@ impl Type {
                 if let Some(ty) = type_env.get_type_by_name(pointee_type_name) {
                     LLVMPointerType(ty.llvm_type(type_env.clone()), 0)
                 } else {
-                    panic!("unresolved type {} = {:?}", pointee_type_name, type_env.get_type_by_name(pointee_type_name));
+                    panic!(
+                        "unresolved type {} = {:?}",
+                        pointee_type_name,
+                        type_env.get_type_by_name(pointee_type_name)
+                    );
                 }
             },
             Type::Struct {
@@ -997,10 +1002,58 @@ impl ModuleBuilder {
                         type_env.get_type_by_name("bool").unwrap().clone(),
                     )
                 },
-                Op::Assign => unsafe {
+                Op::Assign(op) => unsafe {
                     let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
-                    let rhs_val =
-                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
+                    let rhs_val = match op.as_deref() {
+                        // TODO macros for these
+                        Some(Op::Add) => self.build_binop(
+                            env,
+                            type_env.clone(),
+                            Node::BinOp {
+                                op: Op::Add,
+                                lhs: lhs.clone(),
+                                rhs: rhs.clone(),
+                            }
+                            .into(),
+                            false,
+                        ),
+                        Some(Op::Sub) => self.build_binop(
+                            env,
+                            type_env.clone(),
+                            Node::BinOp {
+                                op: Op::Sub,
+                                lhs: lhs.clone(),
+                                rhs: rhs.clone(),
+                            }
+                            .into(),
+                            false,
+                        ),
+                        Some(Op::Mul) => self.build_binop(
+                            env,
+                            type_env.clone(),
+                            Node::BinOp {
+                                op: Op::Mul,
+                                lhs: lhs.clone(),
+                                rhs: rhs.clone(),
+                            }
+                            .into(),
+                            false,
+                        ),
+                        Some(Op::Div) => self.build_binop(
+                            env,
+                            type_env.clone(),
+                            Node::BinOp {
+                                op: Op::Div,
+                                lhs: lhs.clone(),
+                                rhs: rhs.clone(),
+                            }
+                            .into(),
+                            false,
+                        ),
+                        None => self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false),
+                        _ => todo!()
+                    };
+
                     (
                         LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val),
                         type_env.get_type_by_name("void").unwrap().clone(),
@@ -1038,10 +1091,15 @@ impl ModuleBuilder {
                                     Some(idx) => idx,
                                     None => panic!("no member {}", name),
                                 };
-                                let field_ty = if let Some(ty) = type_env.get_type_by_name(&field_type_names[*field_idx]) {
+                                let field_ty = if let Some(ty) =
+                                    type_env.get_type_by_name(&field_type_names[*field_idx])
+                                {
                                     ty
                                 } else {
-                                    panic!("unresolved type {} accessing {} in struct {}", &field_type_names[*field_idx], name, struct_name);
+                                    panic!(
+                                        "unresolved type {} accessing {} in struct {}",
+                                        &field_type_names[*field_idx], name, struct_name
+                                    );
                                 };
                                 let ptr = LLVMBuildStructGEP2(
                                     self.builder,
@@ -1853,8 +1911,11 @@ impl ModuleBuilder {
             let local_env = Rc::new(Env::make_child(self.env.clone()));
             let local_type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
 
-            if let Some(node @ Node::Struct { ident, generics, .. }) =
-                self.type_env.get_generic_type(name).map(|node| &**node)
+            if let Some(
+                node @ Node::Struct {
+                    ident, generics, ..
+                },
+            ) = self.type_env.get_generic_type(name).map(|node| &**node)
             {
                 for (generic_type_name, concrete_type_name) in generics.iter().zip(type_args.iter())
                 {
@@ -1863,7 +1924,7 @@ impl ModuleBuilder {
                         local_type_env
                             .insert_type_by_name(generic_type_name, concrete_type.clone());
                     } else {
-                        continue
+                        continue;
                         // panic!("unresolved type {} while monomorphizing struct {} with generics {:?}", concrete_type_name, ident, generics);
                     }
                 }
