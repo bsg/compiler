@@ -1003,15 +1003,15 @@ impl ModuleBuilder {
                     )
                 },
                 Op::Assign(op) => unsafe {
-                    macro_rules! make_assign_op {
-                        ($op:expr) => {
+                    macro_rules! make_binop {
+                        ($op:expr, $lhs:expr, $rhs: expr) => {
                             self.build_binop(
                                 env,
                                 type_env.clone(),
                                 Node::BinOp {
                                     op: $op,
-                                    lhs: lhs.clone(),
-                                    rhs: rhs.clone(),
+                                    lhs: $lhs,
+                                    rhs: $rhs,
                                 }
                                 .into(),
                                 false,
@@ -1021,7 +1021,7 @@ impl ModuleBuilder {
                     let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
                     let rhs_val = match op.as_deref() {
                         // TODO macros for these
-                        Some(op) => make_assign_op!(op.clone()),
+                        Some(op) => make_binop!(op.clone(), lhs.clone(), rhs.clone()),
                         None => self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false),
                     };
 
