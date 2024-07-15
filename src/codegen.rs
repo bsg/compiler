@@ -95,7 +95,7 @@ impl Type {
                 if let Some(ty) = type_env.get_type_by_name(pointee_type_name) {
                     LLVMPointerType(ty.llvm_type(type_env.clone()), 0)
                 } else {
-                    panic!("unresolved type {}", pointee_type_name);
+                    panic!("unresolved type {} = {:?}", pointee_type_name, type_env.get_type_by_name(pointee_type_name));
                 }
             },
             Type::Struct {
@@ -384,16 +384,31 @@ impl TypeEnv {
         let id = match type_id {
             Some(type_id) => type_id,
             None => {
+                let name = if name.contains('<') {
+                    let (ident, generics) = name.split_once('<').unwrap();
+                    let mut types: Vec<String> = Vec::new();
+                    for ty_arg in generics.trim_end_matches('>').split(',') {
+                        if let Some(ty) = self.get_type_by_name(ty_arg) {
+                            types.push(ty.name().to_string());
+                        } else {
+                            types.push(ty_arg.to_string());
+                        }
+                    }
+                    format!("{}<{}>", ident, &types.join(","))
+                } else {
+                    name.to_string()
+                };
+
                 // FIXME FUCKING HATE THIS
                 if name.starts_with('[') {
                     if let Some((elem_ty, len)) = name[1..name.len() - 1].rsplit_once(';') {
                         let type_id = unsafe { NEXT_TYPE_ID };
                         unsafe { NEXT_TYPE_ID += 1 };
 
-                        (unsafe { &mut *self.type_ids.get() }).insert(name.into(), type_id);
+                        (unsafe { &mut *self.type_ids.get() }).insert(name.clone(), type_id);
 
                         self.insert_type_by_name(
-                            name,
+                            &name,
                             Type::Array {
                                 elem_type_name: elem_ty.to_string().into(),
                                 len: str::parse(&len[1..]).unwrap(),
@@ -404,20 +419,20 @@ impl TypeEnv {
                     }
                 } else if name.starts_with('&') {
                     self.insert_type_by_name(
-                        name,
+                        &name,
                         Type::Ref {
                             referent_type_name: name.strip_prefix('&').unwrap().to_string().into(),
                         },
                     )
                 } else if name.starts_with('*') {
                     self.insert_type_by_name(
-                        name,
+                        &name,
                         Type::Ptr {
                             pointee_type_name: name.strip_prefix('*').unwrap().to_string().into(),
                         },
                     )
                 } else if let Some(p) = &self.parent {
-                    p.get_type_id_by_name(name)
+                    p.get_type_id_by_name(&name)
                 } else {
                     let type_id = unsafe { NEXT_TYPE_ID };
                     unsafe { NEXT_TYPE_ID += 1 };
@@ -1023,9 +1038,11 @@ impl ModuleBuilder {
                                     Some(idx) => idx,
                                     None => panic!("no member {}", name),
                                 };
-                                let field_ty = type_env
-                                    .get_type_by_name(field_type_names.get(*field_idx).unwrap())
-                                    .unwrap();
+                                let field_ty = if let Some(ty) = type_env.get_type_by_name(&field_type_names[*field_idx]) {
+                                    ty
+                                } else {
+                                    panic!("unresolved type {} accessing {} in struct {}", &field_type_names[*field_idx], name, struct_name);
+                                };
                                 let ptr = LLVMBuildStructGEP2(
                                     self.builder,
                                     lhs_val.ty.llvm_type(type_env.clone()),
@@ -1468,7 +1485,7 @@ impl ModuleBuilder {
                         llvm_val,
                     }
                 } else {
-                    todo!()
+                    panic!("unresolved type {}", ident);
                 }
             }
             _ => panic!("unimplemented!\n {:?}", node),
@@ -1647,9 +1664,7 @@ impl ModuleBuilder {
         let mut arg_tys: Vec<Type> = Vec::new();
         let mut arg_vals: Vec<LLVMTypeRef> = Vec::new();
         for arg in args.iter() {
-            let arg_ty = type_env.get_type_by_name(&arg.ty());
-
-            if let Some(ty) = arg_ty {
+            if let Some(ty) = type_env.get_type_by_name(&arg.ty()) {
                 arg_tys.push(ty.clone());
                 arg_vals.push(ty.llvm_type(type_env.clone()));
             } else {
@@ -1838,7 +1853,7 @@ impl ModuleBuilder {
             let local_env = Rc::new(Env::make_child(self.env.clone()));
             let local_type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
 
-            if let Some(node @ Node::Struct { generics, .. }) =
+            if let Some(node @ Node::Struct { ident, generics, .. }) =
                 self.type_env.get_generic_type(name).map(|node| &**node)
             {
                 for (generic_type_name, concrete_type_name) in generics.iter().zip(type_args.iter())
@@ -1848,7 +1863,8 @@ impl ModuleBuilder {
                         local_type_env
                             .insert_type_by_name(generic_type_name, concrete_type.clone());
                     } else {
-                        panic!("unresolved type {}", concrete_type_name);
+                        continue
+                        // panic!("unresolved type {} while monomorphizing struct {} with generics {:?}", concrete_type_name, ident, generics);
                     }
                 }
 
@@ -2024,10 +2040,11 @@ impl ModuleBuilder {
                         );
 
                         for (generic, ty) in type_generics.iter().zip(concrete_types.iter()) {
-                            type_env.insert_type_by_name(
-                                generic,
-                                type_env.get_type_by_name(ty).unwrap().clone(),
-                            );
+                            if let Some(ty) = type_env.get_type_by_name(ty) {
+                                type_env.insert_type_by_name(generic, ty.clone());
+                            } else {
+                                return; // FIXME we get here if we have non-monomorphized types in the set, which shouldn't happen
+                            }
                         }
 
                         for method in methods.iter() {
@@ -2040,6 +2057,7 @@ impl ModuleBuilder {
                             } = &**method
                             {
                                 let mangled_name = format!("{}::{}", impl_ty, ident);
+                                println!("{}", mangled_name);
                                 self.set_up_function(
                                     env.clone(),
                                     type_env.clone(),
@@ -2098,13 +2116,15 @@ impl ModuleBuilder {
             .collect()
             .for_each(|ty| {
                 if ty.contains('<') {
-                    let (type_name, generics) = ty.split_once('<').unwrap();
+                    let (mut type_name, generics) = ty.split_once('<').unwrap();
                     let types: Vec<String> = generics
                         .strip_suffix('>')
                         .unwrap()
                         .split_terminator(',')
                         .map(|t| t.to_string())
                         .collect();
+
+                    type_name = type_name.trim_start_matches('&').trim_start_matches('*');
 
                     self.generic_struct_mono_set
                         .push((type_name.to_owned(), types));

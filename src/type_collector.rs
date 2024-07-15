@@ -41,12 +41,9 @@ impl TypeCollector {
                     self.collect_recursively(rhs.clone());
                 }
             }
-            Node::Return { expr } => match expr {
-                Some(expr) => {
-                    self.collect_recursively(expr.clone());
-                }
-                _ => (),
-            },
+            Node::Return { expr: Some(expr) } => {
+                self.collect_recursively(expr.clone());
+            }
             Node::If {
                 condition,
                 then_block,
@@ -83,12 +80,12 @@ impl TypeCollector {
                     self.collect_recursively(arg.clone());
                 }
             }
-            Node::Struct { ident, fields, .. } => {
-                if !ident.contains("<>") {
+            Node::Struct { ident, fields, generics } => {
+                if generics.is_empty() {
                     self.types.insert((&**ident).into());
-                }
-                for field in fields.iter() {
-                    self.types.insert((&*field.ty).into());
+                    for field in fields.iter() {
+                        self.types.insert((&*field.ty).into());
+                    }
                 }
             }
             Node::Impl { methods, .. } => {
@@ -99,6 +96,12 @@ impl TypeCollector {
             Node::Array { elems } => {
                 for elem in elems.iter() {
                     self.collect_recursively(elem.clone());
+                }
+            }
+            Node::StructLiteral { ident, fields } => {
+                self.types.insert(ident.to_string());
+                for field in fields.iter() {
+                    self.collect_recursively(field.clone().val);
                 }
             }
             _ => (),

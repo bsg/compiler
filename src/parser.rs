@@ -601,6 +601,11 @@ impl Parser {
                 })
             }
             Token::LBracket => self.parse_array()?,
+            Token::Dot => {
+                self.next_token();
+                let ty = self.parse_type()?;
+                Rc::new(Node::Ident { name: ty })
+            },
             Token::None => return None,
             _ => panic!("unexpected token {}", self.curr_token),
         };
@@ -1554,6 +1559,22 @@ let A
     ident _
     ref
         struct_literal A
+            x
+                1
+"
+        );
+        
+    }
+
+    #[test]
+    fn generic_struct_literal() {
+        assert_parse!(
+            "let _: &A<T> = &.A<T> {x: 1};",
+            "\
+let &A<T>
+    ident _
+    ref
+        struct_literal A<T>
             x
                 1
 "
