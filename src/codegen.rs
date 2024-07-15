@@ -1003,55 +1003,26 @@ impl ModuleBuilder {
                     )
                 },
                 Op::Assign(op) => unsafe {
+                    macro_rules! make_assign_op {
+                        ($op:expr) => {
+                            self.build_binop(
+                                env,
+                                type_env.clone(),
+                                Node::BinOp {
+                                    op: $op,
+                                    lhs: lhs.clone(),
+                                    rhs: rhs.clone(),
+                                }
+                                .into(),
+                                false,
+                            )
+                        };
+                    }
                     let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
                     let rhs_val = match op.as_deref() {
                         // TODO macros for these
-                        Some(Op::Add) => self.build_binop(
-                            env,
-                            type_env.clone(),
-                            Node::BinOp {
-                                op: Op::Add,
-                                lhs: lhs.clone(),
-                                rhs: rhs.clone(),
-                            }
-                            .into(),
-                            false,
-                        ),
-                        Some(Op::Sub) => self.build_binop(
-                            env,
-                            type_env.clone(),
-                            Node::BinOp {
-                                op: Op::Sub,
-                                lhs: lhs.clone(),
-                                rhs: rhs.clone(),
-                            }
-                            .into(),
-                            false,
-                        ),
-                        Some(Op::Mul) => self.build_binop(
-                            env,
-                            type_env.clone(),
-                            Node::BinOp {
-                                op: Op::Mul,
-                                lhs: lhs.clone(),
-                                rhs: rhs.clone(),
-                            }
-                            .into(),
-                            false,
-                        ),
-                        Some(Op::Div) => self.build_binop(
-                            env,
-                            type_env.clone(),
-                            Node::BinOp {
-                                op: Op::Div,
-                                lhs: lhs.clone(),
-                                rhs: rhs.clone(),
-                            }
-                            .into(),
-                            false,
-                        ),
+                        Some(op) => make_assign_op!(op.clone()),
                         None => self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false),
-                        _ => todo!()
                     };
 
                     (
