@@ -707,9 +707,7 @@ impl ModuleBuilder {
         if let Node::UnOp { op, rhs } = &*node {
             match op {
                 Op::Ref => {
-                    let val = match &**rhs {
-                        _ => self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true),
-                    };
+                    let val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true);
 
                     Val {
                         ty: val.ty.to_ref_type(),

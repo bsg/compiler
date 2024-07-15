@@ -269,6 +269,7 @@ struct EntityList<T> {
 }
 
 // TODO iter()
+// TODO for_each() but it requires closures
 impl EntityList<T> {
     fn init(&self, cap: u32) {
         self.len = 0;
@@ -287,7 +288,7 @@ impl EntityList<T> {
         self.get(id).is_alive = 0;
     }
 
-    fn spawn(&self, entity: *T) -> u32 {
+    fn spawn(&self, entity: &T) -> u32 {
         let idx: u32 = 0;
         if self.len < self.cap {
             idx = self.len;
