@@ -12,6 +12,7 @@
 // when the const is being generated
 // TODO intern strings
 // TODO struct default values
+// FIXME function pointer related stuff resulted in a lot of duplicate code
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -20,7 +21,6 @@ use llvm_sys::target::LLVMPointerSize;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::ops::Add;
 use std::rc::Rc;
 
 use crate::ast::*;
@@ -120,8 +120,12 @@ impl Type {
                 let mut llvm_types: Vec<LLVMTypeRef> = field_type_names
                     .iter()
                     .map(|f| {
-                        if let Some(t) = type_env.get_type_by_name(f) {
-                            t.llvm_type(type_env.clone())
+                        if let Some(ty) = type_env.get_type_by_name(f) {
+                            if let Type::Fn { .. } = ty {
+                                LLVMPointerType(ty.llvm_type(type_env.clone()), 0)
+                            } else {
+                                ty.llvm_type(type_env.clone())
+                            }
                         } else {
                             panic!("unresolved type id {}", *f)
                         }
@@ -157,17 +161,14 @@ impl Type {
                 }
 
                 unsafe {
-                    LLVMPointerType(
-                        LLVMFunctionType(
-                            type_env
-                                .clone()
-                                .get_type_by_name(ret_type)
-                                .unwrap()
-                                .llvm_type(type_env),
-                            llvm_arg_types.as_mut_slice().as_mut_ptr(),
-                            llvm_arg_types.len() as u32,
-                            0,
-                        ),
+                    LLVMFunctionType(
+                        type_env
+                            .clone()
+                            .get_type_by_name(ret_type)
+                            .unwrap()
+                            .llvm_type(type_env),
+                        llvm_arg_types.as_mut_slice().as_mut_ptr(),
+                        llvm_arg_types.len() as u32,
                         0,
                     )
                 }
@@ -221,11 +222,12 @@ pub struct Var {
 
 #[derive(Debug)]
 pub struct Func {
+    ty: Type,
     env: Rc<Env>,
-    arg_tys: Vec<Type>,
-    ret_ty: Type,
+    arg_tys: Vec<Type>, // TODO should not be necessary because we have ty
+    ret_ty: Type,       // TODO should not be necessary because we have ty
     val: LLVMValueRef,
-    llvm_ty: LLVMTypeRef,
+    llvm_ty: LLVMTypeRef, // TODO not necessary because we have ty
     // TODO group these two together
     bb_entry: Option<LLVMBasicBlockRef>,
     bb_body: Option<LLVMBasicBlockRef>,
@@ -434,8 +436,10 @@ impl TypeEnv {
                         .rsplit_once(") -> ")
                         .unwrap();
                     let mut arg_types: Vec<String> = Vec::new();
-                    for arg_type in arg_types_str.split(",") {
-                        arg_types.push(arg_type.to_string())
+                    if !arg_types_str.is_empty() {
+                        for arg_type in arg_types_str.split(',') {
+                            arg_types.push(arg_type.to_string())
+                        }
                     }
 
                     self.insert_type_by_name(
@@ -1090,10 +1094,15 @@ impl ModuleBuilder {
                                 if as_lvalue {
                                     (ptr, field_ty.clone())
                                 } else {
+                                    let llvm_ty = if let Type::Fn { .. } = field_ty {
+                                        LLVMPointerType(field_ty.llvm_type(type_env.clone()), 0)
+                                    } else {
+                                        field_ty.llvm_type(type_env.clone())
+                                    };
                                     (
                                         LLVMBuildLoad2(
                                             self.builder,
-                                            field_ty.llvm_type(type_env.clone()),
+                                            llvm_ty,
                                             ptr,
                                             "".to_cstring().as_ptr(),
                                         ),
@@ -1283,7 +1292,31 @@ impl ModuleBuilder {
         ident: &str,
         arg_exprs: &[NodeRef],
     ) -> Val {
-        let func = env.get_func(ident).unwrap();
+        // TODO funcs could be vars instead?
+        let (llvm_ty, llvm_val, ret_ty) = if let Some(func) = env.get_func(ident) {
+            (func.llvm_ty, func.val, func.ret_ty.clone())
+        } else if let Some(var) = env.get_var(ident) {
+            if let ty @ Type::Fn { ret_type, .. } = &var.ty {
+                let llvm_val = unsafe {
+                    LLVMBuildLoad2(
+                        self.builder,
+                        LLVMPointerType(ty.llvm_type(type_env.clone()), 0),
+                        var.val,
+                        "".to_cstring().as_ptr(),
+                    )
+                };
+                (
+                    ty.llvm_type(type_env.clone()),
+                    llvm_val,
+                    type_env.get_type_by_name(ret_type).unwrap().clone(),
+                )
+            } else {
+                todo!()
+            }
+        } else {
+            panic!("unresolved function {}", ident)
+        };
+
         let mut args: Vec<LLVMValueRef> = Vec::new();
         for arg in arg_exprs.iter() {
             args.push(
@@ -1291,19 +1324,20 @@ impl ModuleBuilder {
                     .llvm_val,
             );
         }
+
         let llvm_val = unsafe {
             LLVMBuildCall2(
                 self.builder,
-                func.llvm_ty,
-                func.val,
+                llvm_ty,
+                llvm_val,
                 args.as_mut_slice().as_mut_ptr(),
-                args.len().try_into().unwrap(),
+                args.len() as u32,
                 "".to_cstring().as_ptr(),
             )
         };
 
         Val {
-            ty: func.ret_ty.clone(),
+            ty: ret_ty,
             llvm_val,
         }
     }
@@ -1399,9 +1433,15 @@ impl ModuleBuilder {
                     let llvm_val = if as_lvalue || var.is_const {
                         var.val
                     } else {
+                        let llvm_ty = if let Type::Fn { .. } = var.ty {
+                            LLVMPointerType(var.ty.llvm_type(type_env.clone()), 0)
+                        } else {
+                            var.ty.llvm_type(type_env.clone())
+                        };
+                        
                         LLVMBuildLoad2(
                             self.builder,
-                            var.ty.llvm_type(type_env),
+                            llvm_ty,
                             var.val,
                             "".to_cstring().as_ptr(),
                         )
@@ -1413,7 +1453,7 @@ impl ModuleBuilder {
                     }
                 } else if let Some(f) = env.get_func(name) {
                     Val {
-                        ty: f.ret_ty.clone(), // TODO this needs to be the fn type
+                        ty: f.ty.clone(),
                         llvm_val: f.val,
                     }
                 } else {
@@ -1489,10 +1529,16 @@ impl ModuleBuilder {
                             );
                         };
 
+                        let llvm_ty = if let Type::Fn { .. } = ty {
+                            unsafe { LLVMPointerType(ty.llvm_type(type_env.clone()), 0) }
+                        } else {
+                            ty.llvm_type(type_env.clone())
+                        };
+
                         let ptr = unsafe {
                             LLVMBuildStructGEP2(
                                 self.builder,
-                                ty.llvm_type(type_env.clone()),
+                                llvm_ty,
                                 reg,
                                 *field_idx as u32,
                                 "".to_cstring().as_ptr(),
@@ -1562,11 +1608,13 @@ impl ModuleBuilder {
 
                     LLVMPositionBuilderAtEnd(self.builder, func.unwrap().bb_entry.unwrap());
 
-                    let reg = LLVMBuildAlloca(
-                        self.builder,
-                        ty.llvm_type(type_env.clone()),
-                        "".to_cstring().as_ptr(),
-                    );
+                    let llvm_ty = if let Type::Fn { .. } = ty {
+                        LLVMPointerType(ty.llvm_type(type_env.clone()), 0)
+                    } else {
+                        ty.llvm_type(type_env.clone())
+                    };
+
+                    let reg = LLVMBuildAlloca(self.builder, llvm_ty, "".to_cstring().as_ptr());
 
                     LLVMPositionBuilderAtEnd(self.builder, bb_current);
 
@@ -1578,7 +1626,7 @@ impl ModuleBuilder {
                         LLVMBuildStore(self.builder, rhs.llvm_val, reg);
                     };
 
-                    // TODO llvm_val should be optional
+                    // TODO llvm_val or val should be optional
                     Val {
                         ty: Type::None,
                         llvm_val: LLVMConstInt(LLVMInt1Type(), 0, 0),
@@ -1702,12 +1750,19 @@ impl ModuleBuilder {
             Some(ty) => ty,
             None => panic!("unresolved type {}", ret_ty),
         };
+        let mut arg_ty_names: Vec<Rc<str>> = Vec::new();
         let mut arg_tys: Vec<Type> = Vec::new();
-        let mut arg_vals: Vec<LLVMTypeRef> = Vec::new();
+        let mut llvm_arg_types: Vec<LLVMTypeRef> = Vec::new();
         for arg in args.iter() {
             if let Some(ty) = type_env.get_type_by_name(&arg.ty()) {
+                arg_ty_names.push(arg.ty());
                 arg_tys.push(ty.clone());
-                arg_vals.push(ty.llvm_type(type_env.clone()));
+                let llvm_ty = if let Type::Fn { .. } = ty {
+                    unsafe { LLVMPointerType(ty.llvm_type(type_env.clone()), 0) }
+                } else {
+                    ty.llvm_type(type_env.clone())
+                };
+                llvm_arg_types.push(llvm_ty);
             } else {
                 panic!("unresolved type {}", &arg.ty());
             }
@@ -1715,8 +1770,8 @@ impl ModuleBuilder {
         let func_ty = unsafe {
             LLVMFunctionType(
                 ret_ty.llvm_type(type_env.clone()),
-                arg_vals.as_mut_slice().as_mut_ptr(),
-                arg_vals.len().try_into().unwrap(),
+                llvm_arg_types.as_mut_slice().as_mut_ptr(),
+                llvm_arg_types.len().try_into().unwrap(),
                 0,
             )
         };
@@ -1740,10 +1795,15 @@ impl ModuleBuilder {
                 )
             }
         };
+
+        let fn_ty_name = format!("fn({}) -> {}", arg_ty_names.join(","), ret_ty.name());
+        let fn_ty = type_env.get_type_by_name(&fn_ty_name).unwrap();
+
         // this needs to be global
         self.env.insert_func(
             ident,
             Func {
+                ty: fn_ty.clone(),
                 env: Rc::new(fn_env),
                 arg_tys,
                 ret_ty: ret_ty.clone(),
@@ -1773,13 +1833,15 @@ impl ModuleBuilder {
                     Some(ty) => ty,
                     None => panic!("unresolved type {}", arg.ty()),
                 };
-                let argp = unsafe {
-                    LLVMBuildAlloca(
-                        self.builder,
-                        ty.llvm_type(type_env.clone()),
-                        "".to_cstring().as_ptr(),
-                    )
+
+                let llvm_ty = if let Type::Fn { .. } = ty {
+                    unsafe { LLVMPointerType(ty.llvm_type(type_env.clone()), 0) }
+                } else {
+                    ty.llvm_type(type_env.clone())
                 };
+
+                let argp =
+                    unsafe { LLVMBuildAlloca(self.builder, llvm_ty, "".to_cstring().as_ptr()) };
                 unsafe {
                     LLVMBuildStore(
                         self.builder,

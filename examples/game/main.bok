@@ -348,16 +348,24 @@ fn foo(n: u32) -> void {
     puts(pBuf);
 }
 
-// fn bar(f: fn(u32) -> void, n: u32) -> void {
-//     f(n);
-// }
+struct A {
+    f: fn(u32) -> void;
+}
+
+impl A {
+    fn bar(&self, n: u32) -> void {
+        let f: fn(u32) -> void = self.f;
+        f(n);
+    }
+}
 
 fn main(argc: u32) -> u32 {
     // TODO spread op
     let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};
 
     let f: fn(u32) -> void = foo;
-    // f();
+    let a: A = A {f: f};
+    a.bar(34435);
 
     if SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 {
         abort(SDL_GetError());
