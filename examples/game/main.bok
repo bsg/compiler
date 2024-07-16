@@ -315,6 +315,17 @@ impl EntityList<T> {
     fn despawn(&self, id: u32) {
         self.get(id).is_alive = false;
     }
+
+    fn for_each(&self, f: fn(u32, &GameContext, &T) -> void, ctx: &GameContext) {
+        let i: u32 = 0;
+        while i < self.len {
+            let entity: &T = self.get(i);
+            if entity.is_alive {
+                f(i, ctx, entity);
+            }
+            i += 1;
+        }
+    }
 }
 
 struct GameContext {
@@ -341,31 +352,9 @@ const BULLET_SPEED: u32 = 6;
 // impl Foo<u32> {}
 // generics for the impl should be the ones following the keyword 'impl', the struct ones should be type args
 
-fn foo(n: u32) -> void {
-    let buf: [u8; 256];
-    let pBuf: *u8 = &buf;
-    itoa(n, pBuf);
-    puts(pBuf);
-}
-
-struct A {
-    f: fn(u32) -> void;
-}
-
-impl A {
-    fn bar(&self, n: u32) -> void {
-        let f: fn(u32) -> void = self.f;
-        f(n);
-    }
-}
-
 fn main(argc: u32) -> u32 {
     // TODO spread op
     let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};
-
-    let f: fn(u32) -> void = foo;
-    let a: A = A {f: f};
-    a.bar(34435);
 
     if SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 {
         abort(SDL_GetError());
@@ -566,9 +555,9 @@ fn main(argc: u32) -> u32 {
             &SDL_Rect {x: player.pos.x, y: player.pos.y, w: player.w, h: player.h}
         );
 
-        update_particles(&ctx);
-        update_enemies(&ctx);
-        update_bullets(&ctx);
+        ctx.particles.for_each(update_particle, &ctx);
+        ctx.enemies.for_each(update_enemy, &ctx);
+        ctx.bullets.for_each(update_bullet, &ctx);
 
         let white: SDL_Color = SDL_Color {r: 255, g: 255, b: 255, a: 255};
 
@@ -601,80 +590,58 @@ fn aabb(a: &SDL_Rect, b: &SDL_Rect) -> bool {
         a.y + a.h > b.y;
 }
 
-// TODO these should take a &Ctx
-fn update_enemies(ctx: &GameContext) {
+fn update_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
     let sprite: Sprite = Sprite {tile_x: 3, tile_y: 0, tile_w: 1, tile_h: 1};
 
-    let i: u32 = 0;
-    while i < ctx.enemies.len {
-        let enemy: &Enemy = ctx.enemies.get(i);
-        if enemy.is_alive {
-            // Check bullet collisions
-            let bullet_idx: u32 = 0;
-            while bullet_idx < ctx.bullets.len {
-                let bullet: &Bullet = ctx.bullets.get(bullet_idx);
-                if bullet.is_alive {  
-                    if aabb(
-                        &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32},
-                        &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 16, h: 16})
-                    {
-                        enemy.is_alive = false;
-                        bullet.is_alive = false;
-
-                        Mix_PlayChannel(-1, ctx.sfx_explosion, 0);
-                        ctx.score += 10;
-                    }
-                }
-
-                bullet_idx += 1;
-            }
-
-            enemy.pos.y += 2;
-            if enemy.pos.y > ctx.window_h {
+    // TODO closures would be nice for this kinda stuff
+    // Check bullet collisions
+    let bullet_idx: u32 = 0;
+    while bullet_idx < ctx.bullets.len {
+        let bullet: &Bullet = ctx.bullets.get(bullet_idx);
+        if bullet.is_alive {  
+            if aabb(
+                &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32},
+                &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 16, h: 16})
+            {
                 enemy.is_alive = false;
-            }
+                bullet.is_alive = false;
 
-            // Render
-            ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32});
+                Mix_PlayChannel(-1, ctx.sfx_explosion, 0);
+                ctx.score += 10;
+            }
         }
-        i += 1;
+        bullet_idx += 1;
     }
+
+    enemy.pos.y += 2;
+    if enemy.pos.y > ctx.window_h {
+        ctx.enemies.despawn(idx);
+    }
+
+    // Render
+    ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32});
 }
 
-fn update_bullets(ctx: &GameContext) {
+fn update_bullet(idx: u32, ctx: &GameContext, bullet: &Bullet) {
     let sprite: Sprite = Sprite {tile_x: 2, tile_y: 0, tile_w: 1, tile_h: 1};
 
-    let i: u32 = 0;
-    while i < ctx.bullets.len {
-        let bullet: &Bullet = ctx.bullets.get(i);
-        if bullet.is_alive {
-            ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
+    ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
 
-            bullet.pos.y -= BULLET_SPEED;
-            if bullet.pos.y < 0 {
-                ctx.bullets.despawn(i);
-            }
-        }
-        i += 1;
+    bullet.pos.y -= BULLET_SPEED;
+    if bullet.pos.y < 0 {
+        ctx.bullets.despawn(idx);
     }
 }
 
-fn update_particles(ctx: &GameContext) {
-    let i: u32 = 0;
-    while i < ctx.particles.len {
-        let particle: &Particle = ctx.particles.get(i);
-        if particle.is_alive {
-            ctx.spritesheet.drawTile(
-                ctx.renderer,
-                &Sprite {tile_x: 4, tile_y: 0, tile_w: 1, tile_h: 1},
-                &SDL_Rect {x: particle.pos.x, y: particle.pos.y, w: 16, h: 16}
-            );
+fn update_particle(idx: u32, ctx: &GameContext, particle: &Particle) {
+    ctx.spritesheet.drawTile(
+        ctx.renderer,
+        &Sprite {tile_x: 4, tile_y: 0, tile_w: 1, tile_h: 1},
+        &SDL_Rect {x: particle.pos.x, y: particle.pos.y, w: 16, h: 16}
+    );
 
-            particle.pos.y += particle.speed;
-            if particle.pos.y > ctx.window_h {
-                ctx.particles.despawn(i);
-            }
-        }
-        i += 1;
+    particle.pos.y += particle.speed;
+    if particle.pos.y > ctx.window_h {
+        ctx.particles.despawn(idx);
     }
 }
