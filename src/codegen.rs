@@ -70,6 +70,10 @@ pub enum Type {
         elem_type_name: Rc<String>,
         len: usize,
     },
+    Fn {
+        arg_types: Vec<String>,
+        ret_type: String,
+    },
 }
 
 impl Type {
@@ -138,53 +142,35 @@ impl Type {
                     *len as u64,
                 )
             },
-        }
-    }
-
-    pub fn id(&self, type_env: &TypeEnv) -> usize {
-        match self {
-            Type::None => type_env.get_type_id_by_name("void"),
-            Type::Bool => type_env.get_type_id_by_name("bool"),
-            Type::Int { width, signed } => match width {
-                8 => {
-                    if *signed {
-                        type_env.get_type_id_by_name("i8")
-                    } else {
-                        type_env.get_type_id_by_name("u8")
-                    }
-                }
-                16 => {
-                    if *signed {
-                        type_env.get_type_id_by_name("i16")
-                    } else {
-                        type_env.get_type_id_by_name("u16")
-                    }
-                }
-                32 => {
-                    if *signed {
-                        type_env.get_type_id_by_name("i32")
-                    } else {
-                        type_env.get_type_id_by_name("u32")
-                    }
-                }
-                64 => {
-                    if *signed {
-                        type_env.get_type_id_by_name("i64")
-                    } else {
-                        type_env.get_type_id_by_name("u64")
-                    }
-                }
-                _ => todo!(),
-            },
-            Type::Ref { .. } => todo!(),
-            Type::Ptr { .. } => todo!(),
-            Type::Struct { .. } => todo!(),
-            Type::Array {
-                elem_type_name,
-                len,
+            Type::Fn {
+                arg_types,
+                ret_type,
             } => {
-                let elem_ty = type_env.get_type_by_name(elem_type_name).unwrap();
-                type_env.get_type_id_by_name(&format!("[{}; {}]", elem_ty.name(), len))
+                let mut llvm_arg_types: Vec<LLVMTypeRef> = Vec::new();
+                for arg_type in arg_types {
+                    llvm_arg_types.push(
+                        type_env
+                            .get_type_by_name(arg_type)
+                            .unwrap()
+                            .llvm_type(type_env.clone()),
+                    )
+                }
+
+                unsafe {
+                    LLVMPointerType(
+                        LLVMFunctionType(
+                            type_env
+                                .clone()
+                                .get_type_by_name(ret_type)
+                                .unwrap()
+                                .llvm_type(type_env),
+                            llvm_arg_types.as_mut_slice().as_mut_ptr(),
+                            llvm_arg_types.len() as u32,
+                            0,
+                        ),
+                        0,
+                    )
+                }
             }
         }
     }
@@ -218,6 +204,10 @@ impl Type {
                 elem_type_name,
                 len,
             } => format!("[{}; {}]", elem_type_name, len).into(),
+            Type::Fn {
+                arg_types,
+                ret_type,
+            } => format!("fn({}) -> {}", arg_types.join(","), ret_type).into(),
         }
     }
 }
@@ -436,13 +426,32 @@ impl TypeEnv {
                             pointee_type_name: name.strip_prefix('*').unwrap().to_string().into(),
                         },
                     )
+                } else if name.starts_with("fn(") {
+                    let (arg_types_str, ret_type) = name
+                        .split_once("fn(")
+                        .unwrap()
+                        .1
+                        .rsplit_once(") -> ")
+                        .unwrap();
+                    let mut arg_types: Vec<String> = Vec::new();
+                    for arg_type in arg_types_str.split(",") {
+                        arg_types.push(arg_type.to_string())
+                    }
+
+                    self.insert_type_by_name(
+                        &name,
+                        Type::Fn {
+                            arg_types,
+                            ret_type: ret_type.to_string(),
+                        },
+                    )
                 } else if let Some(p) = &self.parent {
                     p.get_type_id_by_name(&name)
                 } else {
                     let type_id = unsafe { NEXT_TYPE_ID };
                     unsafe { NEXT_TYPE_ID += 1 };
 
-                    (unsafe { &mut *self.type_ids.get() }).insert(name.into(), type_id);
+                    (unsafe { &mut *self.type_ids.get() }).insert(name, type_id);
                     type_id
                 }
             }
@@ -1402,6 +1411,11 @@ impl ModuleBuilder {
                         ty: var.ty.clone(),
                         llvm_val,
                     }
+                } else if let Some(f) = env.get_func(name) {
+                    Val {
+                        ty: f.ret_ty.clone(), // TODO this needs to be the fn type
+                        llvm_val: f.val,
+                    }
                 } else {
                     panic!("unresolved ident {}", name)
                 }
@@ -1880,11 +1894,8 @@ impl ModuleBuilder {
             let local_env = Rc::new(Env::make_child(self.env.clone()));
             let local_type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
 
-            if let Some(
-                node @ Node::Struct {
-                    ident, generics, ..
-                },
-            ) = self.type_env.get_generic_type(name).map(|node| &**node)
+            if let Some(node @ Node::Struct { generics, .. }) =
+                self.type_env.get_generic_type(name).map(|node| &**node)
             {
                 for (generic_type_name, concrete_type_name) in generics.iter().zip(type_args.iter())
                 {
