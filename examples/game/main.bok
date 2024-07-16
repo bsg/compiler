@@ -316,6 +316,7 @@ impl EntityList<T> {
         self.get(id).is_alive = false;
     }
 
+    // TODO be nice if ctx here was generic
     fn for_each(&self, f: fn(u32, &GameContext, &T) -> void, ctx: &GameContext) {
         let i: u32 = 0;
         while i < self.len {

@@ -1609,7 +1609,7 @@ impl ModuleBuilder {
                     LLVMPositionBuilderAtEnd(self.builder, func.unwrap().bb_entry.unwrap());
 
                     let llvm_ty = if let Type::Fn { .. } = ty {
-                        LLVMPointerType(ty.llvm_type(type_env.clone()), 0)
+                        LLVMPointerType(ty.llvm_type(type_env.clone()), 0) // TODO Type::llvm_ptr_type()
                     } else {
                         ty.llvm_type(type_env.clone())
                     };
