@@ -802,13 +802,23 @@ impl Parser {
             Token::Impl => self.parse_impl(),
             Token::Fn => self.parse_fn(false, None),
             Token::Extern => {
-                expect_semicolon = true;
                 self.next_token();
-                if let Token::Str(linkage) = &self.curr_token.clone() {
-                    self.next_token();
-                    self.parse_fn(true, Some(linkage.clone()))
+                let linkage = if let Token::Str(linkage) = &self.curr_token.clone() {
+                    Some(linkage.clone())
                 } else {
-                    todo!()
+                    None
+                };
+                self.next_token();
+                match self.curr_token {
+                    Token::LBrace => Some(Rc::new(Node::ExternBlock {
+                        linkage,
+                        block: self.parse_block()?,
+                    })),
+                    Token::Fn => {
+                        expect_semicolon = true;
+                        self.parse_fn(true, linkage)
+                    }
+                    _ => todo!(),
                 }
             }
             _ => {

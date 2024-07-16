@@ -46,7 +46,7 @@ impl std::fmt::Debug for Op {
                 } else {
                     write!(f, "assign")
                 }
-            },
+            }
             Op::Eq => write!(f, "eq"),
             Op::NotEq => write!(f, "neq"),
             Op::Lt => write!(f, "lt"),
@@ -86,7 +86,14 @@ impl Op {
             Op::Add | Op::Sub => 3,
             Op::Mul | Op::Div | Op::Mod => 4,
             Op::Cast => 5,
-            Op::Neg | Op::Not | Op::Ref | Op::Deref | Op::Dot | Op::ScopeRes | Op::Index | Op::StructLiteral => 6,
+            Op::Neg
+            | Op::Not
+            | Op::Ref
+            | Op::Deref
+            | Op::Dot
+            | Op::ScopeRes
+            | Op::Index
+            | Op::StructLiteral => 6,
             Op::Call => 7,
             _ => 0,
         }
@@ -213,6 +220,10 @@ pub enum Node {
     StructLiteral {
         ident: Rc<str>,
         fields: Rc<[StructLiteralField]>,
+    },
+    ExternBlock {
+        linkage: Option<Rc<str>>,
+        block: NodeRef,
     },
 }
 
@@ -432,6 +443,17 @@ impl fmt::Debug for Node {
                         acc
                     });
                     format!("struct_literal {}{}", ident, fields_str)
+                }
+                Node::ExternBlock { linkage, block } => {
+                    if let Some(linkage) = linkage {
+                        format!(
+                            "extern \"{}\"{}",
+                            linkage,
+                            fmt_with_indent(block, indent_level + 1, true)
+                        )
+                    } else {
+                        format!("extern {}", fmt_with_indent(block, indent_level + 1, true))
+                    }
                 }
             }
             .as_str();

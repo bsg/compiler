@@ -1990,24 +1990,45 @@ impl ModuleBuilder {
 
     fn pass3(&mut self) {
         for node in &*self.ast.clone() {
-            if let Node::Fn {
-                ident,
-                args,
-                ret_ty,
-                is_extern,
-                linkage,
-                ..
-            } = &**node
-            {
-                self.set_up_function(
-                    self.env.clone(),
-                    self.type_env.clone(),
+            match &**node {
+                Node::Fn {
                     ident,
-                    args.clone(),
-                    ret_ty.clone(),
-                    *is_extern,
-                    linkage.clone(),
-                )
+                    args,
+                    ret_ty,
+                    is_extern,
+                    linkage,
+                    ..
+                } => {
+                    self.set_up_function(
+                        self.env.clone(),
+                        self.type_env.clone(),
+                        ident,
+                        args.clone(),
+                        ret_ty.clone(),
+                        *is_extern,
+                        linkage.clone(),
+                    )
+                }
+                Node::ExternBlock { linkage, block } => {
+                    if let Node::Block { statements } = &**block {
+                        for stmt in statements.iter() {
+                            if let Node::Fn { ident, args, ret_ty, .. } = &**stmt {
+                                self.set_up_function(
+                                    self.env.clone(),
+                                    self.type_env.clone(),
+                                    ident,
+                                    args.clone(),
+                                    ret_ty.clone(),
+                                    true,
+                                    linkage.clone(),
+                                )
+                            } else {
+                                todo!()
+                            }
+                        }
+                    }
+                }
+                _ => ()
             }
         }
     }

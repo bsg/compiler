@@ -103,41 +103,42 @@ struct Mix_Music {}
 struct Mix_Chunk {}
 
 // TODO some of these need usize
-extern "C" fn malloc(size: u32) -> *u8;
-extern "C" fn realloc(ptr: *u8, new_size: u32) -> *u8;
-extern "C" fn memcpy(dest: *u8, src: *u8, n: u32) -> *u8;
-extern "C" fn free(ptr: *u8);
-extern "C" fn exit(status: u32);
-extern "C" fn sleep(seconds: u32) -> u32;
-extern "C" fn putchar (c: u32) -> i32;
-extern "C" fn puts(s: *i8) -> i32;
-extern "C" fn random() -> u32;
-extern "C" fn SDL_Init(flags: u32) -> i32;
-extern "C" fn SDL_CreateWindow(title: *u8, x: u32, y: u32, w: u32, h: u32, flags: u32) -> *SDL_Window;
-extern "C" fn SDL_PollEvent(ev: *u32) -> u32;
-extern "C" fn SDL_GetWindowSurface(window: *u8) -> *SDL_Surface;
-extern "C" fn SDL_UpdateWindowSurface(window: *u8) -> u32;
-extern "C" fn SDL_GetError() -> *u8;
-extern "C" fn SDL_ClearError();
-extern "C" fn SDL_CreateRenderer(window: *SDL_Window, index: i32, flags: u32) -> *SDL_Renderer;
-extern "C" fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: *SDL_Rect, dstrect: *SDL_Rect) -> u32;
-extern "C" fn SDL_CreateTextureFromSurface(renderer: *SDL_Renderer, surface: *SDL_Surface) -> *SDL_Texture;
-extern "C" fn SDL_FreeSurface(surface: *SDL_Surface);
-extern "C" fn SDL_DestroyTexture(texture: *SDL_Texture);
-extern "C" fn SDL_RenderPresent(renderer: *SDL_Renderer);
-extern "C" fn SDL_Delay(ms: u32);
-extern "C" fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
-extern "C" fn SDL_QueryTexture(texture: *SDL_Texture, format: *u32, access: *u32, w: *u32, h: *u32) -> u32;
-extern "C" fn IMG_Init(flags: i32) -> i32;
-extern "C" fn IMG_Load(file: *u8) -> *SDL_Surface;
-extern "C" fn TTF_Init() -> u32;
-extern "C" fn TTF_OpenFont(file: *u8, ptsize: u32) -> *TTF_Font;
-extern "C" fn TTF_RenderText_Solid(font: *TTF_Font, text: *u8, fg: SDL_Color) -> *SDL_Surface;
-extern "C" fn Mix_OpenAudio(frequency: u32, format: u16, channels: u32, chunksize: u32) -> u32;
-extern "C" fn Mix_LoadMUS(file: *u8) -> *Mix_Music;
-extern "C" fn Mix_LoadWAV(file: *u8) -> *Mix_Chunk;
-extern "C" fn Mix_PlayChannel(channel: u32, chunk: *Mix_Chunk, loops: u32) -> u32;
-
+extern "C" {
+    fn malloc(size: u32) -> *u8;
+    fn realloc(ptr: *u8, new_size: u32) -> *u8;
+    fn memcpy(dest: *u8, src: *u8, n: u32) -> *u8;
+    fn free(ptr: *u8);
+    fn exit(status: u32);
+    fn sleep(seconds: u32) -> u32;
+    fn putchar (c: u32) -> i32;
+    fn puts(s: *i8) -> i32;
+    fn random() -> u32;
+    fn SDL_Init(flags: u32) -> i32;
+    fn SDL_CreateWindow(title: *u8, x: u32, y: u32, w: u32, h: u32, flags: u32) -> *SDL_Window;
+    fn SDL_PollEvent(ev: *u32) -> u32;
+    fn SDL_GetWindowSurface(window: *u8) -> *SDL_Surface;
+    fn SDL_UpdateWindowSurface(window: *u8) -> u32;
+    fn SDL_GetError() -> *u8;
+    fn SDL_ClearError();
+    fn SDL_CreateRenderer(window: *SDL_Window, index: i32, flags: u32) -> *SDL_Renderer;
+    fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: *SDL_Rect, dstrect: *SDL_Rect) -> u32;
+    fn SDL_CreateTextureFromSurface(renderer: *SDL_Renderer, surface: *SDL_Surface) -> *SDL_Texture;
+    fn SDL_FreeSurface(surface: *SDL_Surface);
+    fn SDL_DestroyTexture(texture: *SDL_Texture);
+    fn SDL_RenderPresent(renderer: *SDL_Renderer);
+    fn SDL_Delay(ms: u32);
+    fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
+    fn SDL_QueryTexture(texture: *SDL_Texture, format: *u32, access: *u32, w: *u32, h: *u32) -> u32;
+    fn IMG_Init(flags: i32) -> i32;
+    fn IMG_Load(file: *u8) -> *SDL_Surface;
+    fn TTF_Init() -> u32;
+    fn TTF_OpenFont(file: *u8, ptsize: u32) -> *TTF_Font;
+    fn TTF_RenderText_Solid(font: *TTF_Font, text: *u8, fg: SDL_Color) -> *SDL_Surface;
+    fn Mix_OpenAudio(frequency: u32, format: u16, channels: u32, chunksize: u32) -> u32;
+    fn Mix_LoadMUS(file: *u8) -> *Mix_Music;
+    fn Mix_LoadWAV(file: *u8) -> *Mix_Chunk;
+    fn Mix_PlayChannel(channel: u32, chunk: *Mix_Chunk, loops: u32) -> u32;
+}
 // --------------------------------------------------------------------------------------------------------------------
 // END BINDINGS
 // --------------------------------------------------------------------------------------------------------------------
