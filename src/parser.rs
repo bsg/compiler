@@ -97,6 +97,41 @@ impl Parser {
                     todo!()
                 }
             }
+            Token::Fn => {
+                if self.peek_token != Token::LParen {
+                    todo!()
+                };
+                self.next_token();
+                self.next_token();
+
+                let mut args: Vec<String> = Vec::new();
+
+                // TODO assert commas... this is also lacking in some other places
+                while self.curr_token != Token::RParen {
+                    match &self.curr_token {
+                        Token::Comma => self.next_token(),
+                        Token::RParen => break,
+                        _ => {
+                            if let Some(ty) = self.parse_type() {
+                                args.push(ty.to_string());
+                                self.next_token();
+                            }
+                        }
+                    }
+                }
+
+                self.next_token(); // eat RParen
+                assert_eq!(Token::Arrow, self.curr_token);
+                self.next_token();
+
+                let ret_ty = if let Some(ty) = self.parse_type() {
+                    ty
+                } else {
+                    todo!()
+                };
+
+                Some(format!("fn({}) -> {}", args.join(","), ret_ty).into())
+            }
             _ => todo!(),
         };
 
@@ -605,7 +640,7 @@ impl Parser {
                 self.next_token();
                 let ty = self.parse_type()?;
                 Rc::new(Node::Ident { name: ty })
-            },
+            }
             Token::None => return None,
             _ => panic!("unexpected token {}", self.curr_token),
         };
@@ -1567,7 +1602,6 @@ let A
                 1
 "
         );
-        
     }
 
     #[test]
@@ -1581,6 +1615,17 @@ let &A<T>
         struct_literal A<T>
             x
                 1
+"
+        );
+    }
+
+    #[test]
+    fn parse_fn_type() {
+        assert_parse!(
+            "let _: fn(&Foo, Bar<T>) -> Baz;",
+            "\
+let fn(&Foo,Bar<T>) -> Baz
+    ident _
 "
         );
     }
