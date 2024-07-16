@@ -80,7 +80,7 @@ impl TypeCollector {
                     self.collect_recursively(arg.clone());
                 }
             }
-            Node::Struct { ident, fields, generics } => {
+            Node::Struct { ident, fields, generics, .. } => {
                 if generics.is_empty() {
                     self.types.insert((&**ident).into());
                     for field in fields.iter() {

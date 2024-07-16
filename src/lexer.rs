@@ -62,6 +62,8 @@ pub enum Token {
     NullPtr,
     Extern,
     Const,
+
+    Hash,
 }
 
 impl std::fmt::Display for Token {
@@ -272,6 +274,7 @@ impl Tokens {
                 }
                 _ => Token::Dot,
             },
+            Some(b'#') => Token::Hash,
             Some(c) => match c {
                 (b'a'..=b'z') | (b'A'..=b'Z') | b'_' => {
                     let ident = self.read_identifier();

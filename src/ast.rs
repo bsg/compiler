@@ -207,6 +207,7 @@ pub enum Node {
         ident: Rc<str>,
         fields: Rc<[StructField]>,
         generics: Rc<[Rc<str>]>,
+        attributes: Option<Rc<[Rc<str>]>>,
     },
     Impl {
         ident: Rc<str>,
@@ -377,6 +378,7 @@ impl fmt::Debug for Node {
                     ident,
                     fields,
                     generics,
+                    ..
                 } => {
                     let fields_str = fields.iter().fold(String::new(), |mut acc, field| {
                         acc += "\n";

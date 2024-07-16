@@ -86,13 +86,15 @@ struct SDL_Rect {
 // TODO
 // type Rect = SDL_Rect;
 
-// TODO
-struct SDL_Color {
-    r: u8;
-    g: u8;
-    b: u8;
-    a: u8;
-}
+// TODO SDL docs are misleading, look into SDL_MapRGBA
+// TODO also should be able to cast this into a u32?
+// #[packed]
+// struct SDL_Color {
+//     r: u8;
+//     g: u8;
+//     b: u8;
+//     a: u8;
+// }
 
 struct SDL_Window {}
 struct SDL_Renderer {}
@@ -133,7 +135,7 @@ extern "C" {
     fn IMG_Load(file: *u8) -> *SDL_Surface;
     fn TTF_Init() -> u32;
     fn TTF_OpenFont(file: *u8, ptsize: u32) -> *TTF_Font;
-    fn TTF_RenderText_Solid(font: *TTF_Font, text: *u8, fg: SDL_Color) -> *SDL_Surface;
+    fn TTF_RenderText_Solid(font: *TTF_Font, text: *u8, fg: u32) -> *SDL_Surface;
     fn Mix_OpenAudio(frequency: u32, format: u16, channels: u32, chunksize: u32) -> u32;
     fn Mix_LoadMUS(file: *u8) -> *Mix_Music;
     fn Mix_LoadWAV(file: *u8) -> *Mix_Chunk;
@@ -374,7 +376,7 @@ fn main(argc: u32) -> u32 {
         abort(SDL_GetError());
     }
 
-    let window: *SDL_Window = SDL_CreateWindow("schut", 800, 400, ctx.window_w, ctx.window_h, 4);
+    let window: *SDL_Window = SDL_CreateWindow("gaem", 800, 400, ctx.window_w, ctx.window_h, 4);
     if window == nullptr {
         abort(SDL_GetError());
     }
@@ -557,17 +559,15 @@ fn main(argc: u32) -> u32 {
             &SDL_Rect {x: player.pos.x, y: player.pos.y, w: player.w, h: player.h}
         );
 
-        ctx.particles.for_each(update_particle, &ctx);
-        ctx.enemies.for_each(update_enemy, &ctx);
-        ctx.bullets.for_each(update_bullet, &ctx);
-
-        let white: SDL_Color = SDL_Color {r: 255, g: 255, b: 255, a: 255};
+        ctx.particles.for_each(update_and_render_particle, &ctx);
+        ctx.enemies.for_each(update_and_render_enemy, &ctx);
+        ctx.bullets.for_each(update_and_render_bullet, &ctx);
 
         // Render score
         let buf: [u8; 16];
         let pBuf: *u8 = &buf;
         itoa(ctx.score, pBuf);
-        let surface_text: *SDL_Surface = TTF_RenderText_Solid(ctx.font, pBuf, white);
+        let surface_text: *SDL_Surface = TTF_RenderText_Solid(ctx.font, pBuf, 4294967295);
         let tex_score: *SDL_Texture = SDL_CreateTextureFromSurface(ctx.renderer, surface_text);
         let w: u32;
         let h: u32;
@@ -592,11 +592,10 @@ fn aabb(a: &SDL_Rect, b: &SDL_Rect) -> bool {
         a.y + a.h > b.y;
 }
 
-fn update_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
+fn update_and_render_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
     let sprite: Sprite = Sprite {tile_x: 3, tile_y: 0, tile_w: 1, tile_h: 1};
 
     // TODO closures would be nice for this kinda stuff
-    // Check bullet collisions
     let bullet_idx: u32 = 0;
     while bullet_idx < ctx.bullets.len {
         let bullet: &Bullet = ctx.bullets.get(bullet_idx);
@@ -620,11 +619,10 @@ fn update_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
         ctx.enemies.despawn(idx);
     }
 
-    // Render
     ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32});
 }
 
-fn update_bullet(idx: u32, ctx: &GameContext, bullet: &Bullet) {
+fn update_and_render_bullet(idx: u32, ctx: &GameContext, bullet: &Bullet) {
     let sprite: Sprite = Sprite {tile_x: 2, tile_y: 0, tile_w: 1, tile_h: 1};
 
     ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
@@ -635,7 +633,7 @@ fn update_bullet(idx: u32, ctx: &GameContext, bullet: &Bullet) {
     }
 }
 
-fn update_particle(idx: u32, ctx: &GameContext, particle: &Particle) {
+fn update_and_render_particle(idx: u32, ctx: &GameContext, particle: &Particle) {
     ctx.spritesheet.drawTile(
         ctx.renderer,
         &Sprite {tile_x: 4, tile_y: 0, tile_w: 1, tile_h: 1},

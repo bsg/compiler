@@ -13,6 +13,7 @@
 // TODO intern strings
 // TODO struct default values
 // FIXME function pointer related stuff resulted in a lot of duplicate code
+// FIXME attributes are fucked
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -65,6 +66,7 @@ pub enum Type {
         generics: Rc<[Rc<str>]>,
         static_methods: HashMap<String, String>,
         member_methods: HashMap<String, String>,
+        attributes: Option<Rc<[Rc<str>]>>,
     },
     Array {
         elem_type_name: Rc<String>,
@@ -110,6 +112,7 @@ impl Type {
             Type::Struct {
                 name,
                 field_type_names,
+                attributes,
                 ..
             } => unsafe {
                 let type_env = if let Some(env) = type_env.get_impl_env_mut(name) {
@@ -131,8 +134,22 @@ impl Type {
                         }
                     })
                     .collect();
-                // TODO packed
-                LLVMStructType(llvm_types.as_mut_ptr(), field_type_names.len() as u32, 0)
+
+                let mut packed = 0;
+                
+                if let Some(attributes) = attributes {
+                    for attr in attributes.iter() {
+                        if &**attr == "packed" {
+                            packed = 1;
+                        }
+                    }
+                };
+
+                LLVMStructType(
+                    llvm_types.as_mut_ptr(),
+                    field_type_names.len() as u32,
+                    packed,
+                )
             },
             Type::Array {
                 elem_type_name,
@@ -1438,13 +1455,8 @@ impl ModuleBuilder {
                         } else {
                             var.ty.llvm_type(type_env.clone())
                         };
-                        
-                        LLVMBuildLoad2(
-                            self.builder,
-                            llvm_ty,
-                            var.val,
-                            "".to_cstring().as_ptr(),
-                        )
+
+                        LLVMBuildLoad2(self.builder, llvm_ty, var.val, "".to_cstring().as_ptr())
                     };
 
                     Val {
@@ -1873,6 +1885,7 @@ impl ModuleBuilder {
             ident,
             fields,
             generics,
+            attributes,
         } = &*node
         {
             let mut field_indices: HashMap<String, usize> = HashMap::new();
@@ -1892,6 +1905,7 @@ impl ModuleBuilder {
                     static_methods: HashMap::new(),
                     member_methods: HashMap::new(),
                     generics: generics.clone(),
+                    attributes: attributes.clone(),
                 },
             );
         }
@@ -1998,21 +2012,25 @@ impl ModuleBuilder {
                     is_extern,
                     linkage,
                     ..
-                } => {
-                    self.set_up_function(
-                        self.env.clone(),
-                        self.type_env.clone(),
-                        ident,
-                        args.clone(),
-                        ret_ty.clone(),
-                        *is_extern,
-                        linkage.clone(),
-                    )
-                }
+                } => self.set_up_function(
+                    self.env.clone(),
+                    self.type_env.clone(),
+                    ident,
+                    args.clone(),
+                    ret_ty.clone(),
+                    *is_extern,
+                    linkage.clone(),
+                ),
                 Node::ExternBlock { linkage, block } => {
                     if let Node::Block { statements } = &**block {
                         for stmt in statements.iter() {
-                            if let Node::Fn { ident, args, ret_ty, .. } = &**stmt {
+                            if let Node::Fn {
+                                ident,
+                                args,
+                                ret_ty,
+                                ..
+                            } = &**stmt
+                            {
                                 self.set_up_function(
                                     self.env.clone(),
                                     self.type_env.clone(),
@@ -2028,7 +2046,7 @@ impl ModuleBuilder {
                         }
                     }
                 }
-                _ => ()
+                _ => (),
             }
         }
     }
@@ -2181,7 +2199,6 @@ impl ModuleBuilder {
                             } = &**method
                             {
                                 let mangled_name = format!("{}::{}", impl_ty, ident);
-                                println!("{}", mangled_name);
                                 self.set_up_function(
                                     env.clone(),
                                     type_env.clone(),

@@ -428,6 +428,7 @@ impl Parser {
                     ident: ident.clone(),
                     fields: Rc::from(fields.as_slice()),
                     generics: Rc::from(generics.as_slice()),
+                    attributes: None
                 }
                 .into(),
             )
@@ -819,6 +820,42 @@ impl Parser {
                         self.parse_fn(true, linkage)
                     }
                     _ => todo!(),
+                }
+            }
+            Token::Hash => {
+                if self.peek_token == Token::LBracket {
+                    self.next_token();
+                    self.next_token();
+
+                    let mut attributes = Vec::<Rc<str>>::new();
+                    while self.curr_token != Token::RBracket {
+                        if let Token::Ident(attr) = &self.curr_token {
+                            attributes.push(attr.clone())
+                        } else {
+                            todo!()
+                        }
+                        self.next_token();
+                    }
+                    self.next_token(); // eat RBracket
+
+                    if let Some(Node::Struct {
+                        ident,
+                        fields,
+                        generics,
+                        ..
+                    }) = self.parse_statement(false).as_deref()
+                    {
+                        Some(Node::Struct {
+                            ident: ident.clone(),
+                            fields: fields.clone(),
+                            generics: generics.clone(),
+                            attributes: Some(attributes.as_slice().into()),
+                        }.into())
+                    } else {
+                        panic!("attributes not supported here")
+                    }
+                } else {
+                    todo!()
                 }
             }
             _ => {
