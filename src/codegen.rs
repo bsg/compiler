@@ -24,6 +24,7 @@ use llvm_sys::target::LLVMPointerSize;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::ptr::null_mut;
 use std::rc::Rc;
 
 use crate::ast::*;
@@ -138,7 +139,7 @@ impl Type {
                     .collect();
 
                 let mut packed = 0;
-                
+
                 if let Some(attributes) = attributes {
                     for attr in attributes.iter() {
                         if &**attr == "packed" {
@@ -1704,7 +1705,7 @@ impl ModuleBuilder {
                     let bb_exit = LLVMAppendBasicBlock(current_func.val, "".to_cstring().as_ptr());
 
                     LLVMPositionBuilderAtEnd(self.builder, bb_test);
-                    let cond = LLVMBuildCondBr(
+                    LLVMBuildCondBr(
                         self.builder,
                         self.build_expr(env.clone(), type_env.clone(), condition.clone(), false)
                             .llvm_val,
@@ -1720,12 +1721,59 @@ impl ModuleBuilder {
 
                     Val {
                         ty: type_env.get_type_by_name("void").unwrap().clone(),
-                        llvm_val: cond,
+                        llvm_val: null_mut(),
                     }
                 } else {
                     panic!("while stmt outside fn")
                 }
             },
+            Node::Match { scrutinee, arms } => {
+                if let Some(fn_ident) = &self.current_func_ident {
+                    let current_func = env.get_func(fn_ident).unwrap();
+                    let bb_exit =
+                        unsafe { LLVMAppendBasicBlock(current_func.val, "".to_cstring().as_ptr()) };
+                    let scrutinee_val =
+                        self.build_expr(env.clone(), type_env.clone(), scrutinee.clone(), false);
+
+                    let switch = unsafe {
+                        LLVMBuildSwitch(
+                            self.builder,
+                            scrutinee_val.llvm_val,
+                            bb_exit,
+                            arms.len() as u32,
+                        )
+                    };
+
+                    for arm in arms.iter() {
+                        let pattern_val = self.build_expr(
+                            env.clone(),
+                            type_env.clone(),
+                            arm.pattern.clone(),
+                            false,
+                        );
+                        let bb = unsafe {
+                            LLVMAppendBasicBlock(current_func.val, "".to_cstring().as_ptr())
+                        };
+                        unsafe { LLVMPositionBuilderAtEnd(self.builder, bb) };
+                        if let Node::Block { .. } = &*arm.stmt {
+                            self.build_block(env.clone(), type_env.clone(), arm.stmt.clone());
+                        } else {
+                            self.build_expr(env.clone(), type_env.clone(), arm.stmt.clone(), false);
+                        }
+                        unsafe { LLVMBuildBr(self.builder, bb_exit) };
+                        unsafe { LLVMAddCase(switch, pattern_val.llvm_val, bb) };
+                    }
+
+                    unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_exit) };
+
+                    Val {
+                        ty: type_env.get_type_by_name("void").unwrap().clone(),
+                        llvm_val: null_mut(),
+                    }
+                } else {
+                    panic!("match stmt outside fn")
+                }
+            }
             _ => self.build_expr(env, type_env.clone(), node, false),
         }
     }

@@ -883,10 +883,10 @@ impl Parser {
                                 self.parse_statement(false)?
                             };
                             arms.push(MatchArm { pattern, stmt });
-                            self.next_token();
                         }
                     }
                 }
+                self.next_token(); // eat RBrace
 
                 Some(
                     Node::Match {
@@ -1718,13 +1718,17 @@ let fn(&Foo,Bar<T>) -> Baz
     #[test]
     fn parse_match() {
         assert_parse!(
-            "{match x {0 => return 0, 1 => return 1, 2 => {return 2;}}}",
+            "{match x {0 => {let x: u32 = 1;return x;}, 1 => return 1, 2 => {return 2;}} while true {}}",
             "\
 block
     match ident x
         case 0
-            return
-                0
+            block
+                let u32
+                    ident x
+                    1
+                return
+                    ident x
         case 1
             return
                 1
@@ -1732,6 +1736,9 @@ block
             block
                 return
                     2
+    while
+        true
+        block
 "
         );
     }

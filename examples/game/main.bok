@@ -441,55 +441,36 @@ fn main(argc: u32) -> u32 {
     ctx.particle_spawn_cooldown = 10;
     ctx.particle_spawn_ticks_left = 0;
 
-    let ev: SDL_Event;
-    let kb_event: SDL_KeyboardEvent;
-
     let input: InputState = InputState::new();
 
     while true {
+        let ev: SDL_Event;
+        let kb_event: SDL_KeyboardEvent;
+        
         while SDL_PollEvent(&ev) == 1 {
-            if ev.type == SDL_QUIT {
-                exit(0);
-            }
-
-            if ev.type == SDL_KEYDOWN {
-                kb_event = ev;
-                if kb_event.keysym.scancode == SDL_SCANCODE_ESCAPE {
-                    exit(0);
-                }
-                if kb_event.keysym.scancode == SDL_SCANCODE_W {
-                    input.up = true;
-                }
-                if kb_event.keysym.scancode == SDL_SCANCODE_A {
-                    input.left = true;
-                }
-                if kb_event.keysym.scancode == SDL_SCANCODE_S {
-                    input.down = true;
-                }
-                if kb_event.keysym.scancode == SDL_SCANCODE_D {
-                    input.right = true;
-                }
-                if kb_event.keysym.scancode == SDL_SCANCODE_SPACE {
-                    input.shoot = true;
-                }
-            }
-
-            if ev.type == SDL_KEYUP {
-                kb_event = ev;
-                if kb_event.keysym.scancode == SDL_SCANCODE_W {
-                    input.up = false;
-                }
-                if kb_event.keysym.scancode == SDL_SCANCODE_A {
-                    input.left = false;
-                }
-                if kb_event.keysym.scancode == SDL_SCANCODE_S {
-                    input.down = false;
-                }
-                if kb_event.keysym.scancode == SDL_SCANCODE_D {
-                    input.right = false;
-                }
-                if kb_event.keysym.scancode == SDL_SCANCODE_SPACE {
-                    input.shoot = false;
+            match ev.type {
+                SDL_QUIT => exit(0),
+                // TODO SDL_KEYDOWN | SDL_KEYUP
+                SDL_KEYDOWN => {
+                    kb_event = ev; // FIXME this 'moves' ev where it should be copying it
+                    match kb_event.keysym.scancode {
+                        SDL_SCANCODE_ESCAPE => exit(0),
+                        SDL_SCANCODE_W      => input.up    = true,
+                        SDL_SCANCODE_A      => input.left  = true,
+                        SDL_SCANCODE_S      => input.down  = true,
+                        SDL_SCANCODE_D      => input.right = true,
+                        SDL_SCANCODE_SPACE  => input.shoot = true
+                    }
+                },
+                SDL_KEYUP => {
+                    kb_event = ev;
+                    match kb_event.keysym.scancode {
+                        SDL_SCANCODE_W      => input.up    = false,
+                        SDL_SCANCODE_A      => input.left  = false,
+                        SDL_SCANCODE_S      => input.down  = false,
+                        SDL_SCANCODE_D      => input.right = false,
+                        SDL_SCANCODE_SPACE  => input.shoot = false
+                    }
                 }
             }
         }
