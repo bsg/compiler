@@ -1,4 +1,5 @@
 // TODO we need a ParseResult -- do we? why not just panic?
+// TODO .eat(...) with assert
 
 use std::rc::Rc;
 
@@ -428,7 +429,7 @@ impl Parser {
                     ident: ident.clone(),
                     fields: Rc::from(fields.as_slice()),
                     generics: Rc::from(generics.as_slice()),
-                    attributes: None
+                    attributes: None,
                 }
                 .into(),
             )
@@ -776,7 +777,6 @@ impl Parser {
                 self.parse_let_or_const(false)
             }
             Token::Return => {
-                expect_semicolon = true;
                 self.next_token();
                 let r = Some(Rc::new(Node::Return {
                     expr: self.parse_expression(0),
@@ -845,18 +845,56 @@ impl Parser {
                         ..
                     }) = self.parse_statement(false).as_deref()
                     {
-                        Some(Node::Struct {
-                            ident: ident.clone(),
-                            fields: fields.clone(),
-                            generics: generics.clone(),
-                            attributes: Some(attributes.as_slice().into()),
-                        }.into())
+                        Some(
+                            Node::Struct {
+                                ident: ident.clone(),
+                                fields: fields.clone(),
+                                generics: generics.clone(),
+                                attributes: Some(attributes.as_slice().into()),
+                            }
+                            .into(),
+                        )
                     } else {
                         panic!("attributes not supported here")
                     }
                 } else {
                     todo!()
                 }
+            }
+            Token::Match => {
+                expect_semicolon = false;
+                self.next_token();
+                let scrutinee = self.parse_statement(false)?;
+                assert_eq!(Token::LBrace, self.curr_token);
+                self.next_token();
+
+                let mut arms: Vec<MatchArm> = Vec::new();
+
+                while self.curr_token != Token::RBrace {
+                    match self.curr_token {
+                        Token::Comma => self.next_token(),
+                        _ => {
+                            let pattern = self.parse_statement(false)?;
+                            assert_eq!(Token::FatArrow, self.curr_token);
+                            self.next_token();
+                            let stmt = if self.curr_token == Token::LBrace {
+                                self.parse_block()?
+                            } else {
+                                self.parse_statement(false)?
+                            };
+                            arms.push(MatchArm { pattern, stmt });
+                            self.next_token();
+                        }
+                    }
+                }
+
+                Some(
+                    Node::Match {
+                        scrutinee,
+                        arms: arms.as_slice().into(),
+                    }
+                    .into(),
+                )
             }
             _ => {
                 let expr = self.parse_expression(0);
@@ -894,7 +932,7 @@ mod tests {
             parser.next_token();
             match parser.parse_statement(false) {
                 Some(ast) => assert_eq!($expected, format!("{:?}", ast)),
-                None => panic!(),
+                None => panic!("parser returned None"),
             }
         };
     }
@@ -1673,6 +1711,27 @@ let &A<T>
             "\
 let fn(&Foo,Bar<T>) -> Baz
     ident _
+"
+        );
+    }
+
+    #[test]
+    fn parse_match() {
+        assert_parse!(
+            "{match x {0 => return 0, 1 => return 1, 2 => {return 2;}}}",
+            "\
+block
+    match ident x
+        case 0
+            return
+                0
+        case 1
+            return
+                1
+        case 2
+            block
+                return
+                    2
 "
         );
     }

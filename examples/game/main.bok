@@ -288,7 +288,7 @@ impl EntityList<T> {
     }
 
     fn kill(&self, id: u32) {
-        self.get(id).is_alive = 0;
+        self.get(id).is_alive = false;
     }
 
     fn spawn(&self, entity: &T) -> u32 {

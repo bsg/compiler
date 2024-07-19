@@ -14,6 +14,8 @@
 // TODO struct default values
 // FIXME function pointer related stuff resulted in a lot of duplicate code
 // FIXME attributes are fucked
+// TODO explicitly tagged unions, with #[explicitly_tagged] on the union and #[tag=...] on the variant?
+// TODO https://doc.rust-lang.org/reference/expressions/struct-expr.html#functional-update-syntax
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;

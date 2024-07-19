@@ -138,6 +138,12 @@ pub struct StructLiteralField {
     pub val: NodeRef,
 }
 
+#[derive(PartialEq, Eq, Hash, Clone)]
+pub struct MatchArm {
+    pub pattern: NodeRef,
+    pub stmt: NodeRef, // TODO rename to expr and treat this as such when we have block exprs
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Node {
     NullPtr,
@@ -225,6 +231,10 @@ pub enum Node {
     ExternBlock {
         linkage: Option<Rc<str>>,
         block: NodeRef,
+    },
+    Match {
+        scrutinee: NodeRef,
+        arms: Rc<[MatchArm]>,
     },
 }
 
@@ -456,6 +466,25 @@ impl fmt::Debug for Node {
                     } else {
                         format!("extern {}", fmt_with_indent(block, indent_level + 1, true))
                     }
+                }
+                Node::Match { scrutinee, arms } => {
+                    let arms_formatted = arms
+                        .iter()
+                        .map(|arm| {
+                            format!(
+                                "\n{}case {}{}",
+                                "    ".repeat(indent_level + 1),
+                                fmt_with_indent(&arm.pattern, 0, false),
+                                fmt_with_indent(&arm.stmt, indent_level + 2, true)
+                            )
+                        })
+                        .collect::<Vec<String>>()
+                        .join("");
+                    format!(
+                        "match {}{}",
+                        fmt_with_indent(scrutinee, 0, false),
+                        arms_formatted
+                    )
                 }
             }
             .as_str();

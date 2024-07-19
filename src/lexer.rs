@@ -28,6 +28,7 @@ pub enum Token {
     Eq,
     NotEq,
     Arrow,
+    FatArrow,
     Dot,
     DotDot,
     ColonColon,
@@ -62,6 +63,7 @@ pub enum Token {
     NullPtr,
     Extern,
     Const,
+    Match,
 
     Hash,
 }
@@ -150,6 +152,10 @@ impl Tokens {
                 Some(b'=') => {
                     self.read_char();
                     Token::Eq
+                },
+                Some(b'>') => {
+                    self.read_char();
+                    Token::FatArrow
                 }
                 _ => Token::Assign,
             },
@@ -293,6 +299,7 @@ impl Tokens {
                         "as" => Token::As,
                         "extern" => Token::Extern,
                         "const" => Token::Const,
+                        "match" => Token::Match,
                         _ => Token::Ident(ident),
                     };
                 }
