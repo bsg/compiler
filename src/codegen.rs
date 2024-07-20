@@ -17,6 +17,7 @@
 // TODO explicitly tagged unions, with #[explicitly_tagged] on the union and #[tag=...] on the variant?
 // TODO https://doc.rust-lang.org/reference/expressions/struct-expr.html#functional-update-syntax
 // FIXME assigning a struct to another seems to 'move' it instead of copying it
+// FIXME sizeof doesn't seem to work for structs
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
