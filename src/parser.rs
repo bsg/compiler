@@ -599,7 +599,7 @@ impl Parser {
                     &**s
                 };
 
-                let value = match i64::from_str_radix(s, radix) {
+                let value = match u64::from_str_radix(s, radix) {
                     Ok(i) => i,
                     Err(_) => todo!(),
                 };

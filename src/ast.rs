@@ -151,7 +151,7 @@ pub enum Node {
         name: Rc<str>,
     },
     Int {
-        value: i64,
+        value: u64,
     },
     Bool {
         value: bool,
