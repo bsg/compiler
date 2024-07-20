@@ -160,7 +160,7 @@ fn itoa(n: u32, buf: *u8) {
         buf += 1;
         *buf = 0;
     } else {
-        let divisor: u32 = 1000000000;
+        let divisor = 1000000000;
 
         while n / divisor == 0 {
             divisor /= 10;
@@ -204,7 +204,7 @@ impl SpriteSheet {
     }
 
     fn drawTile(&self, renderer: *SDL_Renderer, sprite: &Sprite, dstRect: &SDL_Rect) {
-        let srcRect: SDL_Rect = SDL_Rect {
+        let srcRect = SDL_Rect {
             x: sprite.tile_x * self.tileSize,
             y: sprite.tile_y * self.tileSize,
             w: sprite.tile_w * self.tileSize,
@@ -292,15 +292,14 @@ impl EntityList<T> {
     }
 
     fn spawn(&self, entity: &T) -> u32 {
-        let idx: u32 = 0;
+        let idx = 0;
         if self.len < self.cap {
             idx = self.len;
             self.len += 1;
         } else {
-            let run: bool = true; // TODO we have no 'break' yet lmao
+            let run = true; // TODO we have no 'break' yet lmao
             while idx < self.len && run {
-                let b: &T = self.get(idx);
-                if !b.is_alive {
+                if !self.get(idx).is_alive {
                     run = false;
                 } else {
                     idx += 1;
@@ -321,9 +320,9 @@ impl EntityList<T> {
 
     // TODO be nice if ctx here was generic
     fn for_each(&self, f: fn(u32, &GameContext, &T) -> void, ctx: &GameContext) {
-        let i: u32 = 0;
+        let i = 0;
         while i < self.len {
-            let entity: &T = self.get(i);
+            let entity = self.get(i);
             if entity.is_alive {
                 f(i, ctx, entity);
             }
@@ -358,7 +357,7 @@ const BULLET_SPEED: u32 = 6;
 
 fn main(argc: u32) -> u32 {
     // TODO spread op
-    let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};
+    let ctx = GameContext {window_w: 400, window_h: 600, score: 0};
 
     if SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 {
         abort(SDL_GetError());
@@ -376,7 +375,7 @@ fn main(argc: u32) -> u32 {
         abort(SDL_GetError());
     }
 
-    let window: *SDL_Window = SDL_CreateWindow("gaem", 800, 400, ctx.window_w, ctx.window_h, 4);
+    let window = SDL_CreateWindow("gaem", 800, 400, ctx.window_w, ctx.window_h, 4);
     if window == nullptr {
         abort(SDL_GetError());
     }
@@ -386,17 +385,17 @@ fn main(argc: u32) -> u32 {
         abort(SDL_GetError());
     }
 
-    let surface: *SDL_Surface = SDL_GetWindowSurface(window);
+    let surface = SDL_GetWindowSurface(window);
     if surface == nullptr {
         abort(SDL_GetError());
     }
 
-    let img: *SDL_Surface = IMG_Load("spritesheet.png");
+    let img = IMG_Load("spritesheet.png");
     if img == nullptr {
         abort(SDL_GetError());
     }
 
-    let texSpritesheet: *SDL_Texture = SDL_CreateTextureFromSurface(ctx.renderer, img);
+    let texSpritesheet = SDL_CreateTextureFromSurface(ctx.renderer, img);
     SDL_FreeSurface(img);
     if texSpritesheet == nullptr {
         abort(SDL_GetError());
@@ -419,7 +418,7 @@ fn main(argc: u32) -> u32 {
         abort(SDL_GetError());
     }
 
-    let player: Player = Player {
+    let player = Player {
         sprite: Sprite {tile_x: 0, tile_y: 0, tile_w: 1, tile_h: 1},
         w: 32,
         h: 32,
@@ -441,7 +440,7 @@ fn main(argc: u32) -> u32 {
     ctx.particle_spawn_cooldown = 10;
     ctx.particle_spawn_ticks_left = 0;
 
-    let input: InputState = InputState::new();
+    let input = InputState::new();
 
     while true {
         let ev: SDL_Event;
@@ -482,7 +481,7 @@ fn main(argc: u32) -> u32 {
             player.shootTicksLeft -= 1;
         } else {
             if input.shoot {
-                let bullet: Bullet = Bullet {is_alive: true, pos: Pos {x: player.pos.x, y: player.pos.y - 20}};
+                let bullet = Bullet {is_alive: true, pos: Pos {x: player.pos.x, y: player.pos.y - 20}};
                 ctx.bullets.spawn(&bullet);
                 player.shootTicksLeft = player.shootCooldown;
                 Mix_PlayChannel(-1, ctx.sfx_pew, 0);
@@ -490,9 +489,9 @@ fn main(argc: u32) -> u32 {
         }
 
         if ctx.enemy_spawn_ticks_left == 0 {
-            let margin_x: u32 = 10;
-            let x: u32 = rand_range(margin_x, ctx.window_w - 32 - margin_x);
-            let enemy: Enemy = Enemy {is_alive: true, pos: Pos {x: x, y: 0}};
+            let margin_x = 10;
+            let x = rand_range(margin_x, ctx.window_w - 32 - margin_x);
+            let enemy = Enemy {is_alive: true, pos: Pos {x: x, y: 0}};
             ctx.enemies.spawn(&enemy);
             ctx.enemy_spawn_ticks_left = rand_range(ctx.enemy_spawn_cooldown - 20, ctx.enemy_spawn_cooldown + 20);
         } else {
@@ -500,8 +499,8 @@ fn main(argc: u32) -> u32 {
         }
 
         if ctx.particle_spawn_ticks_left == 0 {
-            let x: u32 = rand_range(0, ctx.window_w - 32);
-            let particle: Particle = Particle {is_alive: true, pos: Pos {x: x, y: 0}, speed: rand_range(4, 8)};
+            let x = rand_range(0, ctx.window_w - 32);
+            let particle = Particle {is_alive: true, pos: Pos {x: x, y: 0}, speed: rand_range(4, 8)};
             // ctx.particles.spawn(&enemy); how the fuck is 'enemy' in scope? -- impl proper block scope
             ctx.particles.spawn(&particle);
             ctx.particle_spawn_ticks_left = ctx.particle_spawn_cooldown;
@@ -543,7 +542,7 @@ fn main(argc: u32) -> u32 {
         let w: u32;
         let h: u32;
         SDL_QueryTexture(tex_score, nullptr, nullptr, &w, &h);
-        let rect: SDL_Rect = SDL_Rect {x: ctx.window_w / 2 - w / 2, y: 10, w: w, h: h};
+        let rect = SDL_Rect {x: ctx.window_w / 2 - w / 2, y: 10, w: w, h: h};
         SDL_RenderCopy(ctx.renderer, tex_score, nullptr, &rect);
         SDL_FreeSurface(surface_text);
         SDL_DestroyTexture(tex_score);
@@ -564,11 +563,12 @@ fn aabb(a: &SDL_Rect, b: &SDL_Rect) -> bool {
 }
 
 fn update_and_render_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
-    let sprite: Sprite = Sprite {tile_x: 3, tile_y: 0, tile_w: 1, tile_h: 1};
+    let sprite = Sprite {tile_x: 3, tile_y: 0, tile_w: 1, tile_h: 1};
 
     // TODO closures would be nice for this kinda stuff
     let bullet_idx: u32 = 0;
     while bullet_idx < ctx.bullets.len {
+        // TODO removing the type annotation raises unresolved type
         let bullet: &Bullet = ctx.bullets.get(bullet_idx);
         if bullet.is_alive {  
             if aabb(
@@ -594,7 +594,7 @@ fn update_and_render_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
 }
 
 fn update_and_render_bullet(idx: u32, ctx: &GameContext, bullet: &Bullet) {
-    let sprite: Sprite = Sprite {tile_x: 2, tile_y: 0, tile_w: 1, tile_h: 1};
+    let sprite = Sprite {tile_x: 2, tile_y: 0, tile_w: 1, tile_h: 1};
 
     ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
 

@@ -235,7 +235,7 @@ impl Type {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Var {
     val: LLVMValueRef,
     ty: Type,
@@ -591,7 +591,7 @@ pub struct ImplEnv {
 pub struct Env {
     parent: Option<Rc<Env>>,
     vars: UnsafeCell<HashMap<String, Var>>,
-    funcs: UnsafeCell<HashMap<String, Func>>,
+    funcs: UnsafeCell<HashMap<String, Rc<Func>>>,
 }
 
 impl Env {
@@ -645,12 +645,12 @@ impl Env {
     }
 
     pub fn insert_func(&self, ident: &str, func: Func) {
-        (unsafe { &mut *self.funcs.get() }).insert(ident.to_string(), func);
+        (unsafe { &mut *self.funcs.get() }).insert(ident.to_string(), func.into());
     }
 
-    pub fn get_func(&self, ident: &str) -> Option<&Func> {
+    pub fn get_func(&self, ident: &str) -> Option<Rc<Func>> {
         match (unsafe { &*self.funcs.get() }).get(ident) {
-            v @ Some(_) => v,
+            v @ Some(_) => v.cloned(),
             None => {
                 if let Some(parent) = &self.parent {
                     parent.get_func(ident)
@@ -663,6 +663,7 @@ impl Env {
 }
 
 // TODO rename
+#[derive(Clone)]
 struct Val {
     ty: Type, // TODO this needs to be type name?
     llvm_val: LLVMValueRef,
@@ -1614,33 +1615,49 @@ impl ModuleBuilder {
             Node::Let { ty, lhs, rhs } => unsafe {
                 // TODO alloca the var and let assign do the rest?
                 if let Node::Ident { name } = &**lhs {
-                    let ty = match type_env.get_type_by_name(ty) {
-                        Some(t) => t,
-                        None => panic!("unknown type {}", ty),
+                    let var_ty = if let Some(ty) = ty {
+                        match type_env.get_type_by_name(ty) {
+                            t @ Some(_) => t,
+                            None => panic!("unknown type {}", ty),
+                        }
+                    } else {
+                        None
                     };
 
                     let func = self.env.get_func(&self.current_func_ident.clone().unwrap());
-
                     let bb_current = LLVMGetInsertBlock(self.builder);
 
-                    LLVMPositionBuilderAtEnd(self.builder, func.unwrap().bb_entry.unwrap());
+                    let rhs_val = rhs.as_ref().map(|rhs| {
+                        self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false)
+                    });
 
-                    let llvm_ty = if let Type::Fn { .. } = ty {
-                        LLVMPointerType(ty.llvm_type(type_env.clone()), 0) // TODO Type::llvm_ptr_type()
+                    // TODO type inference stuff
+                    let ty = match (var_ty, rhs_val.clone()) {
+                        (Some(t1), Some(..)) => {
+                            // assert_eq!(*t1, val.ty); // TODO Eq for types
+                            t1.clone()
+                        }
+                        (Some(t), None) => t.clone(),
+                        (None, Some(val)) => val.ty.clone(),
+                        (None, None) => {
+                            panic!("cannot infer type for let");
+                        }
+                    };
+
+                    let llvm_ty = if let t @ Type::Fn { .. } = ty.clone() {
+                        LLVMPointerType(t.llvm_type(type_env.clone()), 0) // TODO Type::llvm_ptr_type()
                     } else {
                         ty.llvm_type(type_env.clone())
                     };
 
+                    LLVMPositionBuilderAtEnd(self.builder, func.unwrap().bb_entry.unwrap());
                     let reg = LLVMBuildAlloca(self.builder, llvm_ty, "".to_cstring().as_ptr());
-
                     LLVMPositionBuilderAtEnd(self.builder, bb_current);
 
-                    env.insert_var(name, reg, ty.clone());
+                    env.insert_var(name, reg, ty);
 
-                    if let Some(rhs) = rhs {
-                        let rhs =
-                            self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                        LLVMBuildStore(self.builder, rhs.llvm_val, reg);
+                    if let Some(val) = rhs_val {
+                        LLVMBuildStore(self.builder, val.llvm_val, reg);
                     };
 
                     // TODO llvm_val or val should be optional
@@ -1978,6 +1995,8 @@ impl ModuleBuilder {
             match &**node {
                 Node::Const { ty, lhs, rhs } => {
                     if let Node::Ident { name } = &**lhs {
+                        let ty = if let Some(ty) = ty { ty } else { todo!() };
+
                         let ty = match self.type_env.get_type_by_name(ty) {
                             Some(t) => t,
                             None => panic!("unknown type {}", ty),

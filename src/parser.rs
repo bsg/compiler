@@ -474,14 +474,16 @@ impl Parser {
         };
 
         self.next_token();
-        assert_eq!(Token::Colon, self.curr_token);
-        self.next_token();
-
-        let ty = if let Some(ty) = self.parse_type() {
+        let ty = if self.curr_token == Token::Colon {
             self.next_token();
-            ty
+            if let Some(ty) = self.parse_type() {
+                self.next_token();
+                Some(ty)
+            } else {
+                todo!()
+            }
         } else {
-            todo!()
+            None
         };
 
         let rhs = match self.curr_token {

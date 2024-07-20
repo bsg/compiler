@@ -30,13 +30,17 @@ impl TypeCollector {
                 }
             }
             Node::Let { ty, rhs, .. } => {
-                self.types.insert((&**ty).into());
+                if let Some(ty) = ty {
+                    self.types.insert((&**ty).into());
+                }
                 if let Some(rhs) = rhs {
                     self.collect_recursively(rhs.clone());
                 }
             }
             Node::Const { ty, rhs, .. } => {
-                self.types.insert((&**ty).into());
+                if let Some(ty) = ty {
+                    self.types.insert((&**ty).into());
+                }
                 if let Some(rhs) = rhs {
                     self.collect_recursively(rhs.clone());
                 }
@@ -80,7 +84,12 @@ impl TypeCollector {
                     self.collect_recursively(arg.clone());
                 }
             }
-            Node::Struct { ident, fields, generics, .. } => {
+            Node::Struct {
+                ident,
+                fields,
+                generics,
+                ..
+            } => {
                 if generics.is_empty() {
                     self.types.insert((&**ident).into());
                     for field in fields.iter() {

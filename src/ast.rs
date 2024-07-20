@@ -172,13 +172,13 @@ pub enum Node {
         rhs: NodeRef,
     },
     Let {
-        ty: Rc<str>,
+        ty: Option<Rc<str>>,
         lhs: NodeRef,
         rhs: Option<NodeRef>,
     },
     // TODO could be merged with let
     Const {
-        ty: Rc<str>,
+        ty: Option<Rc<str>>,
         lhs: NodeRef,
         rhs: Option<NodeRef>,
     },
@@ -273,7 +273,10 @@ impl fmt::Debug for Node {
                 Node::Let { ty, lhs, rhs } => {
                     format!(
                         "let {}{}{}",
-                        ty,
+                        match ty {
+                            Some(ty) => ty,
+                            None => "",
+                        },
                         fmt_with_indent(lhs, indent_level + 1, true),
                         if rhs.is_some() {
                             fmt_with_indent(rhs.as_ref().unwrap(), indent_level + 1, true)
@@ -285,7 +288,10 @@ impl fmt::Debug for Node {
                 Node::Const { ty, lhs, rhs } => {
                     format!(
                         "const {}{}{}",
-                        ty,
+                        match ty {
+                            Some(ty) => ty,
+                            None => "",
+                        },
                         fmt_with_indent(lhs, indent_level + 1, true),
                         if rhs.is_some() {
                             fmt_with_indent(rhs.as_ref().unwrap(), indent_level + 1, true)
