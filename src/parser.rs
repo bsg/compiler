@@ -590,7 +590,16 @@ impl Parser {
         let mut lhs = match &self.curr_token {
             Token::NullPtr => Rc::new(Node::NullPtr),
             Token::Int(s) => {
-                let value = match s.parse() {
+                let mut radix = 10;
+
+                let s = if let Some(s) = s.strip_prefix("0x") {
+                    radix = 16;
+                    s
+                } else {
+                    &**s
+                };
+
+                let value = match i64::from_str_radix(s, radix) {
                     Ok(i) => i,
                     Err(_) => todo!(),
                 };

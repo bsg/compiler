@@ -49,9 +49,9 @@ const SDL_SCANCODE_BACKSPACE: u32 = 42;
 const SDL_SCANCODE_TAB:       u32 = 43;
 const SDL_SCANCODE_SPACE:     u32 = 44;
 
-const SDL_QUIT:               u32 = 256;
-const SDL_KEYDOWN:            u32 = 768;
-const SDL_KEYUP:              u32 = 769;
+const SDL_QUIT:               u32 = 0x100;
+const SDL_KEYDOWN:            u32 = 0x300;
+const SDL_KEYUP:              u32 = 0x301;
 
 struct SDL_Keysym {
     scancode: u32;
@@ -553,7 +553,7 @@ fn main(argc: u32) -> u32 {
         let buf: [u8; 16];
         let pBuf: *u8 = &buf;
         itoa(ctx.score, pBuf);
-        let surface_text: *SDL_Surface = TTF_RenderText_Solid(ctx.font, pBuf, 4294967295);
+        let surface_text: *SDL_Surface = TTF_RenderText_Solid(ctx.font, pBuf, 0xFFFFFFFF);
         let tex_score: *SDL_Texture = SDL_CreateTextureFromSurface(ctx.renderer, surface_text);
         let w: u32;
         let h: u32;

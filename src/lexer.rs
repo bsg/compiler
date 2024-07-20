@@ -126,7 +126,7 @@ impl Tokens {
     fn read_number(&mut self) -> Rc<str> {
         let pos_start = self.position;
 
-        while let Some(b'0'..=b'9') = self.ch {
+        while let Some(b'0'..=b'9' | b'x' | b'a'..=b'f' | b'A'..=b'F') = self.ch {
             self.read_char();
         }
 
