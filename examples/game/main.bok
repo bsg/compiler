@@ -191,24 +191,24 @@ struct Sprite {
 }
 
 struct SpriteSheet {
-    tileSize: u32;
+    tile_size: u32;
     tex: *SDL_Texture;
 }
 
 impl SpriteSheet {
-    fn new(tileSize: u32, tex: *SDL_Texture) -> Self {
+    fn new(tile_size: u32, tex: *SDL_Texture) -> Self {
         let spritesheet: SpriteSheet;
-        spritesheet.tileSize = tileSize;
+        spritesheet.tile_size = tile_size;
         spritesheet.tex = tex;
         return spritesheet;
     }
 
-    fn drawTile(&self, renderer: *SDL_Renderer, sprite: &Sprite, dstRect: &SDL_Rect) {
+    fn draw_tile(&self, renderer: *SDL_Renderer, sprite: &Sprite, dstRect: &SDL_Rect) {
         let srcRect = SDL_Rect {
-            x: sprite.tile_x * self.tileSize,
-            y: sprite.tile_y * self.tileSize,
-            w: sprite.tile_w * self.tileSize,
-            h: sprite.tile_h * self.tileSize
+            x: sprite.tile_x * self.tile_size,
+            y: sprite.tile_y * self.tile_size,
+            w: sprite.tile_w * self.tile_size,
+            h: sprite.tile_h * self.tile_size
         };
 
         if SDL_RenderCopy(renderer, self.tex, &srcRect, dstRect) < 0 {
@@ -243,10 +243,10 @@ struct Player {
     w: u32;
     h: u32;
     speed: u32;
-    animState: u32;
-    animTicksLeft: u32;
-    shootCooldown: u32;
-    shootTicksLeft: u32;
+    anim_state: u32;
+    anim_ticks_left: u32;
+    shoot_cooldown: u32;
+    shoot_ticks_left: u32;
 }
 
 struct Bullet {
@@ -423,11 +423,11 @@ fn main(argc: u32) -> u32 {
         w: 32,
         h: 32,
         speed: 3,
-        animState: 0,
-        animTicksLeft: 30,
+        anim_state: 0,
+        anim_ticks_left: 30,
         pos: Pos {x: 200, y: ctx.window_h - 32},
-        shootCooldown: 45,
-        shootTicksLeft: 0
+        shoot_cooldown: 45,
+        shoot_ticks_left: 0
     };
 
     ctx.bullets.init(100);
@@ -477,13 +477,13 @@ fn main(argc: u32) -> u32 {
             player.pos.x += player.speed;
         }
         
-        if player.shootTicksLeft > 0 {
-            player.shootTicksLeft -= 1;
+        if player.shoot_ticks_left > 0 {
+            player.shoot_ticks_left -= 1;
         } else {
             if input.shoot {
                 let bullet = Bullet {is_alive: true, pos: Pos {x: player.pos.x, y: player.pos.y - 20}};
                 ctx.bullets.spawn(&bullet);
-                player.shootTicksLeft = player.shootCooldown;
+                player.shoot_ticks_left = player.shoot_cooldown;
                 Mix_PlayChannel(-1, ctx.sfx_pew, 0);
             } 
         }
@@ -510,20 +510,20 @@ fn main(argc: u32) -> u32 {
 
         SDL_RenderClear(ctx.renderer);
 
-        if player.animTicksLeft == 0 {
-            if player.animState == 0 {
-                player.animState = 1;
+        if player.anim_ticks_left == 0 {
+            if player.anim_state == 0 {
+                player.anim_state = 1;
                 player.sprite.tile_x = 1;
             } else {
-                player.animState = 0;
+                player.anim_state = 0;
                 player.sprite.tile_x = 0;
             }
-            player.animTicksLeft = 30; 
+            player.anim_ticks_left = 30; 
         } else {
-            player.animTicksLeft -= 1;
+            player.anim_ticks_left -= 1;
         }
 
-        ctx.spritesheet.drawTile(
+        ctx.spritesheet.draw_tile(
             ctx.renderer,
             &player.sprite,
             &SDL_Rect {x: player.pos.x, y: player.pos.y, w: player.w, h: player.h}
@@ -590,13 +590,13 @@ fn update_and_render_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
         ctx.enemies.despawn(idx);
     }
 
-    ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32});
+    ctx.spritesheet.draw_tile(ctx.renderer, &sprite, &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32});
 }
 
 fn update_and_render_bullet(idx: u32, ctx: &GameContext, bullet: &Bullet) {
     let sprite = Sprite {tile_x: 2, tile_y: 0, tile_w: 1, tile_h: 1};
 
-    ctx.spritesheet.drawTile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
+    ctx.spritesheet.draw_tile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
 
     bullet.pos.y -= BULLET_SPEED;
     if bullet.pos.y < 0 {
@@ -605,7 +605,7 @@ fn update_and_render_bullet(idx: u32, ctx: &GameContext, bullet: &Bullet) {
 }
 
 fn update_and_render_particle(idx: u32, ctx: &GameContext, particle: &Particle) {
-    ctx.spritesheet.drawTile(
+    ctx.spritesheet.draw_tile(
         ctx.renderer,
         &Sprite {tile_x: 4, tile_y: 0, tile_w: 1, tile_h: 1},
         &SDL_Rect {x: particle.pos.x, y: particle.pos.y, w: 16, h: 16}
