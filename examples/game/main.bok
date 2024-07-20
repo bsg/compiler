@@ -1,12 +1,12 @@
-// TODO camel case vs. snake case
-
 // --------------------------------------------------------------------------------------------------------------------
 // BEGIN BINDINGS
 // --------------------------------------------------------------------------------------------------------------------
 
-const SDL_INIT_VIDEO:         u32 = 32;
-const SDL_INIT_AUDIO:         u32 = 16;
+const SDL_INIT_TIMER:         u32 = 0x00000001;
+const SDL_INIT_AUDIO:         u32 = 0x00000010;
+const SDL_INIT_VIDEO:         u32 = 0x00000020;
 
+// TODO enum
 const SDL_SCANCODE_A:         u32 = 4;
 const SDL_SCANCODE_B:         u32 = 5;
 const SDL_SCANCODE_C:         u32 = 6;
@@ -63,7 +63,7 @@ struct SDL_Keysym {
 struct SDL_KeyboardEvent {
     type: u32;
     timestamp: u32;
-    windowID: u32;
+    window_id: u32;
     state: u8;
     repeat: u8;
     padding2: u8;
