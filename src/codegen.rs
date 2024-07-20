@@ -16,6 +16,7 @@
 // FIXME attributes are fucked
 // TODO explicitly tagged unions, with #[explicitly_tagged] on the union and #[tag=...] on the variant?
 // TODO https://doc.rust-lang.org/reference/expressions/struct-expr.html#functional-update-syntax
+// FIXME assigning a struct to another seems to 'move' it instead of copying it
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -1727,7 +1728,11 @@ impl ModuleBuilder {
                     panic!("while stmt outside fn")
                 }
             },
-            Node::Match { scrutinee, arms } => {
+            Node::Match {
+                scrutinee,
+                arms,
+                num_cases,
+            } => {
                 if let Some(fn_ident) = &self.current_func_ident {
                     let current_func = env.get_func(fn_ident).unwrap();
                     let bb_exit =
@@ -1740,17 +1745,19 @@ impl ModuleBuilder {
                             self.builder,
                             scrutinee_val.llvm_val,
                             bb_exit,
-                            arms.len() as u32,
+                            *num_cases as u32,
                         )
                     };
 
                     for arm in arms.iter() {
-                        let pattern_val = self.build_expr(
-                            env.clone(),
-                            type_env.clone(),
-                            arm.pattern.clone(),
-                            false,
-                        );
+                        let mut pattern_vals: Vec<Val> = Vec::new();
+
+                        for case in arm.pattern.iter() {
+                            let val =
+                                self.build_expr(env.clone(), type_env.clone(), case.clone(), false);
+                            pattern_vals.push(val);
+                        }
+
                         let bb = unsafe {
                             LLVMAppendBasicBlock(current_func.val, "".to_cstring().as_ptr())
                         };
@@ -1761,7 +1768,10 @@ impl ModuleBuilder {
                             self.build_expr(env.clone(), type_env.clone(), arm.stmt.clone(), false);
                         }
                         unsafe { LLVMBuildBr(self.builder, bb_exit) };
-                        unsafe { LLVMAddCase(switch, pattern_val.llvm_val, bb) };
+
+                        for val in pattern_vals {
+                            unsafe { LLVMAddCase(switch, val.llvm_val, bb) };
+                        }
                     }
 
                     unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_exit) };

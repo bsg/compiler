@@ -869,12 +869,32 @@ impl Parser {
                 self.next_token();
 
                 let mut arms: Vec<MatchArm> = Vec::new();
+                let mut num_cases = 0;
 
                 while self.curr_token != Token::RBrace {
                     match self.curr_token {
                         Token::Comma => self.next_token(),
                         _ => {
-                            let pattern = self.parse_statement(false)?;
+                            let mut patterns: Vec<NodeRef> = Vec::new();
+
+                            let mut pattern_node = self.parse_statement(false)?;
+                            loop {
+                                if let Node::BinOp {
+                                    op: Op::BitwiseOr,
+                                    lhs,
+                                    rhs,
+                                } = &*pattern_node
+                                {
+                                    patterns.push(lhs.clone());
+                                    num_cases += 1;
+                                    pattern_node = rhs.clone();
+                                } else {
+                                    patterns.push(pattern_node.clone());
+                                    num_cases += 1;
+                                    break;
+                                };
+                            }
+
                             assert_eq!(Token::FatArrow, self.curr_token);
                             self.next_token();
                             let stmt = if self.curr_token == Token::LBrace {
@@ -882,7 +902,10 @@ impl Parser {
                             } else {
                                 self.parse_statement(false)?
                             };
-                            arms.push(MatchArm { pattern, stmt });
+                            arms.push(MatchArm {
+                                pattern: patterns.into(),
+                                stmt,
+                            });
                         }
                     }
                 }
@@ -892,6 +915,7 @@ impl Parser {
                     Node::Match {
                         scrutinee,
                         arms: arms.as_slice().into(),
+                        num_cases,
                     }
                     .into(),
                 )
@@ -1739,6 +1763,19 @@ block
     while
         true
         block
+"
+        );
+
+        assert_parse!(
+            "{match x {0 | 1 => {}, 3 => {}}}",
+            "\
+block
+    match ident x
+        case 0
+        case 1
+            block
+        case 3
+            block
 "
         );
     }

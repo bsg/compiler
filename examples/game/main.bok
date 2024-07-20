@@ -450,28 +450,18 @@ fn main(argc: u32) -> u32 {
         while SDL_PollEvent(&ev) == 1 {
             match ev.type {
                 SDL_QUIT => exit(0),
-                // TODO SDL_KEYDOWN | SDL_KEYUP
-                SDL_KEYDOWN => {
-                    kb_event = ev; // FIXME this 'moves' ev where it should be copying it
+                SDL_KEYDOWN | SDL_KEYUP => {
+                    //kb_event = ev; // FIXME this 'moves' ev where it should be copying it
+                    memcpy(&kb_event, &ev, 30);
                     match kb_event.keysym.scancode {
                         SDL_SCANCODE_ESCAPE => exit(0),
-                        SDL_SCANCODE_W      => input.up    = true,
-                        SDL_SCANCODE_A      => input.left  = true,
-                        SDL_SCANCODE_S      => input.down  = true,
-                        SDL_SCANCODE_D      => input.right = true,
-                        SDL_SCANCODE_SPACE  => input.shoot = true
+                        SDL_SCANCODE_W      => input.up    = ev.type == SDL_KEYDOWN,
+                        SDL_SCANCODE_A      => input.left  = ev.type == SDL_KEYDOWN,
+                        SDL_SCANCODE_S      => input.down  = ev.type == SDL_KEYDOWN,
+                        SDL_SCANCODE_D      => input.right = ev.type == SDL_KEYDOWN,
+                        SDL_SCANCODE_SPACE  => input.shoot = ev.type == SDL_KEYDOWN
                     }
                 },
-                SDL_KEYUP => {
-                    kb_event = ev;
-                    match kb_event.keysym.scancode {
-                        SDL_SCANCODE_W      => input.up    = false,
-                        SDL_SCANCODE_A      => input.left  = false,
-                        SDL_SCANCODE_S      => input.down  = false,
-                        SDL_SCANCODE_D      => input.right = false,
-                        SDL_SCANCODE_SPACE  => input.shoot = false
-                    }
-                }
             }
         }
         

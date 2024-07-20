@@ -140,7 +140,7 @@ pub struct StructLiteralField {
 
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct MatchArm {
-    pub pattern: NodeRef,
+    pub pattern: Rc<[NodeRef]>,
     pub stmt: NodeRef, // TODO rename to expr and treat this as such when we have block exprs
 }
 
@@ -235,6 +235,7 @@ pub enum Node {
     Match {
         scrutinee: NodeRef,
         arms: Rc<[MatchArm]>,
+        num_cases: usize,
     },
 }
 
@@ -467,14 +468,28 @@ impl fmt::Debug for Node {
                         format!("extern {}", fmt_with_indent(block, indent_level + 1, true))
                     }
                 }
-                Node::Match { scrutinee, arms } => {
+                Node::Match {
+                    scrutinee, arms, ..
+                } => {
+                    // FIXME awful
                     let arms_formatted = arms
                         .iter()
                         .map(|arm| {
+                            let pattern_formatted = arm
+                                .pattern
+                                .iter()
+                                .map(|pattern| {
+                                    format!(
+                                        "\n{}case {}",
+                                        "    ".repeat(indent_level + 1),
+                                        fmt_with_indent(pattern, 0, false)
+                                    )
+                                })
+                                .collect::<Vec<String>>()
+                                .join("");
                             format!(
-                                "\n{}case {}{}",
-                                "    ".repeat(indent_level + 1),
-                                fmt_with_indent(&arm.pattern, 0, false),
+                                "{}{}",
+                                pattern_formatted,
                                 fmt_with_indent(&arm.stmt, indent_level + 2, true)
                             )
                         })
