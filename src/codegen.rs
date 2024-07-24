@@ -1105,7 +1105,7 @@ impl ModuleBuilder {
                             NodeKind::Ident { name } => {
                                 let field_idx = match field_indices.get(&**name) {
                                     Some(idx) => idx,
-                                    None => panic!("no member {}\n{}", name, op_span),
+                                    None => panic!("{}\nno member {}", op_span, name),
                                 };
                                 let field_ty = if let Some(ty) =
                                     type_env.get_type_by_name(&field_type_names[*field_idx])
