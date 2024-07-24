@@ -1,12 +1,14 @@
 // TODO we need a ParseResult -- do we? why not just panic?
 // TODO .eat(...) with assert
+// TODO do not clone fucking tokens
+// TODO spans for ops should only span the op token and not the entire expr
 
 use std::rc::Rc;
 
 use peekmore::{PeekMore, PeekMoreIterator};
 
 use crate::ast::*;
-use crate::lexer::{Lexer, Token, Tokens};
+use crate::lexer::{Lexer, Token, TokenKind, Tokens};
 
 pub struct Parser {
     tokens: PeekMoreIterator<Tokens>,
@@ -21,34 +23,34 @@ impl Parser {
     pub fn new(input: &str) -> Parser {
         Parser {
             tokens: Lexer::new(input).tokens().peekmore(),
-            curr_token: Token::None,
-            peek_token: Token::None,
-            peek_token2: Token::None,
-            peek_token3: Token::None,
+            curr_token: Token::none(),
+            peek_token: Token::none(),
+            peek_token2: Token::none(),
+            peek_token3: Token::none(),
         }
     }
 
     // FIXME FUCKING FIX THE NEXT/PEEK SITUATION
     fn next_token(&mut self) {
-        self.curr_token = self.tokens.next().unwrap_or(Token::None);
-        self.peek_token = self.tokens.peek().cloned().unwrap_or(Token::None);
+        self.curr_token = self.tokens.next().unwrap_or(Token::none());
+        self.peek_token = self.tokens.peek().cloned().unwrap_or(Token::none());
         self.tokens.advance_cursor();
-        self.peek_token2 = self.tokens.peek().cloned().unwrap_or(Token::None);
+        self.peek_token2 = self.tokens.peek().cloned().unwrap_or(Token::none());
         self.tokens.advance_cursor();
-        self.peek_token3 = self.tokens.peek().cloned().unwrap_or(Token::None);
+        self.peek_token3 = self.tokens.peek().cloned().unwrap_or(Token::none());
         self.tokens.reset_cursor();
     }
 
     // TODO this is fucked
     fn parse_type(&mut self) -> Option<Rc<str>> {
-        let ty = match self.curr_token.clone() {
-            Token::Ident(ident) => {
-                if self.peek_token == Token::Lt {
+        let ty = match self.curr_token.clone().kind {
+            TokenKind::Ident(ident) => {
+                if self.peek_token.kind == TokenKind::Lt {
                     self.next_token();
                     self.next_token();
 
                     let mut generics: Vec<Rc<str>> = Vec::new();
-                    while self.curr_token != Token::Gt {
+                    while self.curr_token.kind != TokenKind::Gt {
                         if let Some(ty_ident) = &self.parse_type() {
                             generics.push(ty_ident.clone());
                         } else {
@@ -62,34 +64,34 @@ impl Parser {
                     Some(ident)
                 }
             }
-            Token::Star => {
+            TokenKind::Star => {
                 self.next_token();
                 Some(("*".to_owned() + &self.parse_type().unwrap()).into())
             }
-            Token::Amp => {
+            TokenKind::Amp => {
                 self.next_token();
                 Some(("&".to_owned() + &self.parse_type().unwrap()).into())
             }
-            Token::LBracket => {
+            TokenKind::LBracket => {
                 self.next_token();
-                let ty = match self.curr_token.clone() {
-                    Token::Ident(ty) => Some(ty),
-                    Token::LBracket => self.parse_type(),
+                let ty = match self.curr_token.clone().kind {
+                    TokenKind::Ident(ty) => Some(ty),
+                    TokenKind::LBracket => self.parse_type(),
                     _ => todo!(),
                 };
 
                 if let Some(ty) = ty {
-                    if self.peek_token == Token::Semicolon {
+                    if self.peek_token.kind == TokenKind::Semicolon {
                         self.next_token();
                         self.next_token();
-                        if let Token::Int(len) = &self.curr_token.clone() {
+                        if let TokenKind::Int(len) = &self.curr_token.clone().kind {
                             self.next_token();
-                            assert_eq!(Token::RBracket, self.curr_token);
+                            assert_eq!(TokenKind::RBracket, self.curr_token.kind);
                             Some(format!("[{}; {}]", ty, len).as_str().into())
                         } else {
                             todo!()
                         }
-                    } else if self.peek_token == Token::RBracket {
+                    } else if self.peek_token.kind == TokenKind::RBracket {
                         Some(format!("[{}]", ty).as_str().into())
                     } else {
                         todo!()
@@ -98,8 +100,8 @@ impl Parser {
                     todo!()
                 }
             }
-            Token::Fn => {
-                if self.peek_token != Token::LParen {
+            TokenKind::Fn => {
+                if self.peek_token.kind != TokenKind::LParen {
                     todo!()
                 };
                 self.next_token();
@@ -108,10 +110,10 @@ impl Parser {
                 let mut args: Vec<String> = Vec::new();
 
                 // TODO assert commas... this is also lacking in some other places
-                while self.curr_token != Token::RParen {
-                    match &self.curr_token {
-                        Token::Comma => self.next_token(),
-                        Token::RParen => break,
+                while self.curr_token.kind != TokenKind::RParen {
+                    match &self.curr_token.kind {
+                        TokenKind::Comma => self.next_token(),
+                        TokenKind::RParen => break,
                         _ => {
                             if let Some(ty) = self.parse_type() {
                                 args.push(ty.to_string());
@@ -122,7 +124,7 @@ impl Parser {
                 }
 
                 self.next_token(); // eat RParen
-                assert_eq!(Token::Arrow, self.curr_token);
+                assert_eq!(TokenKind::Arrow, self.curr_token.kind);
                 self.next_token();
 
                 let ret_ty = if let Some(ty) = self.parse_type() {
@@ -143,20 +145,25 @@ impl Parser {
     fn parse_block(&mut self) -> Option<NodeRef> {
         let mut statements: Vec<NodeRef> = Vec::new();
 
-        match self.curr_token {
-            Token::LBrace => {
+        match self.curr_token.kind {
+            TokenKind::LBrace => {
+                let start_span = self.curr_token.span.clone();
                 self.next_token();
-                while self.curr_token != Token::RBrace {
+                while self.curr_token.kind != TokenKind::RBrace {
                     if let Some(stmt) = self.parse_statement(true) {
                         statements.push(stmt.clone());
                     }
                 }
-                assert_eq!(Token::RBrace, self.curr_token);
+                assert_eq!(TokenKind::RBrace, self.curr_token.kind);
+                let end_span = self.curr_token.span.clone();
                 self.next_token();
 
                 Some(
-                    Node::Block {
-                        statements: Rc::from(statements.as_slice()),
+                    Node {
+                        kind: NodeKind::Block {
+                            statements: Rc::from(statements.as_slice()),
+                        },
+                        span: start_span.merge(&end_span),
                     }
                     .into(),
                 )
@@ -167,29 +174,34 @@ impl Parser {
 
     /// caller must ensure current token is If
     fn parse_if(&mut self) -> Option<NodeRef> {
-        assert_eq!(Token::If, self.curr_token);
+        assert_eq!(TokenKind::If, self.curr_token.kind);
+        let start_span = self.curr_token.span.clone();
         self.next_token();
 
         match self.parse_expression(0) {
             Some(cond) => {
                 self.next_token();
-                assert_eq!(Token::LBrace, self.curr_token);
+                assert_eq!(TokenKind::LBrace, self.curr_token.kind);
                 let then_block = self.parse_block();
 
-                let else_block = if self.curr_token == Token::Else {
+                let else_block = if self.curr_token.kind == TokenKind::Else {
                     self.next_token();
-                    assert_eq!(Token::LBrace, self.curr_token);
+                    assert_eq!(TokenKind::LBrace, self.curr_token.kind);
                     self.parse_block()
                 } else {
                     None
                 };
+                let end_span = self.curr_token.span.clone();
 
                 match then_block {
                     Some(then_blk) => Some(
-                        Node::If {
-                            condition: cond,
-                            then_block: then_blk,
-                            else_block,
+                        Node {
+                            kind: NodeKind::If {
+                                condition: cond,
+                                then_block: then_blk,
+                                else_block,
+                            },
+                            span: start_span.merge(&end_span),
                         }
                         .into(),
                     ),
@@ -202,20 +214,25 @@ impl Parser {
 
     /// caller must ensure current token is While
     fn parse_while(&mut self) -> Option<NodeRef> {
-        assert_eq!(Token::While, self.curr_token);
+        assert_eq!(TokenKind::While, self.curr_token.kind);
+        let start_span = self.curr_token.span.clone();
 
         self.next_token();
         match self.parse_expression(0) {
             Some(cond) => {
                 self.next_token();
-                assert_eq!(Token::LBrace, self.curr_token);
+                assert_eq!(TokenKind::LBrace, self.curr_token.kind);
                 let body = self.parse_block();
+                let end_span = self.curr_token.span.clone();
 
                 match body {
                     Some(while_body) => Some(
-                        Node::While {
-                            condition: cond,
-                            body: while_body,
+                        Node {
+                            kind: NodeKind::While {
+                                condition: cond,
+                                body: while_body,
+                            },
+                            span: start_span.merge(&end_span),
                         }
                         .into(),
                     ),
@@ -231,24 +248,25 @@ impl Parser {
     fn parse_fn(&mut self, is_extern: bool, linkage: Option<Rc<str>>) -> Option<NodeRef> {
         let mut args: Vec<Arg> = Vec::new();
 
-        assert_eq!(Token::Fn, self.curr_token);
+        assert_eq!(TokenKind::Fn, self.curr_token.kind);
+        let start_span = self.curr_token.span.clone();
         self.next_token();
 
-        if let Token::Ident(ident) = &self.curr_token.clone() {
+        if let TokenKind::Ident(ident) = &self.curr_token.clone().kind {
             self.next_token();
-            assert_eq!(self.curr_token, Token::LParen);
+            assert_eq!(self.curr_token.kind, TokenKind::LParen);
             self.next_token();
 
             loop {
-                match &self.curr_token.clone() {
-                    Token::Ident(arg_ident) => {
+                match &self.curr_token.clone().kind {
+                    TokenKind::Ident(arg_ident) => {
                         if &**arg_ident == "self" {
                             args.push(Arg::SelfVal);
 
                             self.next_token();
                         } else {
                             self.next_token();
-                            assert_eq!(Token::Colon, self.curr_token);
+                            assert_eq!(TokenKind::Colon, self.curr_token.kind);
                             self.next_token();
 
                             if let Some(ty) = self.parse_type() {
@@ -261,8 +279,8 @@ impl Parser {
                             }
                         }
                     }
-                    Token::Amp => {
-                        if let Token::Ident(ident) = &self.peek_token {
+                    TokenKind::Amp => {
+                        if let TokenKind::Ident(ident) = &self.peek_token.kind {
                             if &**ident == "self" {
                                 args.push(Arg::SelfRef);
                             } else {
@@ -272,40 +290,45 @@ impl Parser {
                             self.next_token();
                         }
                     }
-                    Token::Comma => (),
+                    TokenKind::Comma => (),
                     _ => break,
                 }
                 self.next_token();
             }
 
-            assert_eq!(Token::RParen, self.curr_token);
+            assert_eq!(TokenKind::RParen, self.curr_token.kind);
             self.next_token();
 
-            let return_type = match self.curr_token {
-                Token::Arrow => {
+            let return_type = match self.curr_token.kind {
+                TokenKind::Arrow => {
                     self.next_token();
                     let t = self.parse_type().unwrap();
                     self.next_token();
                     t
                 }
-                Token::LBrace | Token::Semicolon => "void".into(),
+                TokenKind::LBrace | TokenKind::Semicolon => "void".into(),
                 _ => todo!(),
             };
 
-            let body = if self.curr_token == Token::LBrace {
+            let body = if self.curr_token.kind == TokenKind::LBrace {
                 self.parse_block()
             } else {
                 None
             };
 
+            let end_span = self.curr_token.span.clone();
+
             Some(
-                Node::Fn {
-                    ident: ident.clone(),
-                    args: Rc::from(args.as_slice()),
-                    ret_ty: return_type.clone(),
-                    is_extern,
-                    linkage,
-                    body,
+                Node {
+                    kind: NodeKind::Fn {
+                        ident: ident.clone(),
+                        args: Rc::from(args.as_slice()),
+                        ret_ty: return_type.clone(),
+                        is_extern,
+                        linkage,
+                        body,
+                    },
+                    span: start_span.merge(&end_span),
                 }
                 .into(),
             )
@@ -315,22 +338,23 @@ impl Parser {
     }
 
     fn parse_call(&mut self, lhs: NodeRef) -> Option<NodeRef> {
-        assert_eq!(Token::LParen, self.curr_token);
+        assert_eq!(TokenKind::LParen, self.curr_token.kind);
+        let start_span = self.curr_token.span.clone();
         self.next_token();
 
         let mut args: Vec<NodeRef> = Vec::new();
 
-        let ident = match &*lhs {
-            Node::Ident { name } => name.clone(),
+        let ident = match &lhs.kind {
+            NodeKind::Ident { name } => name.clone(),
             _ => todo!(),
         };
 
-        if self.curr_token != Token::RParen {
+        if self.curr_token.kind != TokenKind::RParen {
             while let Some(node) = self.parse_expression(0) {
                 self.next_token();
                 args.push(node);
-                match self.curr_token {
-                    Token::Comma => {
+                match self.curr_token.kind {
+                    TokenKind::Comma => {
                         self.next_token();
                     }
                     _ => break,
@@ -338,29 +362,42 @@ impl Parser {
             }
         }
 
-        assert_eq!(Token::RParen, self.curr_token);
+        assert_eq!(TokenKind::RParen, self.curr_token.kind);
+        let end_span = self.curr_token.span.clone();
 
         Some(
-            Node::Call {
-                ident,
-                args: Rc::from(args.as_slice()),
+            Node {
+                kind: NodeKind::Call {
+                    ident,
+                    args: Rc::from(args.as_slice()),
+                },
+                span: start_span.merge(&end_span),
             }
             .into(),
         )
     }
 
     fn parse_index(&mut self, lhs: NodeRef) -> Option<NodeRef> {
-        assert_eq!(self.curr_token, Token::LBracket);
+        assert_eq!(self.curr_token.kind, TokenKind::LBracket);
         self.next_token();
+
+        // TODO lhs could be on a previous line, maybe have separate spans for the token and the containing stmt?
+        let start_span = lhs.span.clone();
+
         let rhs = self.parse_expression(0)?;
+
         self.next_token();
-        assert_eq!(self.curr_token, Token::RBracket);
+        assert_eq!(self.curr_token.kind, TokenKind::RBracket);
+        let end_span = self.curr_token.span.clone();
 
         Some(
-            Node::BinOp {
-                op: Op::Index,
-                lhs,
-                rhs,
+            Node {
+                kind: NodeKind::BinOp {
+                    op: Op::Index,
+                    lhs,
+                    rhs,
+                },
+                span: start_span.merge(&end_span),
             }
             .into(),
         )
@@ -370,20 +407,25 @@ impl Parser {
         let mut fields: Vec<StructField> = Vec::new();
         let mut generics: Vec<Rc<str>> = Vec::new();
 
-        assert_eq!(Token::Struct, self.curr_token);
+        assert_eq!(TokenKind::Struct, self.curr_token.kind);
+        let start_span = self.curr_token.span.clone();
         self.next_token();
 
-        if let Token::Ident(ident) = &self.curr_token.clone() {
+        if let TokenKind::Ident(ident) = &self.curr_token.clone().kind {
             self.next_token();
-            match self.curr_token {
-                Token::LBrace => self.next_token(),
-                Token::Lt => {
+            match self.curr_token.kind {
+                TokenKind::LBrace => self.next_token(),
+                TokenKind::Lt => {
                     self.next_token();
-                    while self.curr_token != Token::Gt {
-                        if let Some(Node::Ident { name }) = self.parse_ident().as_deref() {
+                    while self.curr_token.kind != TokenKind::Gt {
+                        if let Some(Node {
+                            kind: NodeKind::Ident { name },
+                            ..
+                        }) = self.parse_ident().as_deref()
+                        {
                             generics.push(name.clone());
                             self.next_token();
-                            if let Token::Comma = self.curr_token {
+                            if let TokenKind::Comma = self.curr_token.kind {
                                 self.next_token();
                             }
                         } else {
@@ -397,10 +439,10 @@ impl Parser {
             }
 
             loop {
-                match &self.curr_token.clone() {
-                    Token::Ident(arg_ident) => {
+                match &self.curr_token.clone().kind {
+                    TokenKind::Ident(arg_ident) => {
                         self.next_token();
-                        assert_eq!(Token::Colon, self.curr_token);
+                        assert_eq!(TokenKind::Colon, self.curr_token.kind);
                         self.next_token();
 
                         if let Some(ty) = self.parse_type() {
@@ -413,23 +455,27 @@ impl Parser {
                         }
 
                         self.next_token();
-                        assert_eq!(Token::Semicolon, self.curr_token);
+                        assert_eq!(TokenKind::Semicolon, self.curr_token.kind);
                         self.next_token();
                     }
-                    Token::RBrace => break,
+                    TokenKind::RBrace => break,
                     _ => todo!(),
                 }
             }
 
-            assert_eq!(self.curr_token, Token::RBrace);
+            assert_eq!(self.curr_token.kind, TokenKind::RBrace);
+            let end_span = self.curr_token.span.clone();
             self.next_token();
 
             Some(
-                Node::Struct {
-                    ident: ident.clone(),
-                    fields: Rc::from(fields.as_slice()),
-                    generics: Rc::from(generics.as_slice()),
-                    attributes: None,
+                Node {
+                    kind: NodeKind::Struct {
+                        ident: ident.clone(),
+                        fields: Rc::from(fields.as_slice()),
+                        generics: Rc::from(generics.as_slice()),
+                        attributes: None,
+                    },
+                    span: start_span.merge(&end_span),
                 }
                 .into(),
             )
@@ -441,7 +487,8 @@ impl Parser {
     fn parse_array(&mut self) -> Option<NodeRef> {
         let mut elems: Vec<NodeRef> = Vec::new();
 
-        assert_eq!(Token::LBracket, self.curr_token);
+        assert_eq!(TokenKind::LBracket, self.curr_token.kind);
+        let start_span = self.curr_token.span.clone();
 
         loop {
             self.next_token();
@@ -452,19 +499,28 @@ impl Parser {
                 todo!()
             }
 
-            match self.curr_token {
-                Token::Comma => (),
-                Token::RBracket => break,
+            match self.curr_token.kind {
+                TokenKind::Comma => (),
+                TokenKind::RBracket => break,
                 _ => todo!(),
             }
         }
 
-        Some(Rc::new(Node::Array {
-            elems: elems.as_slice().into(),
-        }))
+        let end_span = self.curr_token.span.clone();
+
+        Some(
+            Node {
+                kind: NodeKind::Array {
+                    elems: elems.as_slice().into(),
+                },
+                span: start_span.merge(&end_span),
+            }
+            .into(),
+        )
     }
 
     fn parse_let_or_const(&mut self, is_const: bool) -> Option<NodeRef> {
+        let start_span = self.curr_token.span.clone();
         self.next_token(); // eat 'let' / 'const'
 
         let lhs = if let Some(ident) = self.parse_ident() {
@@ -474,7 +530,7 @@ impl Parser {
         };
 
         self.next_token();
-        let ty = if self.curr_token == Token::Colon {
+        let ty = if self.curr_token.kind == TokenKind::Colon {
             self.next_token();
             if let Some(ty) = self.parse_type() {
                 self.next_token();
@@ -486,8 +542,8 @@ impl Parser {
             None
         };
 
-        let rhs = match self.curr_token {
-            Token::Assign => {
+        let rhs = match self.curr_token.kind {
+            TokenKind::Assign => {
                 self.next_token();
                 let rhs = Some(self.parse_expression(0)?);
                 self.next_token();
@@ -496,13 +552,22 @@ impl Parser {
             _ => None,
         };
 
-        assert_eq!(Token::Semicolon, self.curr_token);
+        assert_eq!(TokenKind::Semicolon, self.curr_token.kind);
+        let end_span = self.curr_token.span.clone();
 
-        if is_const {
-            Some(Rc::new(Node::Const { ty, lhs, rhs }))
+        let kind = if is_const {
+            NodeKind::Const { ty, lhs, rhs }
         } else {
-            Some(Rc::new(Node::Let { ty, lhs, rhs }))
-        }
+            NodeKind::Let { ty, lhs, rhs }
+        };
+
+        Some(
+            Node {
+                kind,
+                span: start_span.merge(&end_span),
+            }
+            .into(),
+        )
     }
 
     fn parse_impl(&mut self) -> Option<NodeRef> {
@@ -510,16 +575,21 @@ impl Parser {
         let mut type_generics: Vec<Rc<str>> = Vec::new();
         let mut methods: Vec<NodeRef> = Vec::new();
 
-        assert_eq!(Token::Impl, self.curr_token);
+        assert_eq!(TokenKind::Impl, self.curr_token.kind);
+        let start_span = self.curr_token.span.clone();
         self.next_token();
 
-        if let Token::Lt = self.curr_token {
+        if let TokenKind::Lt = self.curr_token.kind {
             self.next_token();
-            while self.curr_token != Token::Gt {
-                if let Some(Node::Ident { name }) = self.parse_ident().as_deref() {
+            while self.curr_token.kind != TokenKind::Gt {
+                if let Some(Node {
+                    kind: NodeKind::Ident { name },
+                    ..
+                }) = self.parse_ident().as_deref()
+                {
                     impl_generics.push(name.clone());
                     self.next_token();
-                    if let Token::Comma = self.curr_token {
+                    if let TokenKind::Comma = self.curr_token.kind {
                         self.next_token();
                     }
                 } else {
@@ -529,18 +599,22 @@ impl Parser {
             self.next_token(); // eat Gt
         };
 
-        if let Token::Ident(ident) = &self.curr_token.clone() {
+        if let TokenKind::Ident(ident) = &self.curr_token.clone().kind {
             self.next_token();
 
-            match self.curr_token {
-                Token::LBrace => self.next_token(),
-                Token::Lt => {
+            match self.curr_token.kind {
+                TokenKind::LBrace => self.next_token(),
+                TokenKind::Lt => {
                     self.next_token();
-                    while self.curr_token != Token::Gt {
-                        if let Some(Node::Ident { name }) = self.parse_ident().as_deref() {
+                    while self.curr_token.kind != TokenKind::Gt {
+                        if let Some(Node {
+                            kind: NodeKind::Ident { name },
+                            ..
+                        }) = self.parse_ident().as_deref()
+                        {
                             type_generics.push(name.clone());
                             self.next_token();
-                            if let Token::Comma = self.curr_token {
+                            if let TokenKind::Comma = self.curr_token.kind {
                                 self.next_token();
                             }
                         } else {
@@ -553,7 +627,7 @@ impl Parser {
                 _ => todo!(),
             }
 
-            while let Token::Fn = self.curr_token {
+            while let TokenKind::Fn = self.curr_token.kind {
                 if let Some(fn_node) = self.parse_fn(false, None) {
                     methods.push(fn_node);
                 } else {
@@ -561,15 +635,19 @@ impl Parser {
                 }
             }
 
-            assert_eq!(self.curr_token, Token::RBrace);
+            assert_eq!(self.curr_token.kind, TokenKind::RBrace);
+            let end_span = self.curr_token.span.clone();
             self.next_token();
 
             Some(
-                Node::Impl {
-                    ident: ident.clone(),
-                    methods: Rc::from(methods.as_slice()),
-                    impl_generics: impl_generics.into(),
-                    type_generics: type_generics.into(),
+                Node {
+                    kind: NodeKind::Impl {
+                        ident: ident.clone(),
+                        methods: Rc::from(methods.as_slice()),
+                        impl_generics: impl_generics.into(),
+                        type_generics: type_generics.into(),
+                    },
+                    span: start_span.merge(&end_span),
                 }
                 .into(),
             )
@@ -579,17 +657,28 @@ impl Parser {
     }
 
     fn parse_ident(&self) -> Option<NodeRef> {
-        match &self.curr_token {
-            Token::Ident(name) => Some(Node::Ident { name: name.clone() }.into()),
+        match &self.curr_token.kind {
+            TokenKind::Ident(name) => Some(
+                Node {
+                    kind: NodeKind::Ident { name: name.clone() },
+                    span: self.curr_token.span.clone(),
+                }
+                .into(),
+            ),
             _ => todo!(),
         }
     }
 
+    // TODO maybe factor this into parse_binop/parse_unop?
     /// On return, current token is the last token of the expr.
     fn parse_expression(&mut self, precedence: i32) -> Option<NodeRef> {
-        let mut lhs = match &self.curr_token {
-            Token::NullPtr => Rc::new(Node::NullPtr),
-            Token::Int(s) => {
+        let mut lhs: NodeRef = match &self.curr_token.kind {
+            TokenKind::NullPtr => Node {
+                kind: NodeKind::NullPtr,
+                span: self.curr_token.span.clone(),
+            }
+            .into(),
+            TokenKind::Int(s) => {
                 let mut radix = 10;
 
                 let s = if let Some(s) = s.strip_prefix("0x") {
@@ -604,91 +693,138 @@ impl Parser {
                     Err(_) => todo!(),
                 };
 
-                Rc::new(Node::Int { value })
+                Node {
+                    kind: NodeKind::Int { value },
+                    span: self.curr_token.span.clone(),
+                }
+                .into()
             }
-            Token::Str(s) => Rc::new(Node::Str { value: s.clone() }),
-            Token::Char(c) => Rc::new(Node::Char { value: c.clone() }),
-            Token::Ident(_) => self.parse_ident()?,
-            Token::True => Rc::new(Node::Bool { value: true }),
-            Token::False => Rc::new(Node::Bool { value: false }),
-            Token::Minus => {
+            TokenKind::Str(s) => Node {
+                kind: NodeKind::Str { value: s.clone() },
+                span: self.curr_token.span.clone(),
+            }
+            .into(),
+            TokenKind::Char(c) => Node {
+                kind: NodeKind::Char { value: c.clone() },
+                span: self.curr_token.span.clone(),
+            }
+            .into(),
+            TokenKind::Ident(_) => self.parse_ident()?,
+            TokenKind::True => Node {
+                kind: NodeKind::Bool { value: true },
+                span: self.curr_token.span.clone(),
+            }
+            .into(),
+            TokenKind::False => Node {
+                kind: NodeKind::Bool { value: false },
+                span: self.curr_token.span.clone(),
+            }
+            .into(),
+            TokenKind::Minus => {
+                let start_span = self.curr_token.span.clone();
                 self.next_token();
-                Rc::new(Node::UnOp {
-                    op: Op::Neg,
-                    rhs: self.parse_expression(Op::precedence(&Op::Neg))?,
-                })
+                Node {
+                    kind: NodeKind::UnOp {
+                        op: Op::Neg,
+                        rhs: self.parse_expression(Op::precedence(&Op::Neg))?,
+                    },
+                    span: start_span.merge(&self.curr_token.span),
+                }
+                .into()
             }
-            Token::Bang => {
+            TokenKind::Bang => {
+                let start_span = self.curr_token.span.clone();
                 self.next_token();
-                Rc::new(Node::UnOp {
-                    op: Op::Not,
-                    rhs: self.parse_expression(Op::precedence(&Op::Not))?,
-                })
+                Node {
+                    kind: NodeKind::UnOp {
+                        op: Op::Not,
+                        rhs: self.parse_expression(Op::precedence(&Op::Not))?,
+                    },
+                    span: start_span.merge(&self.curr_token.span),
+                }
+                .into()
             }
-            Token::LParen => {
+            TokenKind::LParen => {
                 self.next_token();
                 let node = self.parse_expression(0)?;
-                assert_eq!(Token::RParen, self.peek_token);
+                assert_eq!(TokenKind::RParen, self.peek_token.kind);
                 self.next_token();
                 node
             }
-            Token::LBrace => self.parse_block()?,
-            Token::If => todo!(), // TODO if expr,
-            Token::Amp => {
+            TokenKind::LBrace => self.parse_block()?,
+            TokenKind::If => todo!(), // TODO if expr,
+            TokenKind::Amp => {
+                let start_span = self.curr_token.span.clone();
                 self.next_token();
-                Rc::new(Node::UnOp {
-                    op: Op::Ref,
-                    rhs: self.parse_expression(Op::precedence(&Op::Ref))?,
-                })
+                Node {
+                    kind: NodeKind::UnOp {
+                        op: Op::Ref,
+                        rhs: self.parse_expression(Op::precedence(&Op::Ref))?,
+                    },
+                    span: start_span.merge(&self.curr_token.span),
+                }
+                .into()
             }
-            Token::Star => {
+            TokenKind::Star => {
+                let start_span = self.curr_token.span.clone();
                 self.next_token();
-                Rc::new(Node::UnOp {
-                    op: Op::Deref,
-                    rhs: self.parse_expression(Op::precedence(&Op::Deref))?,
-                })
+                Node {
+                    kind: NodeKind::UnOp {
+                        op: Op::Deref,
+                        rhs: self.parse_expression(Op::precedence(&Op::Deref))?,
+                    },
+                    span: start_span.merge(&self.curr_token.span),
+                }
+                .into()
             }
-            Token::LBracket => self.parse_array()?,
-            Token::Dot => {
+            TokenKind::LBracket => self.parse_array()?,
+            TokenKind::Dot => {
+                let start_span = self.curr_token.span.clone();
                 self.next_token();
                 let ty = self.parse_type()?;
-                Rc::new(Node::Ident { name: ty })
+                Node {
+                    kind: NodeKind::Ident { name: ty },
+                    span: start_span.merge(&self.curr_token.span),
+                }
+                .into()
             }
-            Token::None => return None,
+            TokenKind::None => return None,
             _ => panic!("unexpected token {}", self.curr_token),
         };
 
         loop {
-            let op = match self.peek_token {
-                Token::Assign => Op::Assign(None),
-                Token::Plus => Op::Add,
-                Token::Minus => Op::Sub,
-                Token::Star => Op::Mul,
-                Token::Slash => Op::Div,
-                Token::Percent => Op::Mod,
-                Token::Eq => Op::Eq,
-                Token::NotEq => Op::NotEq,
-                Token::Lt => Op::Lt,
-                Token::Gt => Op::Gt,
-                Token::Le => Op::Le,
-                Token::Ge => Op::Ge,
-                Token::AmpAmp => Op::And,
-                Token::BarBar => Op::Or,
-                Token::Amp => Op::BitwiseAnd,
-                Token::Bar => Op::BitwiseOr,
-                Token::LParen => Op::Call,
-                Token::LBracket => Op::Index,
-                Token::Dot => Op::Dot,
-                Token::ColonColon => Op::ScopeRes,
-                Token::As => Op::Cast,
-                Token::PlusAssign => Op::Assign(Some(Op::Add.into())),
-                Token::MinusAssign => Op::Assign(Some(Op::Sub.into())),
-                Token::StarAssign => Op::Assign(Some(Op::Mul.into())),
-                Token::SlashAssign => Op::Assign(Some(Op::Div.into())),
-                Token::LBrace => match (self.peek_token2.clone(), self.peek_token3.clone()) {
-                    (Token::Ident(..), Token::Colon) => Op::StructLiteral,
-                    _ => return Some(lhs),
-                },
+            let op = match self.peek_token.kind {
+                TokenKind::Assign => Op::Assign(None),
+                TokenKind::Plus => Op::Add,
+                TokenKind::Minus => Op::Sub,
+                TokenKind::Star => Op::Mul,
+                TokenKind::Slash => Op::Div,
+                TokenKind::Percent => Op::Mod,
+                TokenKind::Eq => Op::Eq,
+                TokenKind::NotEq => Op::NotEq,
+                TokenKind::Lt => Op::Lt,
+                TokenKind::Gt => Op::Gt,
+                TokenKind::Le => Op::Le,
+                TokenKind::Ge => Op::Ge,
+                TokenKind::AmpAmp => Op::And,
+                TokenKind::BarBar => Op::Or,
+                TokenKind::Amp => Op::BitwiseAnd,
+                TokenKind::Bar => Op::BitwiseOr,
+                TokenKind::LParen => Op::Call,
+                TokenKind::LBracket => Op::Index,
+                TokenKind::Dot => Op::Dot,
+                TokenKind::ColonColon => Op::ScopeRes,
+                TokenKind::As => Op::Cast,
+                TokenKind::PlusAssign => Op::Assign(Some(Op::Add.into())),
+                TokenKind::MinusAssign => Op::Assign(Some(Op::Sub.into())),
+                TokenKind::StarAssign => Op::Assign(Some(Op::Mul.into())),
+                TokenKind::SlashAssign => Op::Assign(Some(Op::Div.into())),
+                TokenKind::LBrace => {
+                    match (self.peek_token2.clone().kind, self.peek_token3.clone().kind) {
+                        (TokenKind::Ident(..), TokenKind::Colon) => Op::StructLiteral,
+                        _ => return Some(lhs),
+                    }
+                }
                 _ => break,
             };
 
@@ -708,37 +844,52 @@ impl Parser {
                 }
                 Op::Cast => {
                     self.next_token();
+                    let span = self.curr_token.span.clone();
                     self.next_token();
+
+                    let ident_span_start = self.curr_token.span.clone();
                     let type_ident = self.parse_type()?;
-                    Rc::new(Node::BinOp {
-                        op: Op::Cast,
-                        lhs,
-                        rhs: Node::Ident { name: type_ident }.into(),
-                    })
+                    let ident_span_end = self.curr_token.span.clone();
+
+                    Node {
+                        kind: NodeKind::BinOp {
+                            op: Op::Cast,
+                            lhs,
+                            rhs: Node {
+                                kind: NodeKind::Ident { name: type_ident },
+                                span: ident_span_start.merge(&ident_span_end),
+                            }
+                            .into(),
+                        },
+                        span,
+                    }
+                    .into()
                 }
                 Op::StructLiteral => {
-                    if let Node::Ident { name } = &*lhs {
+                    if let NodeKind::Ident { name } = &lhs.kind {
+                        let span_start = self.curr_token.span.clone();
                         self.next_token();
-                        assert_eq!(Token::LBrace, self.curr_token);
+                        assert_eq!(TokenKind::LBrace, self.curr_token.kind);
                         self.next_token();
 
                         let mut fields: Vec<StructLiteralField> = Vec::new();
 
-                        while self.curr_token != Token::RBrace {
-                            if let Token::Comma = self.curr_token {
+                        while self.curr_token.kind != TokenKind::RBrace {
+                            if let TokenKind::Comma = self.curr_token.kind {
                                 self.next_token();
                             }
 
-                            let field_name =
-                                if let Token::Ident(field_name) = self.curr_token.clone() {
-                                    field_name
-                                } else {
-                                    println!("{:?}", lhs);
-                                    todo!();
-                                };
+                            let field_name = if let TokenKind::Ident(field_name) =
+                                self.curr_token.clone().kind
+                            {
+                                field_name
+                            } else {
+                                println!("{:?}", lhs);
+                                todo!();
+                            };
 
                             self.next_token();
-                            assert_eq!(Token::Colon, self.curr_token);
+                            assert_eq!(TokenKind::Colon, self.curr_token.kind);
                             self.next_token();
 
                             let val = if let Some(expr) = self.parse_expression(0) {
@@ -756,9 +907,12 @@ impl Parser {
                         }
 
                         return Some(
-                            Node::StructLiteral {
-                                ident: name.clone(),
-                                fields: fields.as_slice().into(),
+                            Node {
+                                kind: NodeKind::StructLiteral {
+                                    ident: name.clone(),
+                                    fields: fields.as_slice().into(),
+                                },
+                                span: span_start.merge(&self.curr_token.span),
                             }
                             .into(),
                         );
@@ -772,9 +926,14 @@ impl Parser {
                     }
 
                     self.next_token(); // curr_token is now the op
+                    let span = self.curr_token.span.clone();
                     self.next_token(); // curr_token is now rhs
                     let rhs = self.parse_expression(op_precedence)?;
-                    Rc::new(Node::BinOp { op, lhs, rhs })
+                    Node {
+                        kind: NodeKind::BinOp { op, lhs, rhs },
+                        span,
+                    }
+                    .into()
                 }
             };
         }
@@ -782,65 +941,79 @@ impl Parser {
     }
 
     fn parse_statement(&mut self, mut expect_semicolon: bool) -> Option<NodeRef> {
-        let node = match self.curr_token {
-            Token::Let => {
+        let node: Option<NodeRef> = match self.curr_token.kind {
+            TokenKind::Let => {
                 expect_semicolon = true;
                 self.parse_let_or_const(false)
             }
-            Token::Return => {
+            TokenKind::Return => {
+                let span = self.curr_token.span.clone();
                 self.next_token();
-                let r = Some(Rc::new(Node::Return {
-                    expr: self.parse_expression(0),
-                }));
+                let r = Some(
+                    Node {
+                        kind: NodeKind::Return {
+                            expr: self.parse_expression(0),
+                        },
+                        span,
+                    }
+                    .into(),
+                );
                 self.next_token();
                 r
             }
-            Token::If => {
+            TokenKind::If => {
                 expect_semicolon = false;
                 self.parse_if()
             }
-            Token::While => {
+            TokenKind::While => {
                 expect_semicolon = false;
                 self.parse_while()
             }
-            Token::Struct => {
+            TokenKind::Struct => {
                 expect_semicolon = false;
                 self.parse_struct()
             }
-            Token::Const => {
+            TokenKind::Const => {
                 expect_semicolon = true;
                 self.parse_let_or_const(true)
             }
-            Token::Impl => self.parse_impl(),
-            Token::Fn => self.parse_fn(false, None),
-            Token::Extern => {
+            TokenKind::Impl => self.parse_impl(),
+            TokenKind::Fn => self.parse_fn(false, None),
+            TokenKind::Extern => {
+                let span = self.curr_token.span.clone();
                 self.next_token();
-                let linkage = if let Token::Str(linkage) = &self.curr_token.clone() {
+                let linkage = if let TokenKind::Str(linkage) = &self.curr_token.clone().kind {
                     Some(linkage.clone())
                 } else {
                     None
                 };
                 self.next_token();
-                match self.curr_token {
-                    Token::LBrace => Some(Rc::new(Node::ExternBlock {
-                        linkage,
-                        block: self.parse_block()?,
-                    })),
-                    Token::Fn => {
+                match self.curr_token.kind {
+                    TokenKind::LBrace => Some(
+                        Node {
+                            kind: NodeKind::ExternBlock {
+                                linkage,
+                                block: self.parse_block()?,
+                            },
+                            span,
+                        }
+                        .into(),
+                    ),
+                    TokenKind::Fn => {
                         expect_semicolon = true;
                         self.parse_fn(true, linkage)
                     }
                     _ => todo!(),
                 }
             }
-            Token::Hash => {
-                if self.peek_token == Token::LBracket {
+            TokenKind::Hash => {
+                if self.peek_token.kind == TokenKind::LBracket {
                     self.next_token();
                     self.next_token();
 
                     let mut attributes = Vec::<Rc<str>>::new();
-                    while self.curr_token != Token::RBracket {
-                        if let Token::Ident(attr) = &self.curr_token {
+                    while self.curr_token.kind != TokenKind::RBracket {
+                        if let TokenKind::Ident(attr) = &self.curr_token.kind {
                             attributes.push(attr.clone())
                         } else {
                             todo!()
@@ -849,19 +1022,26 @@ impl Parser {
                     }
                     self.next_token(); // eat RBracket
 
-                    if let Some(Node::Struct {
-                        ident,
-                        fields,
-                        generics,
-                        ..
+                    if let Some(Node {
+                        kind:
+                            NodeKind::Struct {
+                                ident,
+                                fields,
+                                generics,
+                                ..
+                            },
+                        span,
                     }) = self.parse_statement(false).as_deref()
                     {
                         Some(
-                            Node::Struct {
-                                ident: ident.clone(),
-                                fields: fields.clone(),
-                                generics: generics.clone(),
-                                attributes: Some(attributes.as_slice().into()),
+                            Node {
+                                kind: NodeKind::Struct {
+                                    ident: ident.clone(),
+                                    fields: fields.clone(),
+                                    generics: generics.clone(),
+                                    attributes: Some(attributes.as_slice().into()),
+                                },
+                                span: span.clone(),
                             }
                             .into(),
                         )
@@ -872,28 +1052,33 @@ impl Parser {
                     todo!()
                 }
             }
-            Token::Match => {
+            TokenKind::Match => {
+                let span = self.curr_token.span.clone();
                 expect_semicolon = false;
                 self.next_token();
                 let scrutinee = self.parse_statement(false)?;
-                assert_eq!(Token::LBrace, self.curr_token);
+                assert_eq!(TokenKind::LBrace, self.curr_token.kind);
                 self.next_token();
 
                 let mut arms: Vec<MatchArm> = Vec::new();
                 let mut num_cases = 0;
 
-                while self.curr_token != Token::RBrace {
-                    match self.curr_token {
-                        Token::Comma => self.next_token(),
+                while self.curr_token.kind != TokenKind::RBrace {
+                    match self.curr_token.kind {
+                        TokenKind::Comma => self.next_token(),
                         _ => {
                             let mut patterns: Vec<NodeRef> = Vec::new();
 
                             let mut pattern_node = self.parse_statement(false)?;
                             loop {
-                                if let Node::BinOp {
-                                    op: Op::BitwiseOr,
-                                    lhs,
-                                    rhs,
+                                if let Node {
+                                    kind:
+                                        NodeKind::BinOp {
+                                            op: Op::BitwiseOr,
+                                            lhs,
+                                            rhs,
+                                        },
+                                    ..
                                 } = &*pattern_node
                                 {
                                     patterns.push(lhs.clone());
@@ -906,9 +1091,9 @@ impl Parser {
                                 };
                             }
 
-                            assert_eq!(Token::FatArrow, self.curr_token);
+                            assert_eq!(TokenKind::FatArrow, self.curr_token.kind);
                             self.next_token();
-                            let stmt = if self.curr_token == Token::LBrace {
+                            let stmt = if self.curr_token.kind == TokenKind::LBrace {
                                 self.parse_block()?
                             } else {
                                 self.parse_statement(false)?
@@ -923,10 +1108,13 @@ impl Parser {
                 self.next_token(); // eat RBrace
 
                 Some(
-                    Node::Match {
-                        scrutinee,
-                        arms: arms.as_slice().into(),
-                        num_cases,
+                    Node {
+                        kind: NodeKind::Match {
+                            scrutinee,
+                            arms: arms.as_slice().into(),
+                            num_cases,
+                        },
+                        span,
                     }
                     .into(),
                 )
@@ -939,7 +1127,7 @@ impl Parser {
         };
 
         if expect_semicolon {
-            assert_eq!(Token::Semicolon, self.curr_token);
+            assert_eq!(TokenKind::Semicolon, self.curr_token.kind);
             self.next_token()
         }
 

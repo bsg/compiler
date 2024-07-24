@@ -1,9 +1,11 @@
 use std::{rc::Rc, str};
 
+use crate::ast::Span;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Token {
+pub enum TokenKind {
     None,
-    Illegal, // TODO do we have a use for this?
+    Illegal,
     Ident(Rc<str>),
     Int(Rc<str>),
     Str(Rc<str>),
@@ -68,11 +70,31 @@ pub enum Token {
     Hash,
 }
 
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: Span,
+}
+
+impl Token {
+    pub fn none() -> Token {
+        Token {
+            kind: TokenKind::None,
+            span: Span {
+                start_line: 0,
+                start_col: 0,
+                end_line: 0,
+                end_col: 0,
+            },
+        }
+    }
+}
+
 impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Ident(s) => f.write_fmt(format_args!("ident:{}", s)),
-            Self::Int(s) => f.write_fmt(format_args!("int:{}", s)),
+        match &self.kind {
+            TokenKind::Ident(s) => f.write_fmt(format_args!("ident:{}", s)),
+            TokenKind::Int(s) => f.write_fmt(format_args!("int:{}", s)),
             _ => f.write_fmt(format_args!("{:?}", self)),
         }
     }
@@ -83,6 +105,8 @@ pub struct Tokens {
     position: usize,
     read_position: usize,
     ch: Option<u8>,
+    current_line: usize,
+    current_col: usize,
 }
 
 impl Tokens {
@@ -94,6 +118,7 @@ impl Tokens {
         }
         self.position = self.read_position;
         self.read_position += 1;
+        self.current_col += 1;
     }
 
     fn peek_char(&self) -> Option<u8> {
@@ -105,8 +130,21 @@ impl Tokens {
     }
 
     fn skip_whitespace(&mut self) {
-        while self.ch.unwrap_or(b'!').is_ascii_whitespace() {
-            self.read_char();
+        while let Some(ch) = self.ch {
+            match ch {
+                b'\n' => {
+                    self.current_col = 0;
+                    self.current_line += 1;
+                    self.read_char();
+                }
+                _ => {
+                    if ch.is_ascii_whitespace() {
+                        self.read_char();
+                    } else {
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -146,64 +184,67 @@ impl Tokens {
     }
 
     pub fn next_token(&mut self) -> Token {
+        let mut skip_tail_read_char = false;
+        let start_col = self.current_col;
+
         self.skip_whitespace();
-        let token = match self.ch {
+        let token_kind = match self.ch {
             Some(b'=') => match self.peek_char() {
                 Some(b'=') => {
                     self.read_char();
-                    Token::Eq
-                },
+                    TokenKind::Eq
+                }
                 Some(b'>') => {
                     self.read_char();
-                    Token::FatArrow
+                    TokenKind::FatArrow
                 }
-                _ => Token::Assign,
+                _ => TokenKind::Assign,
             },
             Some(b'+') => match self.peek_char() {
                 Some(b'=') => {
                     self.read_char();
-                    Token::PlusAssign
+                    TokenKind::PlusAssign
                 }
-                _ => Token::Plus,
+                _ => TokenKind::Plus,
             },
             Some(b'-') => match self.peek_char() {
                 Some(b'>') => {
                     self.read_char();
-                    Token::Arrow
+                    TokenKind::Arrow
                 }
                 Some(b'=') => {
                     self.read_char();
-                    Token::MinusAssign
+                    TokenKind::MinusAssign
                 }
-                _ => Token::Minus,
+                _ => TokenKind::Minus,
             },
             Some(b'!') => match self.peek_char() {
                 Some(b'=') => {
                     self.read_char();
-                    Token::NotEq
+                    TokenKind::NotEq
                 }
-                _ => Token::Bang,
+                _ => TokenKind::Bang,
             },
             Some(b'*') => match self.peek_char() {
                 Some(b'=') => {
                     self.read_char();
-                    Token::StarAssign
+                    TokenKind::StarAssign
                 }
-                _ => Token::Star,
+                _ => TokenKind::Star,
             },
             Some(b'<') => match self.peek_char() {
                 Some(b'=') => {
                     self.read_char();
-                    Token::Le
+                    TokenKind::Le
                 }
-                _ => Token::Lt,
+                _ => TokenKind::Lt,
             },
             Some(b'>') => match self.peek_char() {
                 Some(b'=') => {
                     self.read_char();
-                    Token::Ge
+                    TokenKind::Ge
                 }
-                _ => Token::Gt,
+                _ => TokenKind::Gt,
             },
             Some(b'/') => match self.peek_char() {
                 Some(b'/') => loop {
@@ -213,46 +254,46 @@ impl Tokens {
                             return self.next_token();
                         }
                     } else {
-                        return Token::None;
+                        return Token::none();
                     }
                 },
                 Some(b'=') => {
                     self.read_char();
-                    Token::SlashAssign
+                    TokenKind::SlashAssign
                 }
-                _ => Token::Slash,
+                _ => TokenKind::Slash,
             },
-            Some(b'%') => Token::Percent,
+            Some(b'%') => TokenKind::Percent,
             Some(b'&') => match self.peek_char() {
                 Some(b'&') => {
                     self.read_char();
-                    Token::AmpAmp
+                    TokenKind::AmpAmp
                 }
-                _ => Token::Amp,
+                _ => TokenKind::Amp,
             },
             Some(b'|') => match self.peek_char() {
                 Some(b'|') => {
                     self.read_char();
-                    Token::BarBar
+                    TokenKind::BarBar
                 }
-                _ => Token::Bar,
+                _ => TokenKind::Bar,
             },
-            Some(b'(') => Token::LParen,
-            Some(b')') => Token::RParen,
-            Some(b'{') => Token::LBrace,
-            Some(b'}') => Token::RBrace,
-            Some(b'[') => Token::LBracket,
-            Some(b']') => Token::RBracket,
-            Some(b',') => Token::Comma,
+            Some(b'(') => TokenKind::LParen,
+            Some(b')') => TokenKind::RParen,
+            Some(b'{') => TokenKind::LBrace,
+            Some(b'}') => TokenKind::RBrace,
+            Some(b'[') => TokenKind::LBracket,
+            Some(b']') => TokenKind::RBracket,
+            Some(b',') => TokenKind::Comma,
             Some(b':') => match self.peek_char() {
                 Some(b':') => {
                     self.read_char();
-                    Token::ColonColon
+                    TokenKind::ColonColon
                 }
-                _ => Token::Colon,
+                _ => TokenKind::Colon,
             },
-            Some(b';') => Token::Semicolon,
-            Some(b'"') => Token::Str(self.read_string()),
+            Some(b';') => TokenKind::Semicolon,
+            Some(b'"') => TokenKind::Str(self.read_string()),
             Some(b'\'') => {
                 self.read_char();
                 if let (Some(ch), Some(peek)) = (self.ch, self.peek_char()) {
@@ -266,7 +307,7 @@ impl Tokens {
                     };
 
                     match self.ch {
-                        Some(b'\'') => Token::Char(ch.into()),
+                        Some(b'\'') => TokenKind::Char(ch.into()),
                         _ => todo!(),
                     }
                 } else {
@@ -276,40 +317,54 @@ impl Tokens {
             Some(b'.') => match self.peek_char() {
                 Some(b'.') => {
                     self.read_char();
-                    Token::DotDot
+                    TokenKind::DotDot
                 }
-                _ => Token::Dot,
+                _ => TokenKind::Dot,
             },
-            Some(b'#') => Token::Hash,
-            Some(c) => match c {
-                (b'a'..=b'z') | (b'A'..=b'Z') | b'_' => {
-                    let ident = self.read_identifier();
-                    return match ident.as_ref() {
-                        "fn" => Token::Fn,
-                        "let" => Token::Let,
-                        "true" => Token::True,
-                        "false" => Token::False,
-                        "if" => Token::If,
-                        "else" => Token::Else,
-                        "return" => Token::Return,
-                        "while" => Token::While,
-                        "struct" => Token::Struct,
-                        "impl" => Token::Impl,
-                        "nullptr" => Token::NullPtr,
-                        "as" => Token::As,
-                        "extern" => Token::Extern,
-                        "const" => Token::Const,
-                        "match" => Token::Match,
-                        _ => Token::Ident(ident),
-                    };
+            Some(b'#') => TokenKind::Hash,
+            Some(c) => {
+                skip_tail_read_char = true;
+                match c {
+                    (b'a'..=b'z') | (b'A'..=b'Z') | b'_' => {
+                        let ident = self.read_identifier();
+                        match ident.as_ref() {
+                            "fn" => TokenKind::Fn,
+                            "let" => TokenKind::Let,
+                            "true" => TokenKind::True,
+                            "false" => TokenKind::False,
+                            "if" => TokenKind::If,
+                            "else" => TokenKind::Else,
+                            "return" => TokenKind::Return,
+                            "while" => TokenKind::While,
+                            "struct" => TokenKind::Struct,
+                            "impl" => TokenKind::Impl,
+                            "nullptr" => TokenKind::NullPtr,
+                            "as" => TokenKind::As,
+                            "extern" => TokenKind::Extern,
+                            "const" => TokenKind::Const,
+                            "match" => TokenKind::Match,
+                            _ => TokenKind::Ident(ident),
+                        }
+                    }
+                    (b'0'..=b'9') => TokenKind::Int(self.read_number()),
+
+                    _ => TokenKind::Illegal,
                 }
-                (b'0'..=b'9') => return Token::Int(self.read_number()),
-                _ => Token::Illegal,
-            },
-            None => Token::None,
+            }
+            None => TokenKind::None,
         };
-        self.read_char();
-        token
+        if !skip_tail_read_char {
+            self.read_char();
+        }
+        Token {
+            kind: token_kind,
+            span: Span {
+                start_line: self.current_line,
+                start_col,
+                end_line: self.current_line,
+                end_col: self.current_col,
+            },
+        }
     }
 }
 
@@ -317,10 +372,10 @@ impl Iterator for Tokens {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let tok = self.next_token();
-        match tok {
-            Token::None => None,
-            _ => Some(tok),
+        let token = self.next_token();
+        match &token.kind {
+            TokenKind::None => None,
+            _ => Some(token),
         }
     }
 }
@@ -342,6 +397,8 @@ impl Lexer {
             position: 0,
             read_position: 0,
             ch: None,
+            current_line: 1,
+            current_col: 0,
         };
         tokens.read_char();
         tokens
@@ -351,7 +408,7 @@ impl Lexer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Token::*;
+    use TokenKind::*;
 
     #[test]
     fn symbols() {
@@ -359,18 +416,18 @@ mod tests {
         let expected = [
             Assign, Plus, Minus, Bang, Star, Slash, LParen, RParen, LBrace, RBrace, LBracket,
             RBracket, Comma, Semicolon, Colon, Arrow, Amp, BarBar, DotDot, AmpAmp, Dot, ColonColon,
-            As, Percent, PlusAssign
+            As, Percent, PlusAssign,
         ];
         let mut tokens = Lexer::new(source).tokens();
         expected
             .iter()
-            .for_each(|t| assert_eq!(tokens.next_token(), *t));
+            .for_each(|t| assert_eq!(*t, tokens.next_token().kind));
     }
 
     #[test]
     fn read_identifier() {
         let mut tokens = Lexer::new("let ").tokens();
-        assert_eq!(tokens.read_identifier(), "let".into());
+        assert_eq!("let", &*tokens.read_identifier());
     }
 
     #[test]
@@ -379,7 +436,7 @@ mod tests {
         let mut tokens = Lexer::new(r#"{"some string"}"#).tokens();
         expected
             .iter()
-            .for_each(|t| assert_eq!(tokens.next_token(), *t));
+            .for_each(|t| assert_eq!(*t, tokens.next_token().kind));
     }
 
     #[test]
@@ -388,7 +445,7 @@ mod tests {
         let mut tokens = Lexer::new(r#"{'c'}"#).tokens();
         expected
             .iter()
-            .for_each(|t| assert_eq!(tokens.next_token(), *t));
+            .for_each(|t| assert_eq!(*t, tokens.next_token().kind));
     }
 
     #[test]
@@ -401,6 +458,6 @@ mod tests {
         let mut tokens = Lexer::new(source).tokens();
         expected
             .iter()
-            .for_each(|t| assert_eq!(*t, tokens.next_token()));
+            .for_each(|t| assert_eq!(*t, tokens.next_token().kind));
     }
 }

@@ -1,6 +1,6 @@
 use std::{collections::HashSet, rc::Rc};
 
-use crate::ast::{Node, NodeRef, Op};
+use crate::ast::{NodeKind, NodeRef, Op};
 
 pub struct TypeCollector {
     ast: Rc<Vec<NodeRef>>,
@@ -16,20 +16,20 @@ impl TypeCollector {
     }
 
     fn collect_recursively(&mut self, node: NodeRef) {
-        match &*node {
-            Node::Ident { .. } => (
+        match &node.kind {
+            NodeKind::Ident { .. } => (
                     // TODO
                 ),
-            Node::UnOp { rhs, .. } => self.collect_recursively(rhs.clone()),
-            Node::BinOp { op, lhs, rhs } => {
+            NodeKind::UnOp { rhs, .. } => self.collect_recursively(rhs.clone()),
+            NodeKind::BinOp { op, lhs, rhs } => {
                 if let Op::ScopeRes = op {
-                    if let Node::Ident { name } = &**lhs {
+                    if let NodeKind::Ident { name } = &lhs.kind {
                         self.types.insert((&**name).into());
                     }
                     self.collect_recursively(rhs.clone());
                 }
             }
-            Node::Let { ty, rhs, .. } => {
+            NodeKind::Let { ty, rhs, .. } => {
                 if let Some(ty) = ty {
                     self.types.insert((&**ty).into());
                 }
@@ -37,7 +37,7 @@ impl TypeCollector {
                     self.collect_recursively(rhs.clone());
                 }
             }
-            Node::Const { ty, rhs, .. } => {
+            NodeKind::Const { ty, rhs, .. } => {
                 if let Some(ty) = ty {
                     self.types.insert((&**ty).into());
                 }
@@ -45,10 +45,10 @@ impl TypeCollector {
                     self.collect_recursively(rhs.clone());
                 }
             }
-            Node::Return { expr: Some(expr) } => {
+            NodeKind::Return { expr: Some(expr) } => {
                 self.collect_recursively(expr.clone());
             }
-            Node::If {
+            NodeKind::If {
                 condition,
                 then_block,
                 else_block,
@@ -59,16 +59,16 @@ impl TypeCollector {
                     self.collect_recursively(else_block.clone())
                 }
             }
-            Node::While { condition, body } => {
+            NodeKind::While { condition, body } => {
                 self.collect_recursively(condition.clone());
                 self.collect_recursively(body.clone());
             }
-            Node::Block { statements } => {
+            NodeKind::Block { statements } => {
                 for stmt in statements.iter() {
                     self.collect_recursively(stmt.clone());
                 }
             }
-            Node::Fn {
+            NodeKind::Fn {
                 args, ret_ty, body, ..
             } => {
                 self.types.insert((&**ret_ty).into());
@@ -79,12 +79,12 @@ impl TypeCollector {
                     self.collect_recursively(body.clone());
                 }
             }
-            Node::Call { args, .. } => {
+            NodeKind::Call { args, .. } => {
                 for arg in args.iter() {
                     self.collect_recursively(arg.clone());
                 }
             }
-            Node::Struct {
+            NodeKind::Struct {
                 ident,
                 fields,
                 generics,
@@ -97,17 +97,17 @@ impl TypeCollector {
                     }
                 }
             }
-            Node::Impl { methods, .. } => {
+            NodeKind::Impl { methods, .. } => {
                 for method in methods.iter() {
                     self.collect_recursively(method.clone());
                 }
             }
-            Node::Array { elems } => {
+            NodeKind::Array { elems } => {
                 for elem in elems.iter() {
                     self.collect_recursively(elem.clone());
                 }
             }
-            Node::StructLiteral { ident, fields } => {
+            NodeKind::StructLiteral { ident, fields } => {
                 self.types.insert(ident.to_string());
                 for field in fields.iter() {
                     self.collect_recursively(field.clone().val);
