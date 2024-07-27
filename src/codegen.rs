@@ -78,7 +78,7 @@ pub enum Type {
         len: usize,
     },
     Fn {
-        arg_types: Vec<String>,
+        param_types: Vec<String>,
         ret_type: String,
     },
 }
@@ -170,14 +170,14 @@ impl Type {
                 )
             },
             Type::Fn {
-                arg_types,
+                param_types,
                 ret_type,
             } => {
-                let mut llvm_arg_types: Vec<LLVMTypeRef> = Vec::new();
-                for arg_type in arg_types {
-                    llvm_arg_types.push(
+                let mut llvm_param_types: Vec<LLVMTypeRef> = Vec::new();
+                for param_type in param_types {
+                    llvm_param_types.push(
                         type_env
-                            .get_type_by_name(arg_type)
+                            .get_type_by_name(param_type)
                             .unwrap()
                             .llvm_type(type_env.clone()),
                     )
@@ -190,8 +190,8 @@ impl Type {
                             .get_type_by_name(ret_type)
                             .unwrap()
                             .llvm_type(type_env),
-                        llvm_arg_types.as_mut_slice().as_mut_ptr(),
-                        llvm_arg_types.len() as u32,
+                        llvm_param_types.as_mut_slice().as_mut_ptr(),
+                        llvm_param_types.len() as u32,
                         0,
                     )
                 }
@@ -229,9 +229,9 @@ impl Type {
                 len,
             } => format!("[{}; {}]", elem_type_name, len).into(),
             Type::Fn {
-                arg_types,
+                param_types,
                 ret_type,
-            } => format!("fn({}) -> {}", arg_types.join(","), ret_type).into(),
+            } => format!("fn({}) -> {}", param_types.join(","), ret_type).into(),
         }
     }
 }
@@ -247,10 +247,10 @@ pub struct Var {
 pub struct Func {
     ty: Type,
     env: Rc<Env>,
-    arg_tys: Vec<Type>, // TODO should not be necessary because we have ty
-    ret_ty: Type,       // TODO should not be necessary because we have ty
+    param_types: Vec<Type>, // TODO should not be necessary because we have ty
+    ret_type: Type,         // TODO should not be necessary because we have ty
     val: LLVMValueRef,
-    llvm_ty: LLVMTypeRef, // TODO not necessary because we have ty
+    llvm_type: LLVMTypeRef, // TODO not necessary because we have ty
     // TODO group these two together
     bb_entry: Option<LLVMBasicBlockRef>,
     bb_body: Option<LLVMBasicBlockRef>,
@@ -452,23 +452,23 @@ impl TypeEnv {
                         },
                     )
                 } else if name.starts_with("fn(") {
-                    let (arg_types_str, ret_type) = name
+                    let (param_types_str, ret_type) = name
                         .split_once("fn(")
                         .unwrap()
                         .1
                         .rsplit_once(") -> ")
                         .unwrap();
-                    let mut arg_types: Vec<String> = Vec::new();
-                    if !arg_types_str.is_empty() {
-                        for arg_type in arg_types_str.split(',') {
-                            arg_types.push(arg_type.to_string())
+                    let mut param_types: Vec<String> = Vec::new();
+                    if !param_types_str.is_empty() {
+                        for param_type in param_types_str.split(',') {
+                            param_types.push(param_type.to_string())
                         }
                     }
 
                     self.insert_type_by_name(
                         &name,
                         Type::Fn {
-                            arg_types,
+                            param_types,
                             ret_type: ret_type.to_string(),
                         },
                     )
@@ -1164,7 +1164,7 @@ impl ModuleBuilder {
                                     panic!("unresolved method {}\n{}", func_ident, op_span);
                                 };
                                 let self_by_ref =
-                                    if let Some(Type::Ref { .. }) = func.arg_tys.first() {
+                                    if let Some(Type::Ref { .. }) = func.param_types.first() {
                                         // TODO type checking
                                         true
                                     } else {
@@ -1331,7 +1331,7 @@ impl ModuleBuilder {
     ) -> Val {
         // TODO funcs could be vars instead?
         let (llvm_ty, llvm_val, ret_ty) = if let Some(func) = env.get_func(ident) {
-            (func.llvm_ty, func.val, func.ret_ty.clone())
+            (func.llvm_type, func.val, func.ret_type.clone())
         } else if let Some(var) = env.get_var(ident) {
             if let ty @ Type::Fn { ret_type, .. } = &var.ty {
                 let llvm_val = unsafe {
@@ -1845,42 +1845,42 @@ impl ModuleBuilder {
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
         ident: &str,
-        args: Rc<[Arg]>,
+        params: Rc<[FnParam]>,
         ret_ty: Rc<str>,
         is_extern: bool,
         _linkage: Option<Rc<str>>,
     ) {
-        let ret_ty = match type_env.get_type_by_name(&ret_ty) {
+        let ret_type = match type_env.get_type_by_name(&ret_ty) {
             Some(ty) => ty,
             None => panic!("unresolved type {}", ret_ty),
         };
-        let mut arg_ty_names: Vec<Rc<str>> = Vec::new();
-        let mut arg_tys: Vec<Type> = Vec::new();
-        let mut llvm_arg_types: Vec<LLVMTypeRef> = Vec::new();
-        for arg in args.iter() {
-            if let Some(ty) = type_env.get_type_by_name(&arg.ty()) {
-                arg_ty_names.push(arg.ty());
-                arg_tys.push(ty.clone());
-                let llvm_ty = if let Type::Fn { .. } = ty {
+        let mut param_type_names: Vec<Rc<str>> = Vec::new();
+        let mut param_types: Vec<Type> = Vec::new();
+        let mut llvm_param_types: Vec<LLVMTypeRef> = Vec::new();
+        for param in params.iter() {
+            if let Some(ty) = type_env.get_type_by_name(&param.ty()) {
+                param_type_names.push(param.ty());
+                param_types.push(ty.clone());
+                let llvm_type = if let Type::Fn { .. } = ty {
                     unsafe { LLVMPointerType(ty.llvm_type(type_env.clone()), 0) }
                 } else {
                     ty.llvm_type(type_env.clone())
                 };
-                llvm_arg_types.push(llvm_ty);
+                llvm_param_types.push(llvm_type);
             } else {
-                panic!("unresolved type {}", &arg.ty());
+                panic!("unresolved type {}", &param.ty());
             }
         }
-        let func_ty = unsafe {
+        let func_type = unsafe {
             LLVMFunctionType(
-                ret_ty.llvm_type(type_env.clone()),
-                llvm_arg_types.as_mut_slice().as_mut_ptr(),
-                llvm_arg_types.len().try_into().unwrap(),
+                ret_type.llvm_type(type_env.clone()),
+                llvm_param_types.as_mut_slice().as_mut_ptr(),
+                llvm_param_types.len().try_into().unwrap(),
                 0,
             )
         };
         let val =
-            unsafe { LLVMAddFunction(self.llvm_module, ident.to_cstring().as_ptr(), func_ty) };
+            unsafe { LLVMAddFunction(self.llvm_module, ident.to_cstring().as_ptr(), func_type) };
 
         let fn_env = Env::make_child(env.clone());
         let (bb_entry, bb_body) = if is_extern {
@@ -1900,19 +1900,19 @@ impl ModuleBuilder {
             }
         };
 
-        let fn_ty_name = format!("fn({}) -> {}", arg_ty_names.join(","), ret_ty.name());
-        let fn_ty = type_env.get_type_by_name(&fn_ty_name).unwrap();
+        let fn_type_name = format!("fn({}) -> {}", param_type_names.join(","), ret_type.name());
+        let fn_type = type_env.get_type_by_name(&fn_type_name).unwrap();
 
         // this needs to be global
         self.env.insert_func(
             ident,
             Func {
-                ty: fn_ty.clone(),
+                ty: fn_type.clone(),
                 env: Rc::new(fn_env),
-                arg_tys,
-                ret_ty: ret_ty.clone(),
+                param_types,
+                ret_type: ret_type.clone(),
                 val,
-                llvm_ty: func_ty,
+                llvm_type: func_type,
                 bb_entry,
                 bb_body,
             },
@@ -1924,7 +1924,7 @@ impl ModuleBuilder {
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
         ident: Rc<str>,
-        args: Rc<[Arg]>,
+        params: Rc<[FnParam]>,
         body: NodeRef,
     ) {
         let func = env.get_func(&ident).unwrap();
@@ -1932,10 +1932,10 @@ impl ModuleBuilder {
             self.current_func_ident = Some(ident.clone());
             unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_entry) };
 
-            for (i, arg) in args.iter().enumerate() {
-                let ty = match type_env.get_type_by_name(&arg.ty()) {
+            for (i, param) in params.iter().enumerate() {
+                let ty = match type_env.get_type_by_name(&param.ty()) {
                     Some(ty) => ty,
-                    None => panic!("unresolved type {}", arg.ty()),
+                    None => panic!("unresolved type {}", param.ty()),
                 };
 
                 let llvm_ty = if let Type::Fn { .. } = ty {
@@ -1944,22 +1944,22 @@ impl ModuleBuilder {
                     ty.llvm_type(type_env.clone())
                 };
 
-                let argp =
+                let param_ptr =
                     unsafe { LLVMBuildAlloca(self.builder, llvm_ty, "".to_cstring().as_ptr()) };
                 unsafe {
                     LLVMBuildStore(
                         self.builder,
                         LLVMGetParam(func.val, i.try_into().unwrap()),
-                        argp,
+                        param_ptr,
                     )
                 };
-                func.env.insert_var(&arg.ident(), argp, ty.clone());
+                func.env.insert_var(&param.ident(), param_ptr, ty.clone());
             }
 
             unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_body) };
 
             self.build_block(func.env.clone(), type_env.clone(), body.clone());
-            if func.ret_ty == Type::None {
+            if func.ret_type == Type::None {
                 unsafe { LLVMBuildRetVoid(self.builder) };
             }
 
@@ -2025,11 +2025,7 @@ impl ModuleBuilder {
                             self.env.insert_const(
                                 name,
                                 unsafe {
-                                    LLVMConstInt(
-                                        ty.llvm_type(self.type_env.clone()),
-                                        *value as u64,
-                                        0,
-                                    )
+                                    LLVMConstInt(ty.llvm_type(self.type_env.clone()), *value, 0)
                                 },
                                 ty.clone(),
                             );
@@ -2109,7 +2105,7 @@ impl ModuleBuilder {
             match &node.kind {
                 NodeKind::Fn {
                     ident,
-                    args,
+                    params,
                     ret_ty,
                     is_extern,
                     linkage,
@@ -2118,7 +2114,7 @@ impl ModuleBuilder {
                     self.env.clone(),
                     self.type_env.clone(),
                     ident,
-                    args.clone(),
+                    params.clone(),
                     ret_ty.clone(),
                     *is_extern,
                     linkage.clone(),
@@ -2128,7 +2124,7 @@ impl ModuleBuilder {
                         for stmt in statements.iter() {
                             if let NodeKind::Fn {
                                 ident,
-                                args,
+                                params,
                                 ret_ty,
                                 ..
                             } = &stmt.kind
@@ -2137,7 +2133,7 @@ impl ModuleBuilder {
                                     self.env.clone(),
                                     self.type_env.clone(),
                                     ident,
-                                    args.clone(),
+                                    params.clone(),
                                     ret_ty.clone(),
                                     true,
                                     linkage.clone(),
@@ -2190,12 +2186,12 @@ impl ModuleBuilder {
                         for method in methods.iter() {
                             if let NodeKind::Fn {
                                 ident: method_name,
-                                args,
+                                params,
                                 ret_ty,
                                 ..
                             } = &method.kind
                             {
-                                let is_static = if let Some(arg) = args.first() {
+                                let is_static = if let Some(arg) = params.first() {
                                     !(&*arg.ty() == "Self" || &*arg.ty() == "&Self")
                                 } else {
                                     true
@@ -2215,7 +2211,7 @@ impl ModuleBuilder {
                                     env.clone(),
                                     type_env.clone(),
                                     &mangled_name,
-                                    args.clone(),
+                                    params.clone(),
                                     ret_ty.clone(),
                                     false,
                                     None,
@@ -2251,7 +2247,10 @@ impl ModuleBuilder {
 
                     for method in methods.iter() {
                         if let NodeKind::Fn {
-                            ident, args, body, ..
+                            ident,
+                            params,
+                            body,
+                            ..
                         } = &method.kind
                         {
                             let mangled_name = format!("{}::{}", impl_ty, ident);
@@ -2259,7 +2258,7 @@ impl ModuleBuilder {
                                 env.clone(),
                                 type_env.clone(),
                                 mangled_name.into(),
-                                args.clone(),
+                                params.clone(),
                                 body.clone().unwrap(),
                             )
                         } else {
@@ -2294,7 +2293,7 @@ impl ModuleBuilder {
                         for method in methods.iter() {
                             if let NodeKind::Fn {
                                 ident,
-                                args,
+                                params,
                                 body,
                                 ret_ty,
                                 ..
@@ -2305,7 +2304,7 @@ impl ModuleBuilder {
                                     env.clone(),
                                     type_env.clone(),
                                     &mangled_name,
-                                    args.clone(),
+                                    params.clone(),
                                     ret_ty.clone(),
                                     false,
                                     None,
@@ -2316,7 +2315,7 @@ impl ModuleBuilder {
                                     env.clone(),
                                     type_env.clone(),
                                     mangled_name.into(),
-                                    args.clone(),
+                                    params.clone(),
                                     body.clone().unwrap(),
                                 )
                             } else {
@@ -2335,7 +2334,7 @@ impl ModuleBuilder {
                 NodeKind::Fn {
                     ident,
                     body,
-                    args,
+                    params,
                     is_extern,
                     ..
                 } => {
@@ -2344,7 +2343,7 @@ impl ModuleBuilder {
                             self.env.clone(),
                             self.type_env.clone(),
                             ident.clone(),
-                            args.clone(),
+                            params.clone(),
                             body.clone().unwrap(),
                         )
                     }

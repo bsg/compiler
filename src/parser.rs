@@ -107,7 +107,7 @@ impl Parser {
                 self.next_token();
                 self.next_token();
 
-                let mut args: Vec<String> = Vec::new();
+                let mut params: Vec<String> = Vec::new();
 
                 // TODO assert commas... this is also lacking in some other places
                 while self.curr_token.kind != TokenKind::RParen {
@@ -116,7 +116,7 @@ impl Parser {
                         TokenKind::RParen => break,
                         _ => {
                             if let Some(ty) = self.parse_type() {
-                                args.push(ty.to_string());
+                                params.push(ty.to_string());
                                 self.next_token();
                             }
                         }
@@ -133,7 +133,7 @@ impl Parser {
                     todo!()
                 };
 
-                Some(format!("fn({}) -> {}", args.join(","), ret_ty).into())
+                Some(format!("fn({}) -> {}", params.join(","), ret_ty).into())
             }
             _ => todo!(),
         };
@@ -246,7 +246,7 @@ impl Parser {
     // TODO linkage should be an enum
     /// caller must ensure current token is Fn
     fn parse_fn(&mut self, is_extern: bool, linkage: Option<Rc<str>>) -> Option<NodeRef> {
-        let mut args: Vec<Arg> = Vec::new();
+        let mut params: Vec<FnParam> = Vec::new();
 
         assert_eq!(TokenKind::Fn, self.curr_token.kind);
         let start_span = self.curr_token.span.clone();
@@ -259,9 +259,9 @@ impl Parser {
 
             loop {
                 match &self.curr_token.clone().kind {
-                    TokenKind::Ident(arg_ident) => {
-                        if &**arg_ident == "self" {
-                            args.push(Arg::SelfVal);
+                    TokenKind::Ident(param_ident) => {
+                        if &**param_ident == "self" {
+                            params.push(FnParam::SelfVal);
 
                             self.next_token();
                         } else {
@@ -270,8 +270,8 @@ impl Parser {
                             self.next_token();
 
                             if let Some(ty) = self.parse_type() {
-                                args.push(Arg::Pair {
-                                    ident: arg_ident.clone(),
+                                params.push(FnParam::Pair {
+                                    ident: param_ident.clone(),
                                     ty,
                                 });
                             } else {
@@ -282,7 +282,7 @@ impl Parser {
                     TokenKind::Amp => {
                         if let TokenKind::Ident(ident) = &self.peek_token.kind {
                             if &**ident == "self" {
-                                args.push(Arg::SelfRef);
+                                params.push(FnParam::SelfRef);
                             } else {
                                 todo!()
                             }
@@ -322,7 +322,7 @@ impl Parser {
                 Node {
                     kind: NodeKind::Fn {
                         ident: ident.clone(),
-                        args: Rc::from(args.as_slice()),
+                        params: Rc::from(params.as_slice()),
                         ret_ty: return_type.clone(),
                         is_extern,
                         linkage,

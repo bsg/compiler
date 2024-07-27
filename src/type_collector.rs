@@ -69,7 +69,7 @@ impl TypeCollector {
                 }
             }
             NodeKind::Fn {
-                args, ret_ty, body, ..
+                params: args, ret_ty, body, ..
             } => {
                 self.types.insert((&**ret_ty).into());
                 for arg in args.iter() {

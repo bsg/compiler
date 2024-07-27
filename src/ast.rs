@@ -137,26 +137,26 @@ impl Op {
 pub type NodeRef = Rc<Node>;
 
 #[derive(PartialEq, Eq, Hash, Clone)]
-pub enum Arg {
+pub enum FnParam {
     SelfVal,
     SelfRef,
     Pair { ident: Rc<str>, ty: Rc<str> },
 }
 
-impl Arg {
+impl FnParam {
     pub fn ident(&self) -> Rc<str> {
         match self {
-            Arg::SelfVal => "self".into(),
-            Arg::SelfRef => "self".into(),
-            Arg::Pair { ident, .. } => ident.clone(),
+            FnParam::SelfVal => "self".into(),
+            FnParam::SelfRef => "self".into(),
+            FnParam::Pair { ident, .. } => ident.clone(),
         }
     }
 
     pub fn ty(&self) -> Rc<str> {
         match self {
-            Arg::SelfVal => "Self".into(),
-            Arg::SelfRef => "&Self".into(),
-            Arg::Pair { ty, .. } => ty.clone(),
+            FnParam::SelfVal => "Self".into(),
+            FnParam::SelfRef => "&Self".into(),
+            FnParam::Pair { ty, .. } => ty.clone(),
         }
     }
 }
@@ -234,7 +234,7 @@ pub enum NodeKind {
     },
     Fn {
         ident: Rc<str>,
-        args: Rc<[Arg]>,
+        params: Rc<[FnParam]>,
         ret_ty: Rc<str>,
         is_extern: bool,
         linkage: Option<Rc<str>>,
@@ -386,15 +386,15 @@ impl fmt::Debug for Node {
                 }
                 NodeKind::Fn {
                     ident,
-                    args,
+                    params,
                     ret_ty,
                     body,
                     is_extern,
                     linkage,
                 } => {
-                    let args_str = args
+                    let params_str = params
                         .iter()
-                        .map(|arg| format!("{}: {}", arg.ident(), arg.ty()))
+                        .map(|param| format!("{}: {}", param.ident(), param.ty()))
                         .collect::<Vec<String>>()
                         .join(", ");
 
@@ -403,7 +403,7 @@ impl fmt::Debug for Node {
                             "extern {:?} fn {}({}) -> {}{}",
                             linkage.clone().unwrap(),
                             ident,
-                            args_str,
+                            params_str,
                             ret_ty,
                             if let Some(body) = body {
                                 fmt_with_indent(body, indent_level + 1, true)
@@ -415,7 +415,7 @@ impl fmt::Debug for Node {
                         format!(
                             "fn {}({}) -> {}{}",
                             ident,
-                            args_str,
+                            params_str,
                             ret_ty,
                             if let Some(body) = body {
                                 fmt_with_indent(body, indent_level + 1, true)
