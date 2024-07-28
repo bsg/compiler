@@ -1119,6 +1119,28 @@ impl Parser {
                     .into(),
                 )
             }
+            TokenKind::Continue => {
+                expect_semicolon = true;
+                self.next_token();
+                Some(
+                    Node {
+                        kind: NodeKind::Continue,
+                        span: self.curr_token.span.clone(),
+                    }
+                    .into(),
+                )
+            }
+            TokenKind::Break => {
+                expect_semicolon = true;
+                self.next_token();
+                Some(
+                    Node {
+                        kind: NodeKind::Break,
+                        span: self.curr_token.span.clone(),
+                    }
+                    .into(),
+                )
+            }
             _ => {
                 let expr = self.parse_expression(0);
                 self.next_token();

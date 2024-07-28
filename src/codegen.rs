@@ -1,23 +1,11 @@
-// TODO Scope!
-// TODO impl type aliasing and make 'Self' a type alias instead of a new type
-// TODO struct literals
-// TODO Fn type
-// TODO check return values of llvm-sys function calls
-// TODO LLVMVerifyFunction
-// TODO break/continue
-// TODO check if variable shadowing works as intended
-// TODO type id's should be global. think of type names as aliases into type ids
-// TODO llvm type aliases for compound types
-// FIXME top level consts dependent will not resolve compound types on account of type not being available
-// when the const is being generated
-// TODO intern strings
-// TODO struct default values
+// TODO LLVMVerifyFunction & check return values of llvm-sys function calls
 // FIXME function pointer related stuff resulted in a lot of duplicate code
 // FIXME attributes are fucked
-// TODO explicitly tagged unions, with #[explicitly_tagged] on the union and #[tag=...] on the variant?
-// TODO https://doc.rust-lang.org/reference/expressions/struct-expr.html#functional-update-syntax
-// FIXME assigning a struct to another seems to 'move' it instead of copying it
 // FIXME sizeof doesn't seem to work for structs
+// FIXME assigning a struct to another seems to 'move' it instead of copying it
+// FIXME top level consts dependent will not resolve compound types on account of type not being available when the const is being generated
+// TODO llvm type aliases for compound types
+// TODO Scope!
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -677,6 +665,8 @@ pub struct ModuleBuilder {
     type_env: Rc<TypeEnv>,
     env: Rc<Env>,
     current_func_ident: Option<Rc<str>>,
+    continue_block: Option<LLVMBasicBlockRef>,
+    break_block: Option<LLVMBasicBlockRef>,
     // TODO rename
     generic_struct_mono_set: Vec<(String, Vec<String>)>,
 }
@@ -695,6 +685,8 @@ impl ModuleBuilder {
             env: Rc::new(Env::new()),
             current_func_ident: None,
             generic_struct_mono_set: Vec::new(),
+            continue_block: None,
+            break_block: None,
         }
     }
 
@@ -1737,6 +1729,9 @@ impl ModuleBuilder {
                     let bb_body = LLVMAppendBasicBlock(current_func.val, "".to_cstring().as_ptr());
                     let bb_exit = LLVMAppendBasicBlock(current_func.val, "".to_cstring().as_ptr());
 
+                    self.break_block = Some(bb_exit);
+                    self.continue_block = Some(bb_test);
+
                     LLVMPositionBuilderAtEnd(self.builder, bb_test);
                     LLVMBuildCondBr(
                         self.builder,
@@ -1751,6 +1746,9 @@ impl ModuleBuilder {
                     LLVMBuildBr(self.builder, bb_test);
 
                     LLVMPositionBuilderAtEnd(self.builder, bb_exit);
+
+                    self.break_block = None;
+                    self.continue_block = None;
 
                     Val {
                         ty: type_env.get_type_by_name("void").unwrap().clone(),
@@ -1816,6 +1814,30 @@ impl ModuleBuilder {
                     panic!("match stmt outside fn")
                 }
             }
+            NodeKind::Continue => {
+                if let Some(bb) = self.continue_block {
+                    unsafe { LLVMBuildBr(self.builder, bb) };
+                } else {
+                    panic!("{}\ncontinue outside loop body", node.span);
+                }
+
+                Val {
+                    ty: type_env.get_type_by_name("void").unwrap().clone(),
+                    llvm_val: null_mut(),
+                }
+            }
+            NodeKind::Break => {
+                if let Some(bb) = self.break_block {
+                    unsafe { LLVMBuildBr(self.builder, bb) };
+                } else {
+                    panic!("{}\nbreak outside loop body", node.span);
+                }
+
+                Val {
+                    ty: type_env.get_type_by_name("void").unwrap().clone(),
+                    llvm_val: null_mut(),
+                }
+            }
             _ => self.build_expr(env, type_env.clone(), node, false),
         }
     }
@@ -1825,12 +1847,15 @@ impl ModuleBuilder {
         if let NodeKind::Block { statements } = &node.kind {
             for (i, stmt) in statements.iter().enumerate() {
                 // TODO this is a quick hack. build_stmt should return info, including whether the stmt returns
-                if let NodeKind::Return { .. } = &stmt.kind {
-                    if i == statements.len() - 1 {
-                        returns = true;
-                    } else {
-                        panic!("return stmt in the middle of block");
+                match &stmt.kind {
+                    NodeKind::Return { .. } | &NodeKind::Break | &NodeKind::Continue => {
+                        if i == statements.len() - 1 {
+                            returns = true;
+                        } else {
+                            panic!("{}\nunreachable code following statement", stmt.span);
+                        }
                     }
+                    _ => (),
                 }
                 self.build_stmt(env.clone(), type_env.clone(), stmt.clone());
             }

@@ -272,6 +272,8 @@ pub enum NodeKind {
         arms: Rc<[MatchArm]>,
         num_cases: usize,
     },
+    Break,
+    Continue,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -548,6 +550,8 @@ impl fmt::Debug for Node {
                         arms_formatted
                     )
                 }
+                NodeKind::Break => "break".to_owned(),
+                NodeKind::Continue => "continue".to_owned(),
             }
             .as_str();
 

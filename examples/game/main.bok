@@ -303,10 +303,9 @@ impl EntityList<T> {
             idx = self.len;
             self.len += 1;
         } else {
-            let run = true; // TODO we have no 'break' yet lmao
-            while idx < self.len && run {
+            while idx < self.len {
                 if !self.get(idx).is_alive {
-                    run = false;
+                    break;
                 } else {
                     idx += 1;
                 }
@@ -551,9 +550,8 @@ fn main(argc: u32) -> u32 {
 
         // Render score
         let buf: [u8; 16];
-        let pBuf: *u8 = &buf;
-        itoa(ctx.score, pBuf);
-        let surface_text: *SDL_Surface = TTF_RenderText_Solid(ctx.font, pBuf, 0xFFFFFFFF);
+        itoa(ctx.score, &buf);
+        let surface_text: *SDL_Surface = TTF_RenderText_Solid(ctx.font, &buf, 0xFFFFFFFF);
         let tex_score: *SDL_Texture = SDL_CreateTextureFromSurface(ctx.renderer, surface_text);
         let w: u32;
         let h: u32;
