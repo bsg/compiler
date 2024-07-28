@@ -455,8 +455,7 @@ fn main(argc: u32) -> u32 {
             match ev.type {
                 SDL_QUIT => exit(0),
                 SDL_KEYDOWN | SDL_KEYUP => {
-                    kb_event = ev; // FIXME this 'moves' ev where it should be copying it
-                    // memcpy(&kb_event, &ev, sizeof(SDL_KeyboardEvent)); // TODO not needed when we have unions
+                    kb_event = ev; // TODO as SDL_KeyboardEvent
                     match kb_event.keysym.scancode {
                         SDL_SCANCODE_ESCAPE => exit(0),
                         SDL_SCANCODE_W      => input.up    = ev.type == SDL_KEYDOWN,
