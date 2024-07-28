@@ -1,7 +1,6 @@
 // TODO LLVMVerifyFunction & check return values of llvm-sys function calls
 // FIXME function pointer related stuff resulted in a lot of duplicate code
 // FIXME attributes are fucked
-// FIXME sizeof doesn't seem to work for structs
 // FIXME assigning a struct to another seems to 'move' it instead of copying it
 // FIXME top level consts dependent will not resolve compound types on account of type not being available when the const is being generated
 // TODO llvm type aliases for compound types
@@ -1034,7 +1033,7 @@ impl ModuleBuilder {
                     macro_rules! make_binop {
                         ($op:expr, $lhs:expr, $rhs: expr, $span: expr) => {
                             self.build_binop(
-                                env,
+                                env.clone(),
                                 type_env.clone(),
                                 Node {
                                     kind: NodeKind::BinOp {
@@ -1055,8 +1054,46 @@ impl ModuleBuilder {
                         None => self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false),
                     };
 
+                    if let (rhs_ty @ Type::Struct { .. }, lhs_ty @ Type::Struct { .. }) =
+                        (lhs_val.ty, rhs_val.ty)
+                    {
+                        // TODO this is to check whether rhs is a struct literal or not, find a better way
+                        // for instance, this will not work if rhs is a struct member
+                        // TODO use platform alignment
+                        if let NodeKind::Ident { .. } = rhs.kind {
+                            // FIXME redundant
+                            let rhs_val =
+                                self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true);
+                            let lhs_ptr = LLVMBuildBitCast(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                LLVMPointerType(LLVMInt8Type(), 0),
+                                "".to_cstring().as_ptr(),
+                            );
+                            let rhs_ptr = LLVMBuildBitCast(
+                                self.builder,
+                                rhs_val.llvm_val,
+                                LLVMPointerType(LLVMInt8Type(), 0),
+                                "".to_cstring().as_ptr(),
+                            );
+                            LLVMBuildMemCpy(
+                                self.builder,
+                                lhs_ptr,
+                                4,
+                                rhs_ptr,
+                                4,
+                                // TODO this should be lhs_ty but it breaks if the structs are of different type/size, which we'll disallow anyways in which case lhs_ty == rhs_ty
+                                LLVMSizeOf(rhs_ty.llvm_type(type_env.clone())),
+                            )
+                        } else {
+                            LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val)
+                        }
+                    } else {
+                        LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val)
+                    };
+
                     (
-                        LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val),
+                        null_mut(),
                         type_env.get_type_by_name("void").unwrap().clone(),
                     )
                 },

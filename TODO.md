@@ -7,3 +7,5 @@
 + explicitly tagged unions, with #[explicitly_tagged] on the union and #[tag=...] on the variant?
 + https://doc.rust-lang.org/reference/expressions/struct-expr.html#functional-update-syntax
 + unit type '()'
++ loop labels
++ size_of::<T>

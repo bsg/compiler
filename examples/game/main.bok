@@ -74,7 +74,7 @@ struct SDL_KeyboardEvent {
 struct SDL_Event {
     type: u32;
     // TODO the rest, once we have unions
-    _padding: [u8; 56];
+    _padding: [u8; 52];
 }
 
 struct SDL_Rect {
@@ -455,8 +455,8 @@ fn main(argc: u32) -> u32 {
             match ev.type {
                 SDL_QUIT => exit(0),
                 SDL_KEYDOWN | SDL_KEYUP => {
-                    // kb_event = ev; // FIXME this 'moves' ev where it should be copying it
-                    memcpy(&kb_event, &ev, 30); // TODO not needed when we have unions
+                    kb_event = ev; // FIXME this 'moves' ev where it should be copying it
+                    // memcpy(&kb_event, &ev, sizeof(SDL_KeyboardEvent)); // TODO not needed when we have unions
                     match kb_event.keysym.scancode {
                         SDL_SCANCODE_ESCAPE => exit(0),
                         SDL_SCANCODE_W      => input.up    = ev.type == SDL_KEYDOWN,
