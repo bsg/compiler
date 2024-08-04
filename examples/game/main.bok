@@ -283,7 +283,7 @@ impl EntityList<T> {
     fn init(&self, cap: u32) {
         self.len = 0;
         self.cap = cap;
-        self.ptr = malloc(sizeof(T) * cap);
+        self.ptr = malloc(size_of::<T>() * cap);
     }
 
     fn get(&self, id: u32) -> &T {
@@ -313,7 +313,7 @@ impl EntityList<T> {
         }
         
         if self.ptr != nullptr && idx < self.len {
-            memcpy(self.ptr + idx, entity, sizeof(T));
+            memcpy(self.ptr + idx, entity, size_of::<T>());
         }
 
         return idx;
@@ -372,7 +372,7 @@ fn main(argc: u32) -> u32 {
     itoa(a_get::<u32>(&a), &buf);
     puts(&buf);
 
-    puts(a_get::<&u8>(&b));
+    // puts(a_get::<&u8>(&b));
 
     // TODO spread op
     let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};

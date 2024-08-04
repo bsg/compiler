@@ -668,9 +668,11 @@ pub struct ModuleBuilder {
     current_func_ident: Option<Rc<str>>,
     continue_block: Option<LLVMBasicBlockRef>,
     break_block: Option<LLVMBasicBlockRef>,
+    // TODO should probably be contained in the same place non-generic fns are
     generic_fns: UnsafeCell<HashMap<String, NodeRef>>,
-    // TODO rename
-    generic_struct_mono_set: Vec<(String, Vec<String>)>,
+    // TODO this should ideally just hold a Path
+    fn_specializations: UnsafeCell<Vec<(PathSegment, NodeRef)>>,
+    struct_specializations: Vec<(String, Vec<String>)>,
 }
 
 impl ModuleBuilder {
@@ -686,10 +688,11 @@ impl ModuleBuilder {
             type_env: Rc::new(TypeEnv::new(llvm_module)),
             env: Rc::new(Env::new()),
             current_func_ident: None,
-            generic_struct_mono_set: Vec::new(),
+            struct_specializations: Vec::new(),
             continue_block: None,
             break_block: None,
             generic_fns: UnsafeCell::new(HashMap::new()),
+            fn_specializations: UnsafeCell::new(Vec::new()),
         }
     }
 
@@ -1228,7 +1231,10 @@ impl ModuleBuilder {
                                 return self.build_call(
                                     env.clone(),
                                     type_env.clone(),
-                                    func_ident.as_str(),
+                                    PathSegment {
+                                        ident: func_ident.into(),
+                                        generics: [].into(),
+                                    },
                                     &args,
                                 );
                             }
@@ -1299,7 +1305,15 @@ impl ModuleBuilder {
                         {
                             let mangled_name = static_methods.get(&**fn_ident).unwrap();
 
-                            return self.build_call(env, type_env.clone(), mangled_name, fn_args);
+                            return self.build_call(
+                                env,
+                                type_env.clone(),
+                                PathSegment {
+                                    ident: mangled_name.as_str().into(),
+                                    generics: [].into(),
+                                },
+                                fn_args,
+                            );
                         } else {
                             todo!()
                         }
@@ -1366,13 +1380,13 @@ impl ModuleBuilder {
         &mut self,
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
-        ident: &str,
+        path: PathSegment,
         arg_exprs: &[NodeRef],
     ) -> Val {
-        // TODO funcs could be vars instead?
-        let (llvm_ty, llvm_val, ret_ty) = if let Some(func) = env.get_func(ident) {
+        // TODO funcs could be vars instead? or everything that can be resolved by a path could be an Item?
+        let (llvm_ty, llvm_val, ret_ty) = if let Some(func) = env.get_func(&path.to_string()) {
             (func.llvm_type, func.val, func.ret_type.clone())
-        } else if let Some(var) = env.get_var(ident) {
+        } else if let Some(var) = env.get_var(&path.to_string()) {
             if let ty @ Type::Fn { ret_type, .. } = &var.ty {
                 let llvm_val = unsafe {
                     LLVMBuildLoad2(
@@ -1390,9 +1404,7 @@ impl ModuleBuilder {
             } else {
                 todo!()
             }
-        } else if let Some(fn_node) =
-            self.get_generic_fn(ident.split_once('<').unwrap().0.to_string())
-        {
+        } else if let Some(fn_node) = self.get_generic_fn(path.ident.to_string()) {
             // FIXME shame
             if let NodeKind::Fn {
                 ident,
@@ -1406,9 +1418,8 @@ impl ModuleBuilder {
             {
                 let local_type_env = TypeEnv::make_child(type_env.clone());
                 local_type_env
-                    .insert_type_by_name("T", type_env.get_type_by_name("u32").unwrap().clone());
-                let ident = format!("{}<u32>", ident);
-                println!("{}", ident);
+                    .insert_type_by_name("T", type_env.get_type_by_name(&path.generics[0].to_string()).unwrap().clone());
+                let ident = path.to_string();
                 self.set_up_function(
                     env.clone(),
                     local_type_env.into(),
@@ -1419,12 +1430,20 @@ impl ModuleBuilder {
                     linkage.clone(),
                     fn_node.clone(),
                 );
-                return self.build_call(env, type_env, &ident, arg_exprs);
+
+                unsafe { (*self.fn_specializations.get()).push((path.clone(), fn_node)) }
+
+                return self.build_call(
+                    env,
+                    type_env,
+                    path.clone(),
+                    arg_exprs,
+                );
             } else {
-                panic!("unresolved function {}", ident)
+                panic!("unresolved function {}", path)
             }
         } else {
-            panic!("unresolved function {}", ident)
+            panic!("unresolved function {}", path)
         };
 
         let mut args: Vec<LLVMValueRef> = Vec::new();
@@ -1568,48 +1587,44 @@ impl ModuleBuilder {
             NodeKind::UnOp { .. } => self.build_unop(env, type_env, node, as_lvalue),
             NodeKind::BinOp { .. } => self.build_binop(env, type_env, node, as_lvalue),
             NodeKind::Call {
-                path: PathSegment { ident, generics },
+                path: path @ PathSegment { ident, generics },
                 args,
             } => {
-                if &**ident == "sizeof" {
-                    assert!(args.len() == 1);
-                    if let NodeKind::Ident { name: ty_name } = &args[0].kind {
-                        let ty_usize = type_env.get_type_by_name("u32").unwrap().clone(); // TODO usize
-                        Val {
-                            ty: ty_usize.clone(),
-                            llvm_val: unsafe {
-                                LLVMBuildIntCast2(
-                                    self.builder,
-                                    LLVMSizeOf(
-                                        type_env
-                                            .get_type_by_name(ty_name)
-                                            .unwrap()
-                                            .llvm_type(type_env.clone()),
-                                    ),
-                                    ty_usize.llvm_type(type_env),
-                                    0,
-                                    "".to_cstring().as_ptr(),
-                                )
-                            },
-                        }
-                    } else {
-                        todo!()
+                if &**ident == "size_of" {
+                    assert!(generics.len() == 1);
+                    let ty_usize = type_env.get_type_by_name("u32").unwrap().clone(); // TODO usize
+                    Val {
+                        ty: ty_usize.clone(),
+                        llvm_val: unsafe {
+                            LLVMBuildIntCast2(
+                                self.builder,
+                                LLVMSizeOf(
+                                    type_env
+                                        .get_type_by_name(&generics[0].to_string())
+                                        .unwrap()
+                                        .llvm_type(type_env.clone()),
+                                ),
+                                ty_usize.llvm_type(type_env),
+                                0,
+                                "".to_cstring().as_ptr(),
+                            )
+                        },
                     }
                 } else {
-                    self.build_call(env, type_env, ident, args)
+                    self.build_call(env, type_env, path.clone(), args)
                 }
             }
             NodeKind::Array { elems } => self.build_array(env, type_env, elems),
             NodeKind::Str { value } => self.build_string(type_env, value.clone()),
             NodeKind::StructLiteral {
-                path: PathSegment { ident, generics },
+                path: path @ PathSegment { .. },
                 fields,
             } => {
                 // TODO this shares common behaviour with the dot operator on structs.
                 // maybe have something like build_store_struct_member()
                 // TODO in (for instance) let ... = T {...}, alloca and load here are redundant
                 if let Some(ty @ Type::Struct { field_indices, .. }) =
-                    type_env.get_type_by_name(ident)
+                    type_env.get_type_by_name(&path.to_string())
                 {
                     let func = self.env.get_func(&self.current_func_ident.clone().unwrap());
 
@@ -1683,7 +1698,7 @@ impl ModuleBuilder {
                         llvm_val,
                     }
                 } else {
-                    panic!("unresolved type {}", ident);
+                    panic!("{}\nunresolved type {}", node.span, path);
                 }
             }
             _ => panic!("unimplemented!\n {:?}", node),
@@ -2194,7 +2209,7 @@ impl ModuleBuilder {
             }
         }
 
-        for (name, type_args) in self.generic_struct_mono_set.iter() {
+        for (name, type_args) in self.struct_specializations.iter() {
             let local_env = Rc::new(Env::make_child(self.env.clone()));
             let local_type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
 
@@ -2420,7 +2435,7 @@ impl ModuleBuilder {
                     }
                 } else {
                     let monos: Vec<Vec<String>> = self
-                        .generic_struct_mono_set
+                        .struct_specializations
                         .iter()
                         .filter(|(name, _)| name == &**impl_ty)
                         .map(|(_, concrete_types)| concrete_types.clone())
@@ -2527,7 +2542,7 @@ impl ModuleBuilder {
                         self.build_function(
                             self.env.clone(),
                             func.1.type_env.clone(),
-                            format!("{}<u32>", ident).into(),
+                            format!("{}<{}>", ident, generics[0]).into(),
                             params.clone(),
                             body.clone(),
                         )
@@ -2552,7 +2567,7 @@ impl ModuleBuilder {
 
                     type_name = type_name.trim_start_matches('&').trim_start_matches('*');
 
-                    self.generic_struct_mono_set
+                    self.struct_specializations
                         .push((type_name.to_owned(), types));
                 } else {
                     // TODO this is to bring the type into scope but might/should not be necessary

@@ -381,6 +381,7 @@ impl Parser {
                 ident: name.clone(),
                 generics: [].into(),
             },
+            NodeKind::Path { segment } => segment.clone(),
             NodeKind::BinOp {
                 op: Op::Turbofish,
                 lhs,
@@ -2070,6 +2071,16 @@ block
             block
         case 3
             block
+"
+        );
+    }
+
+    #[test]
+    fn generic_fn_call_with_explicit_type_args() {
+        assert_parse!(
+            "foo::<T>()",
+            "\
+call foo<T>
 "
         );
     }
