@@ -2,6 +2,7 @@
 // TODO .eat(...) with assert
 // TODO do not clone fucking tokens
 // TODO spans for ops should only span the op token and not the entire expr
+// TODO .parse_generics()
 
 use std::rc::Rc;
 
@@ -41,73 +42,83 @@ impl Parser {
         self.tokens.reset_cursor();
     }
 
-    // TODO this is fucked
-    fn parse_type(&mut self) -> Option<Rc<str>> {
-        let ty = match self.curr_token.clone().kind {
+    fn parse_type(&mut self) -> Option<Rc<Ty>> {
+        match self.curr_token.clone().kind {
             TokenKind::Ident(ident) => {
+                let mut generics: Vec<Rc<Ty>> = Vec::new();
                 if self.peek_token.kind == TokenKind::Lt {
                     self.next_token();
                     self.next_token();
 
-                    let mut generics: Vec<Rc<str>> = Vec::new();
                     while self.curr_token.kind != TokenKind::Gt {
-                        if let Some(ty_ident) = &self.parse_type() {
-                            generics.push(ty_ident.clone());
+                        if let Some(ty) = &self.parse_type() {
+                            generics.push(ty.clone());
                         } else {
                             todo!()
                         }
                         self.next_token();
                     }
-
-                    Some(format!("{}<{}>", ident, generics.join(",")).into())
-                } else {
-                    Some(ident)
                 }
+
+                Some(
+                    Ty::Simple {
+                        ident,
+                        generics: generics.into(),
+                    }
+                    .into(),
+                )
             }
             TokenKind::Star => {
                 self.next_token();
-                Some(("*".to_owned() + &self.parse_type().unwrap()).into())
+                Some(
+                    Ty::Ptr {
+                        pointee_ty: self.parse_type()?,
+                    }
+                    .into(),
+                )
             }
             TokenKind::Amp => {
                 self.next_token();
-                Some(("&".to_owned() + &self.parse_type().unwrap()).into())
+                Some(
+                    Ty::Ref {
+                        referent_ty: self.parse_type()?,
+                    }
+                    .into(),
+                )
             }
             TokenKind::LBracket => {
                 self.next_token();
-                let ty = match self.curr_token.clone().kind {
-                    TokenKind::Ident(ty) => Some(ty),
-                    TokenKind::LBracket => self.parse_type(),
-                    _ => todo!(),
-                };
+                let elem_ty = self.parse_type()?;
+                self.next_token();
 
-                if let Some(ty) = ty {
-                    if self.peek_token.kind == TokenKind::Semicolon {
+                let ty = if let TokenKind::Semicolon = self.curr_token.kind {
+                    self.next_token();
+                    if let TokenKind::Int(len) = self.curr_token.clone().kind {
                         self.next_token();
-                        self.next_token();
-                        if let TokenKind::Int(len) = &self.curr_token.clone().kind {
-                            self.next_token();
-                            assert_eq!(TokenKind::RBracket, self.curr_token.kind);
-                            Some(format!("[{}; {}]", ty, len).as_str().into())
-                        } else {
-                            todo!()
+                        Ty::Slice {
+                            elem_ty,
+                            len: len.parse::<usize>().unwrap(),
                         }
-                    } else if self.peek_token.kind == TokenKind::RBracket {
-                        Some(format!("[{}]", ty).as_str().into())
                     } else {
                         todo!()
                     }
                 } else {
-                    todo!()
+                    Ty::Array { elem_ty }
                 }
+                .into();
+
+                assert_eq!(TokenKind::RBracket, self.curr_token.kind);
+
+                Some(ty)
             }
             TokenKind::Fn => {
                 if self.peek_token.kind != TokenKind::LParen {
                     todo!()
                 };
-                self.next_token();
-                self.next_token();
+                self.next_token(); // eat fn
+                self.next_token(); // eat LParen
 
-                let mut params: Vec<String> = Vec::new();
+                let mut param_tys: Vec<Rc<Ty>> = Vec::new();
 
                 // TODO assert commas... this is also lacking in some other places
                 while self.curr_token.kind != TokenKind::RParen {
@@ -115,11 +126,9 @@ impl Parser {
                         TokenKind::Comma => self.next_token(),
                         TokenKind::RParen => break,
                         _ => {
-                            if let Some(ty) = self.parse_type() {
-                                params.push(ty.to_string());
-                                self.next_token();
-                            }
-                        }
+                            param_tys.push(self.parse_type()?);
+                            self.next_token();
+                        },
                     }
                 }
 
@@ -133,12 +142,16 @@ impl Parser {
                     todo!()
                 };
 
-                Some(format!("fn({}) -> {}", params.join(","), ret_ty).into())
+                Some(
+                    Ty::Fn {
+                        param_tys: param_tys.into(),
+                        ret_ty,
+                    }
+                    .into(),
+                )
             }
             _ => todo!(),
-        };
-
-        ty
+        }
     }
 
     /// curr_token after return is RBrace
@@ -247,6 +260,7 @@ impl Parser {
     /// caller must ensure current token is Fn
     fn parse_fn(&mut self, is_extern: bool, linkage: Option<Rc<str>>) -> Option<NodeRef> {
         let mut params: Vec<FnParam> = Vec::new();
+        let mut generics: Vec<Rc<Ty>> = Vec::new();
 
         assert_eq!(TokenKind::Fn, self.curr_token.kind);
         let start_span = self.curr_token.span.clone();
@@ -254,14 +268,27 @@ impl Parser {
 
         if let TokenKind::Ident(ident) = &self.curr_token.clone().kind {
             self.next_token();
-            assert_eq!(self.curr_token.kind, TokenKind::LParen);
+
+            if TokenKind::Lt == self.curr_token.kind {
+                self.next_token();
+                while self.curr_token.kind != TokenKind::Gt {
+                    generics.push(self.parse_type()?);
+                    self.next_token();
+                    if let TokenKind::Comma = self.curr_token.kind {
+                        self.next_token();
+                    }
+                }
+                self.next_token(); // eat Gt
+            }
+
+            assert_eq!(TokenKind::LParen, self.curr_token.kind);
             self.next_token();
 
             loop {
                 match &self.curr_token.clone().kind {
                     TokenKind::Ident(param_ident) => {
                         if &**param_ident == "self" {
-                            params.push(FnParam::SelfVal);
+                            params.push(FnParam::SelfByVal);
 
                             self.next_token();
                         } else {
@@ -282,7 +309,7 @@ impl Parser {
                     TokenKind::Amp => {
                         if let TokenKind::Ident(ident) = &self.peek_token.kind {
                             if &**ident == "self" {
-                                params.push(FnParam::SelfRef);
+                                params.push(FnParam::SelfByRef);
                             } else {
                                 todo!()
                             }
@@ -306,7 +333,11 @@ impl Parser {
                     self.next_token();
                     t
                 }
-                TokenKind::LBrace | TokenKind::Semicolon => "void".into(),
+                TokenKind::LBrace | TokenKind::Semicolon => Ty::Simple {
+                    ident: "void".into(),
+                    generics: [].into(),
+                }
+                .into(),
                 _ => todo!(),
             };
 
@@ -324,6 +355,7 @@ impl Parser {
                         ident: ident.clone(),
                         params: Rc::from(params.as_slice()),
                         ret_ty: return_type.clone(),
+                        generics: generics.into(),
                         is_extern,
                         linkage,
                         body,
@@ -344,8 +376,18 @@ impl Parser {
 
         let mut args: Vec<NodeRef> = Vec::new();
 
-        let ident = match &lhs.kind {
-            NodeKind::Ident { name } => name.clone(),
+        let path = match &lhs.kind {
+            NodeKind::Ident { name } => PathSegment {
+                ident: name.clone(),
+                generics: [].into(),
+            },
+            NodeKind::BinOp {
+                op: Op::Turbofish,
+                lhs,
+                rhs,
+            } => {
+                todo!()
+            }
             _ => todo!(),
         };
 
@@ -368,7 +410,7 @@ impl Parser {
         Some(
             Node {
                 kind: NodeKind::Call {
-                    ident,
+                    path,
                     args: Rc::from(args.as_slice()),
                 },
                 span: start_span.merge(&end_span),
@@ -532,14 +574,11 @@ impl Parser {
         self.next_token();
         let ty = if self.curr_token.kind == TokenKind::Colon {
             self.next_token();
-            if let Some(ty) = self.parse_type() {
-                self.next_token();
-                Some(ty)
-            } else {
-                todo!()
-            }
+            let ty = self.parse_type()?;
+            self.next_token();
+            ty
         } else {
-            None
+            panic!("{}\nmissing type annotation in let", start_span);
         };
 
         let rhs = match self.curr_token.kind {
@@ -709,7 +748,7 @@ impl Parser {
                 span: self.curr_token.span.clone(),
             }
             .into(),
-            TokenKind::Ident(_) => self.parse_ident()?,
+            TokenKind::Ident(_) => self.parse_ident()?, // TODO return Path?
             TokenKind::True => Node {
                 kind: NodeKind::Bool { value: true },
                 span: self.curr_token.span.clone(),
@@ -778,16 +817,6 @@ impl Parser {
                 .into()
             }
             TokenKind::LBracket => self.parse_array()?,
-            TokenKind::Dot => {
-                let start_span = self.curr_token.span.clone();
-                self.next_token();
-                let ty = self.parse_type()?;
-                Node {
-                    kind: NodeKind::Ident { name: ty },
-                    span: start_span.merge(&self.curr_token.span),
-                }
-                .into()
-            }
             TokenKind::None => return None,
             _ => panic!("unexpected token {}", self.curr_token),
         };
@@ -825,6 +854,7 @@ impl Parser {
                         _ => return Some(lhs),
                     }
                 }
+                TokenKind::Turbofish => Op::Turbofish,
                 _ => break,
             };
 
@@ -856,7 +886,9 @@ impl Parser {
                             op: Op::Cast,
                             lhs,
                             rhs: Node {
-                                kind: NodeKind::Ident { name: type_ident },
+                                kind: NodeKind::Ident {
+                                    name: type_ident.to_string().into(),
+                                },
                                 span: ident_span_start.merge(&ident_span_end),
                             }
                             .into(),
@@ -865,60 +897,93 @@ impl Parser {
                     }
                     .into()
                 }
+                Op::Turbofish => {
+                    self.next_token();
+                    self.next_token(); // eat Turbofish
+                    let mut generics: Vec<Rc<Ty>> = Vec::new();
+                    // TODO commas
+                    while self.curr_token.kind != TokenKind::Gt {
+                        if let Some(ty) = &self.parse_type() {
+                            generics.push(ty.clone());
+                        } else {
+                            todo!()
+                        }
+                        self.next_token();
+                    }
+
+                    match &lhs.kind {
+                        NodeKind::Ident { name } => Node {
+                            kind: NodeKind::Path {
+                                segment: PathSegment {
+                                    ident: name.clone(),
+                                    generics: generics.into(),
+                                },
+                            },
+                            span: lhs.span.clone(),
+                        }
+                        .into(),
+                        _ => todo!(),
+                    }
+                }
                 Op::StructLiteral => {
-                    if let NodeKind::Ident { name } = &lhs.kind {
-                        let span_start = self.curr_token.span.clone();
-                        self.next_token();
-                        assert_eq!(TokenKind::LBrace, self.curr_token.kind);
-                        self.next_token();
+                    let path: Rc<PathSegment> = match &lhs.kind {
+                        NodeKind::Ident { name } => PathSegment {
+                            ident: name.clone(),
+                            generics: [].into(),
+                        }
+                        .into(),
+                        NodeKind::Path { segment } => segment.clone().into(),
+                        _ => todo!(),
+                    };
 
-                        let mut fields: Vec<StructLiteralField> = Vec::new();
+                    let span_start = self.curr_token.span.clone();
+                    self.next_token();
+                    assert_eq!(TokenKind::LBrace, self.curr_token.kind);
+                    self.next_token();
 
-                        while self.curr_token.kind != TokenKind::RBrace {
-                            if let TokenKind::Comma = self.curr_token.kind {
-                                self.next_token();
-                            }
+                    let mut fields: Vec<StructLiteralField> = Vec::new();
 
-                            let field_name = if let TokenKind::Ident(field_name) =
-                                self.curr_token.clone().kind
-                            {
+                    while self.curr_token.kind != TokenKind::RBrace {
+                        if let TokenKind::Comma = self.curr_token.kind {
+                            self.next_token();
+                        }
+
+                        let field_name =
+                            if let TokenKind::Ident(field_name) = self.curr_token.clone().kind {
                                 field_name
                             } else {
                                 println!("{:?}", lhs);
                                 todo!();
                             };
 
-                            self.next_token();
-                            assert_eq!(TokenKind::Colon, self.curr_token.kind);
-                            self.next_token();
+                        self.next_token();
+                        assert_eq!(TokenKind::Colon, self.curr_token.kind);
+                        self.next_token();
 
-                            let val = if let Some(expr) = self.parse_expression(0) {
-                                expr
-                            } else {
-                                todo!();
-                            };
+                        let val = if let Some(expr) = self.parse_expression(0) {
+                            expr
+                        } else {
+                            todo!();
+                        };
 
-                            fields.push(StructLiteralField {
-                                ident: field_name.clone(),
-                                val,
-                            });
+                        fields.push(StructLiteralField {
+                            ident: field_name.clone(),
+                            val,
+                        });
 
-                            self.next_token();
-                        }
-
-                        return Some(
-                            Node {
-                                kind: NodeKind::StructLiteral {
-                                    ident: name.clone(),
-                                    fields: fields.as_slice().into(),
-                                },
-                                span: span_start.merge(&self.curr_token.span),
-                            }
-                            .into(),
-                        );
-                    } else {
-                        break;
+                        self.next_token();
                     }
+
+                    return Some(
+                        Node {
+                            kind: NodeKind::StructLiteral {
+                                path: (*path).clone(),
+                                fields: fields.as_slice().into(),
+                            },
+                            span: span_start.merge(&self.curr_token.span),
+                        }
+                        .into(),
+                    );
                 }
                 op => {
                     if op == Op::Dot {
@@ -1602,6 +1667,14 @@ add
     #[test]
     fn parse_array_type() {
         assert_parse!(
+            "let arr: [u8];",
+            "\
+let [u8]
+    ident arr
+"
+        );
+
+        assert_parse!(
             "let arr: [u8; 5];",
             "\
 let [u8; 5]
@@ -1937,7 +2010,7 @@ let A
     #[test]
     fn generic_struct_literal() {
         assert_parse!(
-            "let _: &A<T> = &.A<T> {x: 1};",
+            "let _: &A<T> = &A::<T> {x: 1};",
             "\
 let &A<T>
     ident _

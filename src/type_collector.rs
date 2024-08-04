@@ -30,17 +30,14 @@ impl TypeCollector {
                 }
             }
             NodeKind::Let { ty, rhs, .. } => {
-                if let Some(ty) = ty {
-                    self.types.insert((&**ty).into());
-                }
+                self.types.insert(ty.to_string());
+
                 if let Some(rhs) = rhs {
                     self.collect_recursively(rhs.clone());
                 }
             }
             NodeKind::Const { ty, rhs, .. } => {
-                if let Some(ty) = ty {
-                    self.types.insert((&**ty).into());
-                }
+                self.types.insert(ty.to_string());
                 if let Some(rhs) = rhs {
                     self.collect_recursively(rhs.clone());
                 }
@@ -69,11 +66,14 @@ impl TypeCollector {
                 }
             }
             NodeKind::Fn {
-                params: args, ret_ty, body, ..
+                params: args,
+                ret_ty,
+                body,
+                ..
             } => {
-                self.types.insert((&**ret_ty).into());
+                self.types.insert((ret_ty.to_string()).into());
                 for arg in args.iter() {
-                    self.types.insert((&*arg.ty()).into());
+                    self.types.insert((arg.ty().to_string()).into());
                 }
                 if let Some(body) = body {
                     self.collect_recursively(body.clone());
@@ -93,7 +93,7 @@ impl TypeCollector {
                 if generics.is_empty() {
                     self.types.insert((&**ident).into());
                     for field in fields.iter() {
-                        self.types.insert((&*field.ty).into());
+                        self.types.insert((field.ty.to_string()).into());
                     }
                 }
             }
@@ -107,8 +107,8 @@ impl TypeCollector {
                     self.collect_recursively(elem.clone());
                 }
             }
-            NodeKind::StructLiteral { ident, fields } => {
-                self.types.insert(ident.to_string());
+            NodeKind::StructLiteral { path, fields } => {
+                self.types.insert(path.to_string());
                 for field in fields.iter() {
                     self.collect_recursively(field.clone().val);
                 }

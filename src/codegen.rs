@@ -234,6 +234,7 @@ pub struct Var {
 pub struct Func {
     ty: Type,
     env: Rc<Env>,
+    type_env: Rc<TypeEnv>,
     param_types: Vec<Type>, // TODO should not be necessary because we have ty
     ret_type: Type,         // TODO should not be necessary because we have ty
     val: LLVMValueRef,
@@ -241,6 +242,7 @@ pub struct Func {
     // TODO group these two together
     bb_entry: Option<LLVMBasicBlockRef>,
     bb_body: Option<LLVMBasicBlockRef>,
+    node: NodeRef,
 }
 
 static mut NEXT_TYPE_ID: usize = 0;
@@ -666,6 +668,7 @@ pub struct ModuleBuilder {
     current_func_ident: Option<Rc<str>>,
     continue_block: Option<LLVMBasicBlockRef>,
     break_block: Option<LLVMBasicBlockRef>,
+    generic_fns: UnsafeCell<HashMap<String, NodeRef>>,
     // TODO rename
     generic_struct_mono_set: Vec<(String, Vec<String>)>,
 }
@@ -686,6 +689,7 @@ impl ModuleBuilder {
             generic_struct_mono_set: Vec::new(),
             continue_block: None,
             break_block: None,
+            generic_fns: UnsafeCell::new(HashMap::new()),
         }
     }
 
@@ -1173,7 +1177,10 @@ impl ModuleBuilder {
                                     )
                                 }
                             }
-                            NodeKind::Call { ident, args } => {
+                            NodeKind::Call {
+                                path: PathSegment { ident, generics },
+                                args,
+                            } => {
                                 // TODO the following fails for struct members that depend on one another
                                 // build static/member methods lists before you build impl fn bodies
 
@@ -1279,7 +1286,11 @@ impl ModuleBuilder {
                     (
                         NodeKind::Ident { name: type_name },
                         NodeKind::Call {
-                            ident: fn_ident,
+                            path:
+                                PathSegment {
+                                    ident: fn_ident,
+                                    generics,
+                                },
                             args: fn_args,
                         },
                     ) => {
@@ -1378,6 +1389,39 @@ impl ModuleBuilder {
                 )
             } else {
                 todo!()
+            }
+        } else if let Some(fn_node) =
+            self.get_generic_fn(ident.split_once('<').unwrap().0.to_string())
+        {
+            // FIXME shame
+            if let NodeKind::Fn {
+                ident,
+                params,
+                ret_ty,
+                generics,
+                is_extern,
+                linkage,
+                body,
+            } = &fn_node.kind
+            {
+                let local_type_env = TypeEnv::make_child(type_env.clone());
+                local_type_env
+                    .insert_type_by_name("T", type_env.get_type_by_name("u32").unwrap().clone());
+                let ident = format!("{}<u32>", ident);
+                println!("{}", ident);
+                self.set_up_function(
+                    env.clone(),
+                    local_type_env.into(),
+                    &ident,
+                    params.clone(),
+                    ret_ty.to_string().into(),
+                    *is_extern,
+                    linkage.clone(),
+                    fn_node.clone(),
+                );
+                return self.build_call(env, type_env, &ident, arg_exprs);
+            } else {
+                panic!("unresolved function {}", ident)
             }
         } else {
             panic!("unresolved function {}", ident)
@@ -1523,7 +1567,10 @@ impl ModuleBuilder {
             },
             NodeKind::UnOp { .. } => self.build_unop(env, type_env, node, as_lvalue),
             NodeKind::BinOp { .. } => self.build_binop(env, type_env, node, as_lvalue),
-            NodeKind::Call { ident, args } => {
+            NodeKind::Call {
+                path: PathSegment { ident, generics },
+                args,
+            } => {
                 if &**ident == "sizeof" {
                     assert!(args.len() == 1);
                     if let NodeKind::Ident { name: ty_name } = &args[0].kind {
@@ -1554,7 +1601,10 @@ impl ModuleBuilder {
             }
             NodeKind::Array { elems } => self.build_array(env, type_env, elems),
             NodeKind::Str { value } => self.build_string(type_env, value.clone()),
-            NodeKind::StructLiteral { ident, fields } => {
+            NodeKind::StructLiteral {
+                path: PathSegment { ident, generics },
+                fields,
+            } => {
                 // TODO this shares common behaviour with the dot operator on structs.
                 // maybe have something like build_store_struct_member()
                 // TODO in (for instance) let ... = T {...}, alloca and load here are redundant
@@ -1658,13 +1708,9 @@ impl ModuleBuilder {
             NodeKind::Let { ty, lhs, rhs } => unsafe {
                 // TODO alloca the var and let assign do the rest?
                 if let NodeKind::Ident { name } = &lhs.kind {
-                    let var_ty = if let Some(ty) = ty {
-                        match type_env.get_type_by_name(ty) {
-                            t @ Some(_) => t,
-                            None => panic!("unknown type {}", ty),
-                        }
-                    } else {
-                        None
+                    let var_ty = match type_env.get_type_by_name(&ty.to_string()) {
+                        t @ Some(_) => t,
+                        None => panic!("unknown type {}", ty),
                     };
 
                     let func = self.env.get_func(&self.current_func_ident.clone().unwrap());
@@ -1902,6 +1948,16 @@ impl ModuleBuilder {
         returns
     }
 
+    fn register_generic_fn(&mut self, ident: String, node: NodeRef) {
+        (unsafe { &mut *self.generic_fns.get() }).insert(ident, node);
+    }
+
+    fn get_generic_fn(&mut self, ident: String) -> Option<NodeRef> {
+        (unsafe { &mut *self.generic_fns.get() })
+            .get(&ident)
+            .cloned()
+    }
+
     fn set_up_function(
         &mut self,
         env: Rc<Env>,
@@ -1911,6 +1967,7 @@ impl ModuleBuilder {
         ret_ty: Rc<str>,
         is_extern: bool,
         _linkage: Option<Rc<str>>,
+        node: NodeRef,
     ) {
         let ret_type = match type_env.get_type_by_name(&ret_ty) {
             Some(ty) => ty,
@@ -1920,8 +1977,8 @@ impl ModuleBuilder {
         let mut param_types: Vec<Type> = Vec::new();
         let mut llvm_param_types: Vec<LLVMTypeRef> = Vec::new();
         for param in params.iter() {
-            if let Some(ty) = type_env.get_type_by_name(&param.ty()) {
-                param_type_names.push(param.ty());
+            if let Some(ty) = type_env.get_type_by_name(&param.ty().to_string()) {
+                param_type_names.push(param.ty().to_string().into());
                 param_types.push(ty.clone());
                 let llvm_type = if let Type::Fn { .. } = ty {
                     unsafe { LLVMPointerType(ty.llvm_type(type_env.clone()), 0) }
@@ -1971,12 +2028,14 @@ impl ModuleBuilder {
             Func {
                 ty: fn_type.clone(),
                 env: Rc::new(fn_env),
+                type_env: type_env.clone(),
                 param_types,
                 ret_type: ret_type.clone(),
                 val,
                 llvm_type: func_type,
                 bb_entry,
                 bb_body,
+                node,
             },
         );
     }
@@ -1989,13 +2048,14 @@ impl ModuleBuilder {
         params: Rc<[FnParam]>,
         body: NodeRef,
     ) {
+        println!("building {}", ident);
         let func = env.get_func(&ident).unwrap();
         if let (Some(bb_entry), Some(bb_body)) = (func.bb_entry, func.bb_body) {
             self.current_func_ident = Some(ident.clone());
             unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_entry) };
 
             for (i, param) in params.iter().enumerate() {
-                let ty = match type_env.get_type_by_name(&param.ty()) {
+                let ty = match type_env.get_type_by_name(&param.ty().to_string()) {
                     Some(ty) => ty,
                     None => panic!("unresolved type {}", param.ty()),
                 };
@@ -2034,7 +2094,14 @@ impl ModuleBuilder {
         }
     }
 
-    fn register_struct(&self, env: &Env, type_env: &TypeEnv, node: NodeRef, name: Option<String>) {
+    fn register_struct(
+        &self,
+        env: &Env,
+        type_env: &TypeEnv,
+        node: NodeRef,
+        name: Option<String>,
+        type_args: Option<HashMap<String, String>>,
+    ) {
         if let NodeKind::Struct {
             ident,
             fields,
@@ -2045,7 +2112,14 @@ impl ModuleBuilder {
             let mut field_indices: HashMap<String, usize> = HashMap::new();
             let mut field_type_names: Vec<Rc<String>> = Vec::new();
             for (idx, field) in fields.iter().enumerate() {
-                field_type_names.push(field.ty.to_string().into());
+                let mut field_ty_name: String = field.ty.to_string();
+                if let Some(ref type_args) = type_args {
+                    field_ty_name = type_args
+                        .get(&field_ty_name)
+                        .unwrap_or(&field_ty_name)
+                        .to_string();
+                }
+                field_type_names.push(field_ty_name.into());
                 field_indices.insert(field.ident.to_string(), idx);
             }
 
@@ -2071,9 +2145,7 @@ impl ModuleBuilder {
             match &node.kind {
                 NodeKind::Const { ty, lhs, rhs } => {
                     if let NodeKind::Ident { name } = &lhs.kind {
-                        let ty = if let Some(ty) = ty { ty } else { todo!() };
-
-                        let ty = match self.type_env.get_type_by_name(ty) {
+                        let ty = match self.type_env.get_type_by_name(&ty.to_string()) {
                             Some(t) => t,
                             None => panic!("unknown type {}", ty),
                         };
@@ -2114,7 +2186,7 @@ impl ModuleBuilder {
 
                 // TODO build a dependency tree and gen structs depth first
                 if generics.len() == 0 {
-                    self.register_struct(&local_env, &local_type_env, node.clone(), None);
+                    self.register_struct(&local_env, &local_type_env, node.clone(), None, None);
                 } else {
                     self.type_env
                         .insert_generic_type(ident.to_string(), node.clone())
@@ -2133,15 +2205,15 @@ impl ModuleBuilder {
                 },
             ) = self.type_env.get_generic_type(name).map(|node| &**node)
             {
+                let mut dict: HashMap<String, String> = HashMap::new();
                 for (generic_type_name, concrete_type_name) in generics.iter().zip(type_args.iter())
                 {
                     if let Some(concrete_type) = local_type_env.get_type_by_name(concrete_type_name)
                     {
+                        // TODO since we're passing a dict now, local_type_env should not be a thing anymore except for impls?
                         local_type_env
                             .insert_type_by_name(generic_type_name, concrete_type.clone());
-                    } else {
-                        continue;
-                        // panic!("unresolved type {} while monomorphizing struct {} with generics {:?}", concrete_type_name, ident, generics);
+                        dict.insert(generic_type_name.to_string(), concrete_type_name.clone());
                     }
                 }
 
@@ -2151,6 +2223,7 @@ impl ModuleBuilder {
                     &local_type_env,
                     node.clone().into(),
                     Some(mangled_name.clone()),
+                    Some(dict),
                 );
                 self.type_env.insert_impl_env(
                     &mangled_name,
@@ -2171,16 +2244,24 @@ impl ModuleBuilder {
                     ret_ty,
                     is_extern,
                     linkage,
+                    generics,
                     ..
-                } => self.set_up_function(
-                    self.env.clone(),
-                    self.type_env.clone(),
-                    ident,
-                    params.clone(),
-                    ret_ty.clone(),
-                    *is_extern,
-                    linkage.clone(),
-                ),
+                } => {
+                    if generics.len() == 0 {
+                        self.set_up_function(
+                            self.env.clone(),
+                            self.type_env.clone(),
+                            ident,
+                            params.clone(),
+                            ret_ty.to_string().into(),
+                            *is_extern,
+                            linkage.clone(),
+                            node.clone(),
+                        )
+                    } else {
+                        self.register_generic_fn(ident.to_string(), node.clone())
+                    }
+                }
                 NodeKind::ExternBlock { linkage, block } => {
                     if let NodeKind::Block { statements } = &block.kind {
                         for stmt in statements.iter() {
@@ -2188,18 +2269,24 @@ impl ModuleBuilder {
                                 ident,
                                 params,
                                 ret_ty,
+                                generics,
                                 ..
                             } = &stmt.kind
                             {
-                                self.set_up_function(
-                                    self.env.clone(),
-                                    self.type_env.clone(),
-                                    ident,
-                                    params.clone(),
-                                    ret_ty.clone(),
-                                    true,
-                                    linkage.clone(),
-                                )
+                                if generics.len() == 0 {
+                                    self.set_up_function(
+                                        self.env.clone(),
+                                        self.type_env.clone(),
+                                        ident,
+                                        params.clone(),
+                                        ret_ty.to_string().into(),
+                                        true,
+                                        linkage.clone(),
+                                        node.clone(),
+                                    )
+                                } else {
+                                    self.register_generic_fn(ident.to_string(), node.clone())
+                                }
                             } else {
                                 todo!()
                             }
@@ -2254,7 +2341,7 @@ impl ModuleBuilder {
                             } = &method.kind
                             {
                                 let is_static = if let Some(arg) = params.first() {
-                                    !(&*arg.ty() == "Self" || &*arg.ty() == "&Self")
+                                    !(*arg.ty() == Ty::SelfByVal || *arg.ty() == Ty::SelfByRef)
                                 } else {
                                     true
                                 };
@@ -2274,9 +2361,10 @@ impl ModuleBuilder {
                                     type_env.clone(),
                                     &mangled_name,
                                     params.clone(),
-                                    ret_ty.clone(),
+                                    ret_ty.to_string().into(),
                                     false,
                                     None,
+                                    node.clone(),
                                 );
                             } else {
                                 todo!()
@@ -2312,17 +2400,20 @@ impl ModuleBuilder {
                             ident,
                             params,
                             body,
+                            generics,
                             ..
                         } = &method.kind
                         {
                             let mangled_name = format!("{}::{}", impl_ty, ident);
-                            self.build_function(
-                                env.clone(),
-                                type_env.clone(),
-                                mangled_name.into(),
-                                params.clone(),
-                                body.clone().unwrap(),
-                            )
+                            if generics.is_empty() {
+                                self.build_function(
+                                    env.clone(),
+                                    type_env.clone(),
+                                    mangled_name.into(),
+                                    params.clone(),
+                                    body.clone().unwrap(),
+                                )
+                            }
                         } else {
                             todo!()
                         }
@@ -2358,6 +2449,7 @@ impl ModuleBuilder {
                                 params,
                                 body,
                                 ret_ty,
+                                generics,
                                 ..
                             } = &method.kind
                             {
@@ -2367,19 +2459,22 @@ impl ModuleBuilder {
                                     type_env.clone(),
                                     &mangled_name,
                                     params.clone(),
-                                    ret_ty.clone(),
+                                    ret_ty.to_string().into(),
                                     false,
                                     None,
+                                    node.clone(),
                                 );
 
                                 // TODO defer this to a later stage or member fns might not be able to resolve each other
-                                self.build_function(
-                                    env.clone(),
-                                    type_env.clone(),
-                                    mangled_name.into(),
-                                    params.clone(),
-                                    body.clone().unwrap(),
-                                )
+                                if generics.is_empty() {
+                                    self.build_function(
+                                        env.clone(),
+                                        type_env.clone(),
+                                        mangled_name.into(),
+                                        params.clone(),
+                                        body.clone().unwrap(),
+                                    )
+                                }
                             } else {
                                 todo!()
                             }
@@ -2392,15 +2487,17 @@ impl ModuleBuilder {
 
     fn pass6(&mut self) {
         for node in &*self.ast.clone() {
+            #[allow(clippy::single_match)]
             match &node.kind {
                 NodeKind::Fn {
                     ident,
                     body,
                     params,
                     is_extern,
+                    generics,
                     ..
                 } => {
-                    if !is_extern {
+                    if !is_extern && generics.is_empty() {
                         self.build_function(
                             self.env.clone(),
                             self.type_env.clone(),
@@ -2411,6 +2508,31 @@ impl ModuleBuilder {
                     }
                 }
                 _ => (),
+            }
+        }
+
+        for func in (unsafe { &*self.env.funcs.get() }) {
+            if let NodeKind::Fn {
+                ident,
+                params,
+                ret_ty,
+                generics,
+                is_extern,
+                linkage,
+                body,
+            } = &func.1.node.kind
+            {
+                if !generics.is_empty() {
+                    if let Some(body) = body {
+                        self.build_function(
+                            self.env.clone(),
+                            func.1.type_env.clone(),
+                            format!("{}<u32>", ident).into(),
+                            params.clone(),
+                            body.clone(),
+                        )
+                    }
+                }
             }
         }
     }

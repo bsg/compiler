@@ -39,6 +39,7 @@ pub enum TokenKind {
     MinusAssign,
     StarAssign,
     SlashAssign,
+    Turbofish,
 
     // Delimiters
     Comma,
@@ -290,7 +291,13 @@ impl Tokens {
             Some(b':') => match self.peek_char() {
                 Some(b':') => {
                     self.read_char();
-                    TokenKind::ColonColon
+                    match self.peek_char() {
+                        Some(b'<') => {
+                            self.read_char();
+                            TokenKind::Turbofish
+                        },
+                        _ => TokenKind::ColonColon,
+                    }
                 }
                 _ => TokenKind::Colon,
             },

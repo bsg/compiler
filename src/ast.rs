@@ -70,6 +70,7 @@ pub enum Op {
     ScopeRes,
     Cast,
     StructLiteral,
+    Turbofish,
 }
 
 impl std::fmt::Debug for Op {
@@ -109,6 +110,7 @@ impl std::fmt::Debug for Op {
             Op::ScopeRes => write!(f, "scoperes"),
             Op::Cast => write!(f, "cast"),
             Op::StructLiteral => write!(f, "struct_literal"),
+            Op::Turbofish => write!(f, "turbofish"),
         }
     }
 }
@@ -123,13 +125,13 @@ impl Op {
             Op::Cast => 5,
             Op::Neg
             | Op::Not
-            | Op::Ref
             | Op::Deref
+            | Op::Ref
             | Op::Dot
             | Op::ScopeRes
-            | Op::Index
-            | Op::StructLiteral => 6,
-            Op::Call => 7,
+            | Op::Index => 6,
+            Op::Call | Op::StructLiteral => 7,
+            Op::Turbofish => 8,
             _ => 0,
         }
     }
@@ -138,24 +140,24 @@ pub type NodeRef = Rc<Node>;
 
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub enum FnParam {
-    SelfVal,
-    SelfRef,
-    Pair { ident: Rc<str>, ty: Rc<str> },
+    SelfByVal,
+    SelfByRef,
+    Pair { ident: Rc<str>, ty: Rc<Ty> },
 }
 
 impl FnParam {
     pub fn ident(&self) -> Rc<str> {
         match self {
-            FnParam::SelfVal => "self".into(),
-            FnParam::SelfRef => "self".into(),
+            FnParam::SelfByVal => "self".into(),
+            FnParam::SelfByRef => "self".into(),
             FnParam::Pair { ident, .. } => ident.clone(),
         }
     }
 
-    pub fn ty(&self) -> Rc<str> {
+    pub fn ty(&self) -> Rc<Ty> {
         match self {
-            FnParam::SelfVal => "Self".into(),
-            FnParam::SelfRef => "&Self".into(),
+            FnParam::SelfByVal => Ty::SelfByVal.into(),
+            FnParam::SelfByRef => Ty::SelfByRef.into(),
             FnParam::Pair { ty, .. } => ty.clone(),
         }
     }
@@ -164,7 +166,7 @@ impl FnParam {
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct StructField {
     pub ident: Rc<str>,
-    pub ty: Rc<str>,
+    pub ty: Rc<Ty>,
 }
 
 #[derive(PartialEq, Eq, Hash, Clone)]
@@ -179,11 +181,108 @@ pub struct MatchArm {
     pub stmt: NodeRef, // TODO rename to expr and treat this as such when we have block exprs
 }
 
+#[derive(PartialEq, Eq, Hash, Clone)]
+pub enum Ty {
+    Simple {
+        // TODO rename
+        ident: Rc<str>,
+        generics: Rc<[Rc<Ty>]>,
+    },
+    Fn {
+        param_tys: Rc<[Rc<Ty>]>,
+        ret_ty: Rc<Ty>,
+    },
+    Ptr {
+        pointee_ty: Rc<Ty>,
+    },
+    Ref {
+        referent_ty: Rc<Ty>,
+    },
+    Array {
+        elem_ty: Rc<Ty>,
+    },
+    Slice {
+        elem_ty: Rc<Ty>,
+        len: usize,
+    },
+    SelfByVal,
+    SelfByRef,
+}
+
+impl fmt::Display for Ty {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Ty::Simple { ident, generics } => f.write_fmt(format_args!(
+                "{}{}",
+                ident,
+                if !generics.is_empty() {
+                    format!(
+                        "<{}>",
+                        generics
+                            .iter()
+                            .map(|g| g.to_string())
+                            .collect::<Vec<String>>()
+                            .join(",")
+                    )
+                } else {
+                    String::new()
+                }
+            )),
+            Ty::Fn {
+                param_tys: params,
+                ret_ty,
+            } => f.write_fmt(format_args!(
+                "fn({}) -> {}",
+                params
+                    .iter()
+                    .map(|g| g.to_string())
+                    .collect::<Vec<String>>()
+                    .join(","),
+                ret_ty
+            )),
+            Ty::Ptr { pointee_ty } => f.write_fmt(format_args!("*{}", pointee_ty)),
+            Ty::Ref { referent_ty } => f.write_fmt(format_args!("&{}", referent_ty)),
+            Ty::Array { elem_ty } => f.write_fmt(format_args!("[{}]", elem_ty)),
+            Ty::Slice { elem_ty, len } => f.write_fmt(format_args!("[{}; {}]", elem_ty, len)),
+            Ty::SelfByVal => f.write_str("Self"),
+            Ty::SelfByRef => f.write_str("&Self"),
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone)]
+pub struct PathSegment {
+    pub ident: Rc<str>,
+    pub generics: Rc<[Rc<Ty>]>,
+}
+
+impl fmt::Display for PathSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let generics = if !self.generics.is_empty() {
+            format!(
+                "<{}>",
+                self.generics
+                    .iter()
+                    .map(|g| g.to_string())
+                    .collect::<Vec<String>>()
+                    .join(",")
+            )
+        } else {
+            String::new()
+        };
+
+        f.write_fmt(format_args!("{}{}", self.ident, generics))
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum NodeKind {
     NullPtr,
     Ident {
         name: Rc<str>,
+    },
+    Path { // TODO full path
+        segment: PathSegment,
     },
     Int {
         value: u64,
@@ -207,13 +306,13 @@ pub enum NodeKind {
         rhs: NodeRef,
     },
     Let {
-        ty: Option<Rc<str>>,
+        ty: Rc<Ty>,
         lhs: NodeRef,
         rhs: Option<NodeRef>,
     },
-    // TODO could be merged with let
+    // TODO could be merged with let as 'binding'
     Const {
-        ty: Option<Rc<str>>,
+        ty: Rc<Ty>,
         lhs: NodeRef,
         rhs: Option<NodeRef>,
     },
@@ -235,19 +334,20 @@ pub enum NodeKind {
     Fn {
         ident: Rc<str>,
         params: Rc<[FnParam]>,
-        ret_ty: Rc<str>,
+        ret_ty: Rc<Ty>,
+        generics: Rc<[Rc<Ty>]>,
         is_extern: bool,
         linkage: Option<Rc<str>>,
         body: Option<NodeRef>,
     },
     Call {
-        ident: Rc<str>,
+        path: PathSegment, // TODO use Path
         args: Rc<[NodeRef]>,
     },
     Struct {
         ident: Rc<str>,
         fields: Rc<[StructField]>,
-        generics: Rc<[Rc<str>]>,
+        generics: Rc<[Rc<str>]>, // TODO BoundedTy or something
         attributes: Option<Rc<[Rc<str>]>>,
     },
     Impl {
@@ -260,7 +360,7 @@ pub enum NodeKind {
         elems: Rc<[NodeRef]>,
     },
     StructLiteral {
-        ident: Rc<str>,
+        path: PathSegment,
         fields: Rc<[StructLiteralField]>,
     },
     ExternBlock {
@@ -296,6 +396,7 @@ impl fmt::Debug for Node {
             s += match &node.kind {
                 NodeKind::NullPtr => "nullptr".to_string(),
                 NodeKind::Ident { name } => format!("ident {}", name),
+                NodeKind::Path { segment } => format!("{}", segment),
                 NodeKind::Int { value } => format!("{}", value),
                 NodeKind::Bool { value } => format!("{}", value),
                 NodeKind::Str { value } => format!("{:?}", value),
@@ -316,10 +417,7 @@ impl fmt::Debug for Node {
                 NodeKind::Let { ty, lhs, rhs } => {
                     format!(
                         "let {}{}{}",
-                        match ty {
-                            Some(ty) => ty,
-                            None => "",
-                        },
+                        ty,
                         fmt_with_indent(lhs, indent_level + 1, true),
                         if rhs.is_some() {
                             fmt_with_indent(rhs.as_ref().unwrap(), indent_level + 1, true)
@@ -331,10 +429,7 @@ impl fmt::Debug for Node {
                 NodeKind::Const { ty, lhs, rhs } => {
                     format!(
                         "const {}{}{}",
-                        match ty {
-                            Some(ty) => ty,
-                            None => "",
-                        },
+                        ty,
                         fmt_with_indent(lhs, indent_level + 1, true),
                         if rhs.is_some() {
                             fmt_with_indent(rhs.as_ref().unwrap(), indent_level + 1, true)
@@ -390,6 +485,7 @@ impl fmt::Debug for Node {
                     ident,
                     params,
                     ret_ty,
+                    generics,
                     body,
                     is_extern,
                     linkage,
@@ -400,11 +496,26 @@ impl fmt::Debug for Node {
                         .collect::<Vec<String>>()
                         .join(", ");
 
+                    // TODO this is duplicated, maybe have a struct holding generics with a .to_string() method
+                    let generics_str = if generics.len() > 0 {
+                        format!(
+                            "<{}>",
+                            generics
+                                .iter()
+                                .map(|g| g.to_string())
+                                .collect::<Vec<String>>()
+                                .join(",")
+                        )
+                    } else {
+                        "".to_string()
+                    };
+
                     if *is_extern {
                         format!(
-                            "extern {:?} fn {}({}) -> {}{}",
+                            "extern {:?} fn {}{}({}) -> {}{}",
                             linkage.clone().unwrap(),
                             ident,
+                            generics_str,
                             params_str,
                             ret_ty,
                             if let Some(body) = body {
@@ -415,8 +526,9 @@ impl fmt::Debug for Node {
                         )
                     } else {
                         format!(
-                            "fn {}({}) -> {}{}",
+                            "fn {}{}({}) -> {}{}",
                             ident,
+                            generics_str,
                             params_str,
                             ret_ty,
                             if let Some(body) = body {
@@ -427,8 +539,8 @@ impl fmt::Debug for Node {
                         )
                     }
                 }
-                NodeKind::Call { ident, args } => {
-                    let mut c = format!("call {}", ident);
+                NodeKind::Call { path, args } => {
+                    let mut c = format!("call {}", path);
                     for arg in args.iter() {
                         c += fmt_with_indent(arg, indent_level + 1, true).as_str();
                     }
@@ -445,7 +557,7 @@ impl fmt::Debug for Node {
                         acc += "    ";
                         acc += &field.ident;
                         acc += " ";
-                        acc += &field.ty;
+                        acc += &field.ty.to_string();
                         acc
                     });
 
@@ -495,7 +607,7 @@ impl fmt::Debug for Node {
 
                     format!("array{}", elems_str)
                 }
-                NodeKind::StructLiteral { ident, fields } => {
+                NodeKind::StructLiteral { path, fields } => {
                     let fields_str = fields.iter().fold(String::new(), |mut acc, field| {
                         acc += "\n";
                         acc += &"    ".repeat(indent_level + 1);
@@ -504,7 +616,7 @@ impl fmt::Debug for Node {
                         acc += &fmt_with_indent(&field.val, indent_level + 2, false);
                         acc
                     });
-                    format!("struct_literal {}{}", ident, fields_str)
+                    format!("struct_literal {}{}", path, fields_str)
                 }
                 NodeKind::ExternBlock { linkage, block } => {
                     if let Some(linkage) = linkage {
