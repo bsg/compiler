@@ -42,10 +42,10 @@ impl Parser {
         self.tokens.reset_cursor();
     }
 
-    fn parse_type(&mut self) -> Option<Rc<Ty>> {
+    fn parse_type(&mut self) -> Option<Rc<TypeAnnotation>> {
         match self.curr_token.clone().kind {
             TokenKind::Ident(ident) => {
-                let mut generics: Vec<Rc<Ty>> = Vec::new();
+                let mut generics: Vec<Rc<TypeAnnotation>> = Vec::new();
                 if self.peek_token.kind == TokenKind::Lt {
                     self.next_token();
                     self.next_token();
@@ -61,7 +61,7 @@ impl Parser {
                 }
 
                 Some(
-                    Ty::Simple {
+                    TypeAnnotation::Simple {
                         ident,
                         generics: generics.into(),
                     }
@@ -71,7 +71,7 @@ impl Parser {
             TokenKind::Star => {
                 self.next_token();
                 Some(
-                    Ty::Ptr {
+                    TypeAnnotation::Ptr {
                         pointee_ty: self.parse_type()?,
                     }
                     .into(),
@@ -80,7 +80,7 @@ impl Parser {
             TokenKind::Amp => {
                 self.next_token();
                 Some(
-                    Ty::Ref {
+                    TypeAnnotation::Ref {
                         referent_ty: self.parse_type()?,
                     }
                     .into(),
@@ -95,7 +95,7 @@ impl Parser {
                     self.next_token();
                     if let TokenKind::Int(len) = self.curr_token.clone().kind {
                         self.next_token();
-                        Ty::Slice {
+                        TypeAnnotation::Slice {
                             elem_ty,
                             len: len.parse::<usize>().unwrap(),
                         }
@@ -103,7 +103,7 @@ impl Parser {
                         todo!()
                     }
                 } else {
-                    Ty::Array { elem_ty }
+                    TypeAnnotation::Array { elem_ty }
                 }
                 .into();
 
@@ -118,7 +118,7 @@ impl Parser {
                 self.next_token(); // eat fn
                 self.next_token(); // eat LParen
 
-                let mut param_tys: Vec<Rc<Ty>> = Vec::new();
+                let mut param_tys: Vec<Rc<TypeAnnotation>> = Vec::new();
 
                 // TODO assert commas... this is also lacking in some other places
                 while self.curr_token.kind != TokenKind::RParen {
@@ -128,7 +128,7 @@ impl Parser {
                         _ => {
                             param_tys.push(self.parse_type()?);
                             self.next_token();
-                        },
+                        }
                     }
                 }
 
@@ -143,7 +143,7 @@ impl Parser {
                 };
 
                 Some(
-                    Ty::Fn {
+                    TypeAnnotation::Fn {
                         param_tys: param_tys.into(),
                         ret_ty,
                     }
@@ -260,7 +260,7 @@ impl Parser {
     /// caller must ensure current token is Fn
     fn parse_fn(&mut self, is_extern: bool, linkage: Option<Rc<str>>) -> Option<NodeRef> {
         let mut params: Vec<FnParam> = Vec::new();
-        let mut generics: Vec<Rc<Ty>> = Vec::new();
+        let mut generics: Vec<Rc<TypeAnnotation>> = Vec::new();
 
         assert_eq!(TokenKind::Fn, self.curr_token.kind);
         let start_span = self.curr_token.span.clone();
@@ -333,7 +333,7 @@ impl Parser {
                     self.next_token();
                     t
                 }
-                TokenKind::LBrace | TokenKind::Semicolon => Ty::Simple {
+                TokenKind::LBrace | TokenKind::Semicolon => TypeAnnotation::Simple {
                     ident: "void".into(),
                     generics: [].into(),
                 }
@@ -448,7 +448,7 @@ impl Parser {
 
     fn parse_struct(&mut self) -> Option<NodeRef> {
         let mut fields: Vec<StructField> = Vec::new();
-        let mut generics: Vec<Rc<str>> = Vec::new();
+        let mut generics: Vec<Rc<TypeAnnotation>> = Vec::new();
 
         assert_eq!(TokenKind::Struct, self.curr_token.kind);
         let start_span = self.curr_token.span.clone();
@@ -466,7 +466,13 @@ impl Parser {
                             ..
                         }) = self.parse_ident().as_deref()
                         {
-                            generics.push(name.clone());
+                            generics.push(
+                                TypeAnnotation::Simple {
+                                    ident: name.clone(),
+                                    generics: [].into(),
+                                }
+                                .into(),
+                            );
                             self.next_token();
                             if let TokenKind::Comma = self.curr_token.kind {
                                 self.next_token();
@@ -901,7 +907,7 @@ impl Parser {
                 Op::Turbofish => {
                     self.next_token();
                     self.next_token(); // eat Turbofish
-                    let mut generics: Vec<Rc<Ty>> = Vec::new();
+                    let mut generics: Vec<Rc<TypeAnnotation>> = Vec::new();
                     // TODO commas
                     while self.curr_token.kind != TokenKind::Gt {
                         if let Some(ty) = &self.parse_type() {

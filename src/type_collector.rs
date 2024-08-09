@@ -72,31 +72,37 @@ impl TypeCollector {
                 params: args,
                 ret_ty,
                 body,
+                generics,
                 ..
             } => {
-                self.types.insert(ret_ty.to_string());
+                if !generics.contains(ret_ty) {
+                    self.types.insert(ret_ty.to_string());
+                }
                 for arg in args.iter() {
-                    self.types.insert(arg.ty().to_string());
+                    if !generics.contains(&arg.ty()) && !arg.ty().is_generic() {
+                        self.types.insert(arg.ty().to_string());
+                    }
                 }
                 if let Some(body) = body {
                     self.collect_recursively(body.clone());
                 }
             }
             NodeKind::Call { path, args } => {
+                for arg in path.generics.iter() {
+                    self.types.insert(arg.to_string());
+                }
                 self.fn_instances.insert(path.clone());
                 for arg in args.iter() {
                     self.collect_recursively(arg.clone());
                 }
             }
             NodeKind::Struct {
-                ident,
                 fields,
                 generics,
                 ..
             } => {
-                if generics.is_empty() {
-                    self.types.insert((&**ident).into());
-                    for field in fields.iter() {
+                for field in fields.iter() {
+                    if !generics.contains(&field.ty) && !field.ty.is_generic() {
                         self.types.insert(field.ty.to_string());
                     }
                 }

@@ -290,14 +290,14 @@ impl TypeEnv {
         env.insert_type_by_name(
             "u16",
             Type::Int {
-                width: 8,
+                width: 16,
                 signed: false,
             },
         );
         env.insert_type_by_name(
             "i16",
             Type::Int {
-                width: 8,
+                width: 16,
                 signed: true,
             },
         );
@@ -371,8 +371,18 @@ impl TypeEnv {
         // This should not mutate parents at all. Types are resolvable only within and below the scope they are defined in
         let type_id = unsafe { NEXT_TYPE_ID };
         unsafe { NEXT_TYPE_ID += 1 };
-        (unsafe { &mut *self.type_ids.get() }).insert(name.to_string(), type_id);
-        (unsafe { &mut *self.types.get() }).insert(type_id, ty);
+        if (unsafe { &mut *self.type_ids.get() })
+            .insert(name.to_string(), type_id)
+            .is_some()
+        {
+            // panic!("overwritten type id");
+        }
+        if (unsafe { &mut *self.types.get() })
+            .insert(type_id, ty)
+            .is_some()
+        {
+            // panic!("overwritten type");
+        }
         type_id
     }
 
@@ -707,7 +717,7 @@ impl ModuleBuilder {
     ) -> Val {
         unsafe {
             let val = self.build_expr(env.clone(), type_env.clone(), node.clone(), false);
-            let ty = match val.ty {
+            let ty = match &val.ty {
                 Type::Ref { referent_type_name } => type_env
                     .get_type_by_name(&referent_type_name)
                     .unwrap()
@@ -1108,7 +1118,7 @@ impl ModuleBuilder {
                 },
                 Op::Dot => unsafe {
                     let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
-                    match lhs_val.ty.clone() {
+                    match &lhs_val.ty.clone() {
                         // TODO this is possibly retarded, then again wtf do i know
                         // TODO spans are rekt
                         Type::Ref { .. } => {
@@ -1250,7 +1260,7 @@ impl ModuleBuilder {
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
 
-                    match (lhs_val.ty.clone(), rhs_val.ty) {
+                    match (&lhs_val.ty, &rhs_val.ty) {
                         (Type::Array { elem_type_name, .. }, Type::Int { .. }) => {
                             // TODO this and bounds check
                             // if !signed {
@@ -1330,16 +1340,16 @@ impl ModuleBuilder {
                         todo!()
                     };
 
-                    match (lhs_val.ty, ty) {
+                    match (&lhs_val.ty, ty) {
                         (Type::Ref { referent_type_name }, Type::Ptr { pointee_type_name }) => {
-                            if referent_type_name == *pointee_type_name {
+                            if *referent_type_name == *pointee_type_name {
                                 (lhs_val.llvm_val, ty.clone())
                             } else {
                                 todo!()
                             }
                         }
                         (Type::Ptr { pointee_type_name }, Type::Ref { referent_type_name }) => {
-                            if *referent_type_name == pointee_type_name {
+                            if *referent_type_name == *pointee_type_name {
                                 (lhs_val.llvm_val, ty.clone())
                             } else {
                                 todo!()
@@ -1460,7 +1470,7 @@ impl ModuleBuilder {
     }
 
     fn build_string(&mut self, type_env: Rc<TypeEnv>, value: Rc<str>) -> Val {
-        let ty = type_env.get_type_by_name("u8").unwrap();
+        let elem_ty = type_env.get_type_by_name("u8").unwrap();
         let bytes: Vec<u8> = value.bytes().collect();
 
         let llvm_val = unsafe {
@@ -1473,7 +1483,7 @@ impl ModuleBuilder {
 
         Val {
             ty: Type::Array {
-                elem_type_name: ty.name(),
+                elem_type_name: elem_ty.name(),
                 len: bytes.len(),
             },
             llvm_val,
@@ -2101,7 +2111,12 @@ impl ModuleBuilder {
                     field_type_names,
                     static_methods: HashMap::new(),
                     member_methods: HashMap::new(),
-                    generics: generics.clone(),
+                    generics: generics
+                        .iter()
+                        .map(|t| t.to_string().into())
+                        .collect::<Vec<Rc<str>>>()
+                        .as_slice()
+                        .into(),
                     attributes: attributes.clone(),
                 },
             );
@@ -2175,14 +2190,14 @@ impl ModuleBuilder {
             ) = self.type_env.get_generic_type(name).map(|node| &**node)
             {
                 let mut dict: HashMap<String, String> = HashMap::new();
-                for (generic_type_name, concrete_type_name) in generics.iter().zip(type_args.iter())
+                for (generic_ty, concrete_type_name) in generics.iter().zip(type_args.iter())
                 {
                     if let Some(concrete_type) = local_type_env.get_type_by_name(concrete_type_name)
                     {
                         // TODO since we're passing a dict now, local_type_env should not be a thing anymore except for impls?
                         local_type_env
-                            .insert_type_by_name(generic_type_name, concrete_type.clone());
-                        dict.insert(generic_type_name.to_string(), concrete_type_name.clone());
+                            .insert_type_by_name(&generic_ty.to_string(), concrete_type.clone());
+                        dict.insert(generic_ty.to_string(), concrete_type_name.clone());
                     }
                 }
 
@@ -2315,7 +2330,7 @@ impl ModuleBuilder {
                             } = &method.kind
                             {
                                 let is_static = if let Some(arg) = params.first() {
-                                    !(*arg.ty() == Ty::SelfByVal || *arg.ty() == Ty::SelfByRef)
+                                    !(*arg.ty() == TypeAnnotation::SelfByVal || *arg.ty() == TypeAnnotation::SelfByRef)
                                 } else {
                                     true
                                 };
@@ -2462,12 +2477,7 @@ impl ModuleBuilder {
     fn pass6(&mut self) {
         for func in unsafe { &*self.env.funcs.get() } {
             if let Some(Node {
-                kind:
-                    NodeKind::Fn {
-                        params,
-                        body,
-                        ..
-                    },
+                kind: NodeKind::Fn { params, body, .. },
                 ..
             }) = func.1.node.as_deref()
             {
@@ -2488,6 +2498,7 @@ impl ModuleBuilder {
         TypeCollector::new(self.ast.clone())
             .collect()
             .for_each_ty(|ty| {
+                println!("{}", ty);
                 if ty.contains('<') {
                     let (mut type_name, generics) = ty.split_once('<').unwrap();
                     let types: Vec<String> = generics

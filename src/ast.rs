@@ -123,13 +123,7 @@ impl Op {
             Op::Add | Op::Sub => 3,
             Op::Mul | Op::Div | Op::Mod => 4,
             Op::Cast => 5,
-            Op::Neg
-            | Op::Not
-            | Op::Deref
-            | Op::Ref
-            | Op::Dot
-            | Op::ScopeRes
-            | Op::Index => 6,
+            Op::Neg | Op::Not | Op::Deref | Op::Ref | Op::Dot | Op::ScopeRes | Op::Index => 6,
             Op::Call | Op::StructLiteral => 7,
             Op::Turbofish => 8,
             _ => 0,
@@ -142,7 +136,7 @@ pub type NodeRef = Rc<Node>;
 pub enum FnParam {
     SelfByVal,
     SelfByRef,
-    Pair { ident: Rc<str>, ty: Rc<Ty> },
+    Pair { ident: Rc<str>, ty: Rc<TypeAnnotation> },
 }
 
 impl FnParam {
@@ -154,10 +148,10 @@ impl FnParam {
         }
     }
 
-    pub fn ty(&self) -> Rc<Ty> {
+    pub fn ty(&self) -> Rc<TypeAnnotation> {
         match self {
-            FnParam::SelfByVal => Ty::SelfByVal.into(),
-            FnParam::SelfByRef => Ty::SelfByRef.into(),
+            FnParam::SelfByVal => TypeAnnotation::SelfByVal.into(),
+            FnParam::SelfByRef => TypeAnnotation::SelfByRef.into(),
             FnParam::Pair { ty, .. } => ty.clone(),
         }
     }
@@ -166,7 +160,7 @@ impl FnParam {
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct StructField {
     pub ident: Rc<str>,
-    pub ty: Rc<Ty>,
+    pub ty: Rc<TypeAnnotation>,
 }
 
 #[derive(PartialEq, Eq, Hash, Clone)]
@@ -182,37 +176,48 @@ pub struct MatchArm {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone)]
-pub enum Ty {
+pub enum TypeAnnotation {
     Simple {
         // TODO rename
         ident: Rc<str>,
-        generics: Rc<[Rc<Ty>]>,
+        generics: Rc<[Rc<TypeAnnotation>]>,
     },
     Fn {
-        param_tys: Rc<[Rc<Ty>]>,
-        ret_ty: Rc<Ty>,
+        param_tys: Rc<[Rc<TypeAnnotation>]>,
+        ret_ty: Rc<TypeAnnotation>,
     },
     Ptr {
-        pointee_ty: Rc<Ty>,
+        pointee_ty: Rc<TypeAnnotation>,
     },
     Ref {
-        referent_ty: Rc<Ty>,
+        referent_ty: Rc<TypeAnnotation>,
     },
     Array {
-        elem_ty: Rc<Ty>,
+        elem_ty: Rc<TypeAnnotation>,
     },
     Slice {
-        elem_ty: Rc<Ty>,
+        elem_ty: Rc<TypeAnnotation>,
         len: usize,
     },
     SelfByVal,
     SelfByRef,
 }
 
-impl fmt::Display for Ty {
+impl TypeAnnotation {
+    pub fn is_generic(&self) -> bool {
+        match self {
+            TypeAnnotation::Simple { generics, .. } => generics.len() > 0,
+            TypeAnnotation::Ptr { pointee_ty } => pointee_ty.is_generic(),
+            TypeAnnotation::Ref { referent_ty } => referent_ty.is_generic(),
+            _ => false, // TODO
+        }
+    }
+}
+
+impl fmt::Display for TypeAnnotation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Ty::Simple { ident, generics } => f.write_fmt(format_args!(
+            TypeAnnotation::Simple { ident, generics } => f.write_fmt(format_args!(
                 "{}{}",
                 ident,
                 if !generics.is_empty() {
@@ -228,7 +233,7 @@ impl fmt::Display for Ty {
                     String::new()
                 }
             )),
-            Ty::Fn {
+            TypeAnnotation::Fn {
                 param_tys: params,
                 ret_ty,
             } => f.write_fmt(format_args!(
@@ -240,12 +245,12 @@ impl fmt::Display for Ty {
                     .join(","),
                 ret_ty
             )),
-            Ty::Ptr { pointee_ty } => f.write_fmt(format_args!("*{}", pointee_ty)),
-            Ty::Ref { referent_ty } => f.write_fmt(format_args!("&{}", referent_ty)),
-            Ty::Array { elem_ty } => f.write_fmt(format_args!("[{}]", elem_ty)),
-            Ty::Slice { elem_ty, len } => f.write_fmt(format_args!("[{}; {}]", elem_ty, len)),
-            Ty::SelfByVal => f.write_str("Self"),
-            Ty::SelfByRef => f.write_str("&Self"),
+            TypeAnnotation::Ptr { pointee_ty } => f.write_fmt(format_args!("*{}", pointee_ty)),
+            TypeAnnotation::Ref { referent_ty } => f.write_fmt(format_args!("&{}", referent_ty)),
+            TypeAnnotation::Array { elem_ty } => f.write_fmt(format_args!("[{}]", elem_ty)),
+            TypeAnnotation::Slice { elem_ty, len } => f.write_fmt(format_args!("[{}; {}]", elem_ty, len)),
+            TypeAnnotation::SelfByVal => f.write_str("Self"),
+            TypeAnnotation::SelfByRef => f.write_str("&Self"),
         }
     }
 }
@@ -253,7 +258,7 @@ impl fmt::Display for Ty {
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct PathSegment {
     pub ident: Rc<str>,
-    pub generics: Rc<[Rc<Ty>]>,
+    pub generics: Rc<[Rc<TypeAnnotation>]>,
 }
 
 impl fmt::Display for PathSegment {
@@ -281,7 +286,8 @@ pub enum NodeKind {
     Ident {
         name: Rc<str>,
     },
-    Path { // TODO full path
+    Path {
+        // TODO full path
         segment: PathSegment,
     },
     Int {
@@ -306,13 +312,13 @@ pub enum NodeKind {
         rhs: NodeRef,
     },
     Let {
-        ty: Rc<Ty>,
+        ty: Rc<TypeAnnotation>,
         lhs: NodeRef,
         rhs: Option<NodeRef>,
     },
     // TODO could be merged with let as 'binding'
     Const {
-        ty: Rc<Ty>,
+        ty: Rc<TypeAnnotation>,
         lhs: NodeRef,
         rhs: Option<NodeRef>,
     },
@@ -334,8 +340,8 @@ pub enum NodeKind {
     Fn {
         ident: Rc<str>,
         params: Rc<[FnParam]>,
-        ret_ty: Rc<Ty>,
-        generics: Rc<[Rc<Ty>]>,
+        ret_ty: Rc<TypeAnnotation>,
+        generics: Rc<[Rc<TypeAnnotation>]>,
         is_extern: bool,
         linkage: Option<Rc<str>>,
         body: Option<NodeRef>,
@@ -347,7 +353,7 @@ pub enum NodeKind {
     Struct {
         ident: Rc<str>,
         fields: Rc<[StructField]>,
-        generics: Rc<[Rc<str>]>, // TODO BoundedTy or something
+        generics: Rc<[Rc<TypeAnnotation>]>, // TODO BoundedTy or something
         attributes: Option<Rc<[Rc<str>]>>,
     },
     Impl {
@@ -562,7 +568,14 @@ impl fmt::Debug for Node {
                     });
 
                     let generics_str = if generics.len() > 0 {
-                        format!("<{}>", generics.join(","))
+                        format!(
+                            "<{}>",
+                            generics
+                                .iter()
+                                .map(|t| t.to_string())
+                                .collect::<Vec<String>>()
+                                .join(",")
+                        )
                     } else {
                         "".to_string()
                     };

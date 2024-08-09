@@ -115,31 +115,31 @@ extern "C" {
     fn putchar (c: u32) -> i32;
     fn puts(s: *i8) -> i32;
     fn random() -> u32;
-    fn SDL_Init(flags: u32) -> i32;
-    fn SDL_CreateWindow(title: *u8, x: u32, y: u32, w: u32, h: u32, flags: u32) -> *SDL_Window;
-    fn SDL_PollEvent(ev: *u32) -> u32;
-    fn SDL_GetWindowSurface(window: *u8) -> *SDL_Surface;
-    fn SDL_UpdateWindowSurface(window: *u8) -> u32;
-    fn SDL_GetError() -> *u8;
-    fn SDL_ClearError();
-    fn SDL_CreateRenderer(window: *SDL_Window, index: i32, flags: u32) -> *SDL_Renderer;
-    fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: *SDL_Rect, dstrect: *SDL_Rect) -> u32;
-    fn SDL_CreateTextureFromSurface(renderer: *SDL_Renderer, surface: *SDL_Surface) -> *SDL_Texture;
-    fn SDL_FreeSurface(surface: *SDL_Surface);
-    fn SDL_DestroyTexture(texture: *SDL_Texture);
-    fn SDL_RenderPresent(renderer: *SDL_Renderer);
-    fn SDL_Delay(ms: u32);
-    fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
-    fn SDL_QueryTexture(texture: *SDL_Texture, format: *u32, access: *u32, w: *u32, h: *u32) -> u32;
-    fn IMG_Init(flags: i32) -> i32;
-    fn IMG_Load(file: *u8) -> *SDL_Surface;
-    fn TTF_Init() -> u32;
-    fn TTF_OpenFont(file: *u8, ptsize: u32) -> *TTF_Font;
-    fn TTF_RenderText_Solid(font: *TTF_Font, text: *u8, fg: u32) -> *SDL_Surface;
-    fn Mix_OpenAudio(frequency: u32, format: u16, channels: u32, chunksize: u32) -> u32;
-    fn Mix_LoadMUS(file: *u8) -> *Mix_Music;
-    fn Mix_LoadWAV(file: *u8) -> *Mix_Chunk;
-    fn Mix_PlayChannel(channel: u32, chunk: *Mix_Chunk, loops: u32) -> u32;
+    // fn SDL_Init(flags: u32) -> i32;
+    // fn SDL_CreateWindow(title: *u8, x: u32, y: u32, w: u32, h: u32, flags: u32) -> *SDL_Window;
+    // fn SDL_PollEvent(ev: *u32) -> u32;
+    // fn SDL_GetWindowSurface(window: *u8) -> *SDL_Surface;
+    // fn SDL_UpdateWindowSurface(window: *u8) -> u32;
+    // fn SDL_GetError() -> *u8;
+    // fn SDL_ClearError();
+    // fn SDL_CreateRenderer(window: *SDL_Window, index: i32, flags: u32) -> *SDL_Renderer;
+    // fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: *SDL_Rect, dstrect: *SDL_Rect) -> u32;
+    // fn SDL_CreateTextureFromSurface(renderer: *SDL_Renderer, surface: *SDL_Surface) -> *SDL_Texture;
+    // fn SDL_FreeSurface(surface: *SDL_Surface);
+    // fn SDL_DestroyTexture(texture: *SDL_Texture);
+    // fn SDL_RenderPresent(renderer: *SDL_Renderer);
+    // fn SDL_Delay(ms: u32);
+    // fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
+    // fn SDL_QueryTexture(texture: *SDL_Texture, format: *u32, access: *u32, w: *u32, h: *u32) -> u32;
+    // fn IMG_Init(flags: i32) -> i32;
+    // fn IMG_Load(file: *u8) -> *SDL_Surface;
+    // fn TTF_Init() -> u32;
+    // fn TTF_OpenFont(file: *u8, ptsize: u32) -> *TTF_Font;
+    // fn TTF_RenderText_Solid(font: *TTF_Font, text: *u8, fg: u32) -> *SDL_Surface;
+    // fn Mix_OpenAudio(frequency: u32, format: u16, channels: u32, chunksize: u32) -> u32;
+    // fn Mix_LoadMUS(file: *u8) -> *Mix_Music;
+    // fn Mix_LoadWAV(file: *u8) -> *Mix_Chunk;
+    // fn Mix_PlayChannel(channel: u32, chunk: *Mix_Chunk, loops: u32) -> u32;
 }
 // --------------------------------------------------------------------------------------------------------------------
 // END BINDINGS
@@ -372,17 +372,24 @@ fn a_get<T>(a: &A<T>) -> T {
 
 fn main(argc: u32) -> u32 {
     let a: A<u32> = A::<u32> {inner: 32};
-    let b: A<u8> = A::<u8> {inner: 8};
-    let c: A<&u8> = A::<&u8> {inner: "asd"};
+    let b: A<u16> = A::<u16> {inner: 8};
+    let c: A<bool> = A::<bool> {inner: true};
+    let d: A<&u8> = A::<&u8> {inner: "asd"};
 
     let buf: [u8; 16];
     itoa(a_get::<u32>(&a), &buf);
     puts(&buf);
 
-    itoa(a_get::<u8>(&b) as u32, &buf);
+    itoa(a_get::<u16>(&b) as u32, &buf);
     puts(&buf);
 
-    puts(a_get::<&u8>(&c));
+    if a_get::<bool>(&c) {
+        puts("true");
+    } else {
+        puts("false");
+    }
+
+    puts(a_get::<&u8>(&d));
 
     // TODO spread op
     // let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};
