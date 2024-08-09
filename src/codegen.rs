@@ -124,7 +124,7 @@ impl Type {
                                 ty.llvm_type(type_env.clone())
                             }
                         } else {
-                            panic!("unresolved type id {}", *f)
+                            panic!("unresolved type {}", *f)
                         }
                     })
                     .collect();
@@ -1997,7 +1997,6 @@ impl ModuleBuilder {
                 )
             }
         };
-        
 
         let fn_type_name = format!(
             "fn({}) -> {}",
@@ -2009,7 +2008,6 @@ impl ModuleBuilder {
             ret_type.name()
         );
         let fn_type = type_env.get_type_by_name(&fn_type_name).unwrap();
-        println!("ret ty {:?}", ret_type);
 
         // this needs to be global
         self.env.insert_func(
@@ -2291,198 +2289,232 @@ impl ModuleBuilder {
                         }
                     }
                 }
+                // NodeKind::Impl {
+                //     ty,
+                //     methods,
+                //     generics,
+                // } => {
+                //     for method in methods.iter() {
+                //         println!("setting up fn {}\nspecs:", ident);
+                //         for spec in &*self.get_fn_specializations(ident.to_string()) {
+                //             assert_eq!(impl_generics.len(), spec.generics.len());
+                //             println!("{}", spec);
+                //             let type_env = TypeEnv::make_child(self.type_env.clone());
+                //             for (ty_param, ty_arg) in generics.iter().zip(spec.generics.iter()) {
+                //                 type_env.insert_type_by_name(
+                //                     &ty_param.to_string(),
+                //                     type_env
+                //                         .get_type_by_name(&ty_arg.to_string())
+                //                         .unwrap()
+                //                         .clone(),
+                //                 );
+                //             }
+                //             self.set_up_function(
+                //                 self.env.clone(),
+                //                 type_env.into(),
+                //                 &spec.to_string(),
+                //                 params.clone(),
+                //                 ret_ty.to_string().into(),
+                //                 false,
+                //                 None,
+                //                 Some(node.clone()),
+                //             )
+                //         }
+                //         println!();
+                //     }
+                // }
                 _ => (),
             }
         }
     }
 
-    fn pass4(&mut self) {
-        for node in &*self.ast.clone() {
-            #[allow(clippy::single_match)]
-            match &node.kind {
-                NodeKind::Impl {
-                    ident: impl_ty,
-                    methods,
-                    type_generics,
-                    ..
-                } => {
-                    if type_generics.len() > 0 {
-                        self.type_env
-                            .insert_generic_impl(impl_ty.clone(), node.clone());
-                    } else {
-                        let env = Rc::new(Env::make_child(self.env.clone()));
-                        let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
+    // fn pass4(&mut self) {
+    //     for node in &*self.ast.clone() {
+    //         #[allow(clippy::single_match)]
+    //         match &node.kind {
+    //             NodeKind::Impl {
+    //                 ident: impl_ty,
+    //                 methods,
+    //                 type_generics,
+    //                 ..
+    //             } => {
+    //                 if type_generics.len() > 0 {
+    //                     self.type_env
+    //                         .insert_generic_impl(impl_ty.clone(), node.clone());
+    //                 } else {
+    //                     let env = Rc::new(Env::make_child(self.env.clone()));
+    //                     let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
 
-                        type_env.insert_type_by_name(
-                            "Self",
-                            self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
-                        );
+    //                     type_env.insert_type_by_name(
+    //                         "Self",
+    //                         self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
+    //                     );
 
-                        let (static_methods, member_methods) = if let Some(Type::Struct {
-                            static_methods,
-                            member_methods,
-                            ..
-                        }) =
-                            type_env.get_type_by_name_mut(impl_ty)
-                        {
-                            (static_methods, member_methods)
-                        } else {
-                            todo!();
-                        };
+    //                     let (static_methods, member_methods) = if let Some(Type::Struct {
+    //                         static_methods,
+    //                         member_methods,
+    //                         ..
+    //                     }) =
+    //                         type_env.get_type_by_name_mut(impl_ty)
+    //                     {
+    //                         (static_methods, member_methods)
+    //                     } else {
+    //                         todo!();
+    //                     };
 
-                        for method in methods.iter() {
-                            if let NodeKind::Fn {
-                                ident: method_name,
-                                params,
-                                ret_ty,
-                                ..
-                            } = &method.kind
-                            {
-                                let is_static = if let Some(arg) = params.first() {
-                                    !(*arg.ty() == TypeAnnotation::SelfByVal
-                                        || *arg.ty() == TypeAnnotation::SelfByRef)
-                                } else {
-                                    true
-                                };
+    //                     for method in methods.iter() {
+    //                         if let NodeKind::Fn {
+    //                             ident: method_name,
+    //                             params,
+    //                             ret_ty,
+    //                             ..
+    //                         } = &method.kind
+    //                         {
+    //                             let is_static = if let Some(arg) = params.first() {
+    //                                 !(*arg.ty() == TypeAnnotation::SelfByVal
+    //                                     || *arg.ty() == TypeAnnotation::SelfByRef)
+    //                             } else {
+    //                                 true
+    //                             };
 
-                                let mangled_name = format!("{}::{}", impl_ty, method_name);
+    //                             let mangled_name = format!("{}::{}", impl_ty, method_name);
 
-                                if is_static {
-                                    static_methods
-                                        .insert(method_name.to_string(), mangled_name.clone());
-                                } else {
-                                    member_methods
-                                        .insert(method_name.to_string(), mangled_name.clone());
-                                }
+    //                             if is_static {
+    //                                 static_methods
+    //                                     .insert(method_name.to_string(), mangled_name.clone());
+    //                             } else {
+    //                                 member_methods
+    //                                     .insert(method_name.to_string(), mangled_name.clone());
+    //                             }
 
-                                self.set_up_function(
-                                    env.clone(),
-                                    type_env.clone(),
-                                    &mangled_name,
-                                    params.clone(),
-                                    ret_ty.to_string().into(),
-                                    false,
-                                    None,
-                                    Some(node.clone()),
-                                );
-                            } else {
-                                todo!()
-                            }
-                        }
-                    }
-                }
-                _ => (),
-            }
-        }
-    }
+    //                             self.set_up_function(
+    //                                 env.clone(),
+    //                                 type_env.clone(),
+    //                                 &mangled_name,
+    //                                 params.clone(),
+    //                                 ret_ty.to_string().into(),
+    //                                 false,
+    //                                 None,
+    //                                 Some(node.clone()),
+    //                             );
+    //                         } else {
+    //                             todo!()
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //             _ => (),
+    //         }
+    //     }
+    // }
 
-    fn pass5(&mut self) {
-        for node in &*self.ast.clone() {
-            if let NodeKind::Impl {
-                ident: impl_ty,
-                methods,
-                type_generics,
-                ..
-            } = &node.kind
-            {
-                // TODO duplicated stuff here
-                if type_generics.is_empty() {
-                    let env = Rc::new(Env::make_child(self.env.clone()));
-                    let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
-                    type_env.insert_type_by_name(
-                        "Self",
-                        self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
-                    );
+    // fn pass5(&mut self) {
+    //     for node in &*self.ast.clone() {
+    //         if let NodeKind::Impl {
+    //             ident: impl_ty,
+    //             methods,
+    //             type_generics,
+    //             ..
+    //         } = &node.kind
+    //         {
+    //             // TODO duplicated stuff here
+    //             if type_generics.is_empty() {
+    //                 let env = Rc::new(Env::make_child(self.env.clone()));
+    //                 let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
+    //                 type_env.insert_type_by_name(
+    //                     "Self",
+    //                     self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
+    //                 );
 
-                    for method in methods.iter() {
-                        if let NodeKind::Fn {
-                            ident,
-                            params,
-                            body,
-                            generics,
-                            ..
-                        } = &method.kind
-                        {
-                            let mangled_name = format!("{}::{}", impl_ty, ident);
-                            if generics.is_empty() {
-                                self.build_function(
-                                    env.clone(),
-                                    type_env.clone(),
-                                    mangled_name.into(),
-                                    params.clone(),
-                                    body.clone().unwrap(),
-                                )
-                            }
-                        } else {
-                            todo!()
-                        }
-                    }
-                } else {
-                    let monos: Vec<Vec<String>> = self
-                        .struct_specializations
-                        .iter()
-                        .filter(|(name, _)| name == &**impl_ty)
-                        .map(|(_, concrete_types)| concrete_types.clone())
-                        .collect();
+    //                 for method in methods.iter() {
+    //                     if let NodeKind::Fn {
+    //                         ident,
+    //                         params,
+    //                         body,
+    //                         generics,
+    //                         ..
+    //                     } = &method.kind
+    //                     {
+    //                         let mangled_name = format!("{}::{}", impl_ty, ident);
+    //                         if generics.is_empty() {
+    //                             self.build_function(
+    //                                 env.clone(),
+    //                                 type_env.clone(),
+    //                                 mangled_name.into(),
+    //                                 params.clone(),
+    //                                 body.clone().unwrap(),
+    //                             )
+    //                         }
+    //                     } else {
+    //                         todo!()
+    //                     }
+    //                 }
+    //             } else {
+    //                 let monos: Vec<Vec<String>> = self
+    //                     .struct_specializations
+    //                     .iter()
+    //                     .filter(|(name, _)| name == &**impl_ty)
+    //                     .map(|(_, concrete_types)| concrete_types.clone())
+    //                     .collect();
 
-                    for concrete_types in monos {
-                        let impl_ty = format!("{}<{}>", impl_ty, concrete_types.join(","));
-                        let env = Rc::new(Env::make_child(self.env.clone()));
-                        let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
-                        type_env.insert_type_by_name(
-                            "Self",
-                            self.type_env.get_type_by_name(&impl_ty).unwrap().clone(),
-                        );
+    //                 for concrete_types in monos {
+    //                     let impl_ty = format!("{}<{}>", impl_ty, concrete_types.join(","));
+    //                     let env = Rc::new(Env::make_child(self.env.clone()));
+    //                     let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
+    //                     type_env.insert_type_by_name(
+    //                         "Self",
+    //                         self.type_env.get_type_by_name(&impl_ty).unwrap().clone(),
+    //                     );
 
-                        for (generic, ty) in type_generics.iter().zip(concrete_types.iter()) {
-                            if let Some(ty) = type_env.get_type_by_name(ty) {
-                                type_env.insert_type_by_name(generic, ty.clone());
-                            } else {
-                                return; // FIXME we get here if we have non-monomorphized types in the set, which shouldn't happen
-                            }
-                        }
+    //                     for (generic, ty) in type_generics.iter().zip(concrete_types.iter()) {
+    //                         if let Some(ty) = type_env.get_type_by_name(ty) {
+    //                             type_env.insert_type_by_name(generic, ty.clone());
+    //                         } else {
+    //                             return; // FIXME we get here if we have non-monomorphized types in the set, which shouldn't happen
+    //                         }
+    //                     }
 
-                        for method in methods.iter() {
-                            if let NodeKind::Fn {
-                                ident,
-                                params,
-                                body,
-                                ret_ty,
-                                generics,
-                                ..
-                            } = &method.kind
-                            {
-                                let mangled_name = format!("{}::{}", impl_ty, ident);
-                                self.set_up_function(
-                                    env.clone(),
-                                    type_env.clone(),
-                                    &mangled_name,
-                                    params.clone(),
-                                    ret_ty.to_string().into(),
-                                    false,
-                                    None,
-                                    Some(node.clone()),
-                                );
+    //                     for method in methods.iter() {
+    //                         if let NodeKind::Fn {
+    //                             ident,
+    //                             params,
+    //                             body,
+    //                             ret_ty,
+    //                             generics,
+    //                             ..
+    //                         } = &method.kind
+    //                         {
+    //                             let mangled_name = format!("{}::{}", impl_ty, ident);
+    //                             self.set_up_function(
+    //                                 env.clone(),
+    //                                 type_env.clone(),
+    //                                 &mangled_name,
+    //                                 params.clone(),
+    //                                 ret_ty.to_string().into(),
+    //                                 false,
+    //                                 None,
+    //                                 Some(node.clone()),
+    //                             );
 
-                                // TODO defer this to a later stage or member fns might not be able to resolve each other
-                                if generics.is_empty() {
-                                    self.build_function(
-                                        env.clone(),
-                                        type_env.clone(),
-                                        mangled_name.into(),
-                                        params.clone(),
-                                        body.clone().unwrap(),
-                                    )
-                                }
-                            } else {
-                                todo!()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    //                             // TODO defer this to a later stage or member fns might not be able to resolve each other
+    //                             if generics.is_empty() {
+    //                                 self.build_function(
+    //                                     env.clone(),
+    //                                     type_env.clone(),
+    //                                     mangled_name.into(),
+    //                                     params.clone(),
+    //                                     body.clone().unwrap(),
+    //                                 )
+    //                             }
+    //                         } else {
+    //                             todo!()
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     fn pass6(&mut self) {
         for func in unsafe { &*self.env.funcs.get() } {
@@ -2545,8 +2577,8 @@ impl ModuleBuilder {
         self.pass1();
         self.pass2();
         self.pass3();
-        self.pass4();
-        self.pass5();
+        // self.pass4();
+        // self.pass5();
         self.pass6();
     }
 

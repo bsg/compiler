@@ -360,6 +360,12 @@ struct A<T> {
     inner: T;
 }
 
+impl<T> A<T> {
+    fn get(&self) -> T {
+        return self.inner;
+    }
+}
+
 fn a_get<T>(a: &A<T>) -> T {
     return a.inner;
 }

@@ -136,7 +136,10 @@ pub type NodeRef = Rc<Node>;
 pub enum FnParam {
     SelfByVal,
     SelfByRef,
-    Pair { ident: Rc<str>, ty: Rc<TypeAnnotation> },
+    Pair {
+        ident: Rc<str>,
+        ty: Rc<TypeAnnotation>,
+    },
 }
 
 impl FnParam {
@@ -214,6 +217,15 @@ impl TypeAnnotation {
     }
 }
 
+impl TypeAnnotation {
+    pub fn simple_from_name(name: &str) -> Self {
+        TypeAnnotation::Simple {
+            ident: name.to_string().into(),
+            generics: [].into(),
+        }
+    }
+}
+
 impl fmt::Display for TypeAnnotation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -248,7 +260,9 @@ impl fmt::Display for TypeAnnotation {
             TypeAnnotation::Ptr { pointee_ty } => f.write_fmt(format_args!("*{}", pointee_ty)),
             TypeAnnotation::Ref { referent_ty } => f.write_fmt(format_args!("&{}", referent_ty)),
             TypeAnnotation::Array { elem_ty } => f.write_fmt(format_args!("[{}]", elem_ty)),
-            TypeAnnotation::Slice { elem_ty, len } => f.write_fmt(format_args!("[{}; {}]", elem_ty, len)),
+            TypeAnnotation::Slice { elem_ty, len } => {
+                f.write_fmt(format_args!("[{}; {}]", elem_ty, len))
+            }
             TypeAnnotation::SelfByVal => f.write_str("Self"),
             TypeAnnotation::SelfByRef => f.write_str("&Self"),
         }
@@ -357,10 +371,9 @@ pub enum NodeKind {
         attributes: Option<Rc<[Rc<str>]>>,
     },
     Impl {
-        ident: Rc<str>,
+        ty: Rc<TypeAnnotation>,
         methods: Rc<[NodeRef]>,
-        impl_generics: Rc<[Rc<str>]>,
-        type_generics: Rc<[Rc<str>]>,
+        generics: Rc<[Rc<str>]>,
     },
     Array {
         elems: Rc<[NodeRef]>,
@@ -583,10 +596,9 @@ impl fmt::Debug for Node {
                     format!("struct {}{}{}", ident, generics_str, fields_str)
                 }
                 NodeKind::Impl {
-                    ident,
+                    ty,
                     methods,
-                    impl_generics,
-                    type_generics,
+                    generics,
                 } => {
                     let methods_str = methods.iter().fold(String::new(), |mut acc, method| {
                         acc += "\n";
@@ -594,21 +606,15 @@ impl fmt::Debug for Node {
                         acc
                     });
 
-                    let impl_generics_str = if impl_generics.len() > 0 {
-                        format!("<{}>", impl_generics.join(","))
-                    } else {
-                        "".to_string()
-                    };
-
-                    let type_generics_str = if type_generics.len() > 0 {
-                        format!("<{}>", type_generics.join(","))
+                    let impl_generics_str = if generics.len() > 0 {
+                        format!("<{}>", generics.join(","))
                     } else {
                         "".to_string()
                     };
 
                     format!(
-                        "impl{} {}{}{}",
-                        impl_generics_str, ident, type_generics_str, methods_str
+                        "impl{} {}{}",
+                        impl_generics_str, ty, methods_str
                     )
                 }
                 NodeKind::Array { elems } => {

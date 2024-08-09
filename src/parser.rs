@@ -617,8 +617,7 @@ impl Parser {
     }
 
     fn parse_impl(&mut self) -> Option<NodeRef> {
-        let mut impl_generics: Vec<Rc<str>> = Vec::new();
-        let mut type_generics: Vec<Rc<str>> = Vec::new();
+        let mut generics: Vec<Rc<str>> = Vec::new();
         let mut methods: Vec<NodeRef> = Vec::new();
 
         assert_eq!(TokenKind::Impl, self.curr_token.kind);
@@ -633,7 +632,7 @@ impl Parser {
                     ..
                 }) = self.parse_ident().as_deref()
                 {
-                    impl_generics.push(name.clone());
+                    generics.push(name.clone());
                     self.next_token();
                     if let TokenKind::Comma = self.curr_token.kind {
                         self.next_token();
@@ -645,61 +644,34 @@ impl Parser {
             self.next_token(); // eat Gt
         };
 
-        if let TokenKind::Ident(ident) = &self.curr_token.clone().kind {
-            self.next_token();
+        let ty = self.parse_type().unwrap();
+        self.next_token();
+        assert_eq!(TokenKind::LBrace, self.curr_token.kind);
+        self.next_token();
 
-            match self.curr_token.kind {
-                TokenKind::LBrace => self.next_token(),
-                TokenKind::Lt => {
-                    self.next_token();
-                    while self.curr_token.kind != TokenKind::Gt {
-                        if let Some(Node {
-                            kind: NodeKind::Ident { name },
-                            ..
-                        }) = self.parse_ident().as_deref()
-                        {
-                            type_generics.push(name.clone());
-                            self.next_token();
-                            if let TokenKind::Comma = self.curr_token.kind {
-                                self.next_token();
-                            }
-                        } else {
-                            todo!()
-                        }
-                    }
-                    self.next_token(); // eat Gt
-                    self.next_token(); // eat LBrace
-                }
-                _ => todo!(),
+        while let TokenKind::Fn = self.curr_token.kind {
+            if let Some(fn_node) = self.parse_fn(false, None) {
+                methods.push(fn_node);
+            } else {
+                todo!()
             }
-
-            while let TokenKind::Fn = self.curr_token.kind {
-                if let Some(fn_node) = self.parse_fn(false, None) {
-                    methods.push(fn_node);
-                } else {
-                    todo!()
-                }
-            }
-
-            assert_eq!(self.curr_token.kind, TokenKind::RBrace);
-            let end_span = self.curr_token.span.clone();
-            self.next_token();
-
-            Some(
-                Node {
-                    kind: NodeKind::Impl {
-                        ident: ident.clone(),
-                        methods: Rc::from(methods.as_slice()),
-                        impl_generics: impl_generics.into(),
-                        type_generics: type_generics.into(),
-                    },
-                    span: start_span.merge(&end_span),
-                }
-                .into(),
-            )
-        } else {
-            todo!()
         }
+
+        assert_eq!(self.curr_token.kind, TokenKind::RBrace);
+        let end_span = self.curr_token.span.clone();
+        self.next_token();
+
+        Some(
+            Node {
+                kind: NodeKind::Impl {
+                    ty: ty.clone(),
+                    methods: Rc::from(methods.as_slice()),
+                    generics: generics.into(),
+                },
+                span: start_span.merge(&end_span),
+            }
+            .into(),
+        )
     }
 
     fn parse_ident(&self) -> Option<NodeRef> {
@@ -1950,15 +1922,9 @@ struct T<A,B>
     #[test]
     fn impl_for_generic_struct() {
         assert_parse!(
-            "impl T<A, B> {}",
+            "impl<A> T<A> {}",
             "\
-impl T<A,B>
-"
-        );
-        assert_parse!(
-            "impl<A, B> T<A, B> {}",
-            "\
-impl<A,B> T<A,B>
+impl<A> T<A>
 "
         );
     }
