@@ -1,10 +1,11 @@
 use std::{collections::HashSet, rc::Rc};
 
-use crate::ast::{NodeKind, NodeRef, Op};
+use crate::ast::{NodeKind, NodeRef, Op, PathSegment};
 
 pub struct TypeCollector {
     ast: Rc<Vec<NodeRef>>,
     types: HashSet<String>,
+    fn_instances: HashSet<PathSegment>,
 }
 
 impl TypeCollector {
@@ -12,6 +13,7 @@ impl TypeCollector {
         Self {
             ast,
             types: HashSet::new(),
+            fn_instances: HashSet::new(),
         }
     }
 
@@ -26,8 +28,9 @@ impl TypeCollector {
                     if let NodeKind::Ident { name } = &lhs.kind {
                         self.types.insert((&**name).into());
                     }
-                    self.collect_recursively(rhs.clone());
                 }
+                self.collect_recursively(lhs.clone());
+                self.collect_recursively(rhs.clone());
             }
             NodeKind::Let { ty, rhs, .. } => {
                 self.types.insert(ty.to_string());
@@ -71,15 +74,16 @@ impl TypeCollector {
                 body,
                 ..
             } => {
-                self.types.insert((ret_ty.to_string()).into());
+                self.types.insert(ret_ty.to_string());
                 for arg in args.iter() {
-                    self.types.insert((arg.ty().to_string()).into());
+                    self.types.insert(arg.ty().to_string());
                 }
                 if let Some(body) = body {
                     self.collect_recursively(body.clone());
                 }
             }
-            NodeKind::Call { args, .. } => {
+            NodeKind::Call { path, args } => {
+                self.fn_instances.insert(path.clone());
                 for arg in args.iter() {
                     self.collect_recursively(arg.clone());
                 }
@@ -93,7 +97,7 @@ impl TypeCollector {
                 if generics.is_empty() {
                     self.types.insert((&**ident).into());
                     for field in fields.iter() {
-                        self.types.insert((field.ty.to_string()).into());
+                        self.types.insert(field.ty.to_string());
                     }
                 }
             }
@@ -124,7 +128,13 @@ impl TypeCollector {
         self
     }
 
-    pub fn for_each(&self, f: impl FnMut(&String)) {
-        self.types.iter().for_each(f)
+    pub fn for_each_ty(&self, f: impl FnMut(&String)) -> &Self {
+        self.types.iter().for_each(f);
+        self
+    }
+
+    pub fn for_each_fn_instance(&self, f: impl FnMut(&PathSegment)) -> &Self {
+        self.fn_instances.iter().for_each(f);
+        self
     }
 }
