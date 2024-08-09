@@ -13,6 +13,7 @@ use llvm_sys::target::LLVMPointerSize;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::ops::Deref;
 use std::ptr::null_mut;
 use std::rc::Rc;
 
@@ -188,7 +189,7 @@ impl Type {
 
     pub fn to_ref_type(&self) -> Type {
         Type::Ref {
-            referent_type_name: Rc::new(self.name().to_string()),
+            referent_type_name: self.name().clone(),
         }
     }
 
@@ -483,7 +484,7 @@ impl TypeEnv {
     }
 
     fn get_type_by_id(&self, type_id: usize) -> Option<&Type> {
-        match (unsafe { &mut *self.types.get() }).get(&type_id) {
+        match (unsafe { &*self.types.get() }).get(&type_id) {
             Some(t) => Some(t),
             None => {
                 if let Some(parent) = &self.parent {
@@ -1949,15 +1950,14 @@ impl ModuleBuilder {
         node: Option<NodeRef>,
     ) {
         let ret_type = match type_env.get_type_by_name(&ret_ty) {
-            Some(ty) => ty,
+            Some(ty) => ty.clone(),
             None => panic!("unresolved type {} setting up fn {}", ret_ty, ident),
         };
-        let mut param_type_names: Vec<Rc<str>> = Vec::new();
+
         let mut param_types: Vec<Type> = Vec::new();
         let mut llvm_param_types: Vec<LLVMTypeRef> = Vec::new();
         for param in params.iter() {
             if let Some(ty) = type_env.get_type_by_name(&param.ty().to_string()) {
-                param_type_names.push(param.ty().to_string().into());
                 param_types.push(ty.clone());
                 let llvm_type = if let Type::Fn { .. } = ty {
                     unsafe { LLVMPointerType(ty.llvm_type(type_env.clone()), 0) }
@@ -1997,9 +1997,19 @@ impl ModuleBuilder {
                 )
             }
         };
+        
 
-        let fn_type_name = format!("fn({}) -> {}", param_type_names.join(","), ret_type.name());
+        let fn_type_name = format!(
+            "fn({}) -> {}",
+            param_types
+                .iter()
+                .map(|t| t.name().deref().clone())
+                .collect::<Vec<String>>()
+                .join(","),
+            ret_type.name()
+        );
         let fn_type = type_env.get_type_by_name(&fn_type_name).unwrap();
+        println!("ret ty {:?}", ret_type);
 
         // this needs to be global
         self.env.insert_func(
@@ -2190,8 +2200,7 @@ impl ModuleBuilder {
             ) = self.type_env.get_generic_type(name).map(|node| &**node)
             {
                 let mut dict: HashMap<String, String> = HashMap::new();
-                for (generic_ty, concrete_type_name) in generics.iter().zip(type_args.iter())
-                {
+                for (generic_ty, concrete_type_name) in generics.iter().zip(type_args.iter()) {
                     if let Some(concrete_type) = local_type_env.get_type_by_name(concrete_type_name)
                     {
                         // TODO since we're passing a dict now, local_type_env should not be a thing anymore except for impls?
@@ -2330,7 +2339,8 @@ impl ModuleBuilder {
                             } = &method.kind
                             {
                                 let is_static = if let Some(arg) = params.first() {
-                                    !(*arg.ty() == TypeAnnotation::SelfByVal || *arg.ty() == TypeAnnotation::SelfByRef)
+                                    !(*arg.ty() == TypeAnnotation::SelfByVal
+                                        || *arg.ty() == TypeAnnotation::SelfByRef)
                                 } else {
                                     true
                                 };
