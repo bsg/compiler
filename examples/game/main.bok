@@ -370,11 +370,19 @@ fn a_get<T>(a: &A<T>) -> T {
     return a.inner;
 }
 
-// fn a_get<T>(a: &A<T>) -> T
-// where T = u32
-// {
-//     return a.inner;
-// }
+struct ArrayList<T> {
+    len: u32;
+    cap: u32;
+    data: *T;
+}
+
+fn arraylist_new<T>() -> ArrayList<T> {
+    return ArrayList::<T> {
+        len: 0,
+        cap: 0,
+        data: nullptr
+    };
+}
 
 fn main(argc: u32) -> u32 {
     let a: A<u32> = A::<u32> {inner: 32};
@@ -396,6 +404,8 @@ fn main(argc: u32) -> u32 {
     }
 
     puts(a_get::<&u8>(&d));
+
+    let list: ArrayList<u32> = arraylist_new::<u32>();
 
     // TODO spread op
     // let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};
