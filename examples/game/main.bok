@@ -360,12 +360,6 @@ struct A<T> {
     inner: T;
 }
 
-impl<T> A<T> {
-    fn get(&self) -> T {
-        return self.inner;
-    }
-}
-
 fn a_get<T>(a: &A<T>) -> T {
     return a.inner;
 }
@@ -379,10 +373,23 @@ struct ArrayList<T> {
 fn arraylist_new<T>() -> ArrayList<T> {
     return ArrayList::<T> {
         len: 0,
-        cap: 0,
-        data: nullptr
+        cap: 10,
+        data: malloc(size_of::<T>() * 10)
     };
 }
+
+fn arraylist_insert<T>(list: &ArrayList<T>, item: T) {
+    *list.data = item;
+    list.len += 1;
+}
+
+// fn bar<T>() -> u32 {
+//     return 1;
+// }
+
+// fn foo<T>() -> u32 {
+//     return bar::<T>();
+// }
 
 fn main(argc: u32) -> u32 {
     let a: A<u32> = A::<u32> {inner: 32};
@@ -406,6 +413,14 @@ fn main(argc: u32) -> u32 {
     puts(a_get::<&u8>(&d));
 
     let list: ArrayList<u32> = arraylist_new::<u32>();
+    arraylist_insert::<u32>(&list, 111);
+    arraylist_insert::<u32>(&list, 222);
+
+    itoa(*list.data, &buf);
+    puts(&buf);
+
+    itoa(*(list.data + 1), &buf);
+    puts(&buf);
 
     // TODO spread op
     // let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};

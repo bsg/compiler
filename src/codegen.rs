@@ -96,15 +96,10 @@ impl Type {
                 if let Some(ty) = type_env.get_type_by_name(pointee_type_name) {
                     LLVMPointerType(ty.llvm_type(type_env.clone()), 0)
                 } else {
-                    panic!(
-                        "unresolved type {} = {:?}",
-                        pointee_type_name,
-                        type_env.get_type_by_name(pointee_type_name)
-                    );
+                    panic!("unresolved type {}", pointee_type_name);
                 }
             },
             Type::Struct {
-                name,
                 field_type_names,
                 attributes,
                 ..
@@ -749,7 +744,7 @@ impl ModuleBuilder {
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
 
-                    match (&lhs_val.ty, rhs_val.ty) {
+                    match (&lhs_val.ty, rhs_val.ty.clone()) {
                         (Type::Int { .. }, Type::Int { .. }) => (
                             LLVMBuildAdd(
                                 self.builder,
@@ -774,7 +769,7 @@ impl ModuleBuilder {
                                 lhs_val.ty,
                             )
                         }
-                        _ => todo!(),
+                        _ => panic!("cannot add {} to {}", rhs_val.ty.name(), lhs_val.ty.name()),
                     }
                 },
                 Op::Sub => unsafe {
@@ -1209,7 +1204,7 @@ impl ModuleBuilder {
                             //     panic!("cannot index with signed int");
                             // }
 
-                            let elem_ty = type_env.get_type_by_name(&elem_type_name).unwrap();
+                            let elem_ty = type_env.get_type_by_name(elem_type_name).unwrap();
 
                             let ptr = unsafe {
                                 LLVMBuildInBoundsGEP2(
@@ -2042,6 +2037,10 @@ impl ModuleBuilder {
             }
 
             let name = name.unwrap_or(ident.to_string());
+            println!(
+                "registered struct {} with members {:?}",
+                name, field_type_names
+            );
             self.type_env.insert_type_by_name(
                 &name.clone(),
                 Type::Struct {
@@ -2105,7 +2104,6 @@ impl ModuleBuilder {
             } = &node.kind
             {
                 if generics.is_empty() {
-                    println!("registered struct {}", ident);
                     self.register_struct(
                         &self.env.clone(),
                         &self.type_env.clone(),
@@ -2115,10 +2113,7 @@ impl ModuleBuilder {
                 } else {
                     for (name, type_args) in self.struct_specializations.iter() {
                         if **ident == **name {
-                            println!(
-                                "specializing {} with type args {:?}",
-                                ident, type_args
-                            );
+                            println!("specializing {} with type args {:?}", ident, type_args);
                             let local_env = Rc::new(Env::make_child(self.env.clone()));
                             let local_type_env =
                                 Rc::new(TypeEnv::make_child(self.type_env.clone()));
@@ -2136,11 +2131,38 @@ impl ModuleBuilder {
                                         })
                                         .clone(),
                                 );
+
+                                // TODO this is a hack, substitute type args properly
+                                local_type_env.insert_type_by_name(
+                                    ("*".to_string() + &ty_param.to_string()).as_str(),
+                                    local_type_env
+                                        .get_type_by_name(ty_arg)
+                                        .unwrap_or_else(|| {
+                                            panic!(
+                                                "unresolved type {} specializing {} to {}",
+                                                ty_arg, ident, name
+                                            )
+                                        })
+                                        .to_ref_type()
+                                        .clone(),
+                                );
+                                local_type_env.insert_type_by_name(
+                                    ("&".to_string() + &ty_param.to_string()).as_str(),
+                                    local_type_env
+                                        .get_type_by_name(ty_arg)
+                                        .unwrap_or_else(|| {
+                                            panic!(
+                                                "unresolved type {} specializing {} to {}",
+                                                ty_arg, ident, name
+                                            )
+                                        })
+                                        .to_ref_type()
+                                        .clone(),
+                                );
                             }
 
                             // TODO build a dependency tree and gen structs depth first
                             let mangled_name = format!("{}<{}>", name, type_args.join(","));
-                            println!("registered struct {}", mangled_name);
                             self.register_struct(
                                 &local_env,
                                 &local_type_env,

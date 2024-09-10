@@ -1,11 +1,12 @@
 use std::{collections::HashSet, rc::Rc};
 
-use crate::ast::{NodeKind, NodeRef, Op, PathSegment};
+use crate::ast::{NodeKind, NodeRef, Op, PathSegment, TypeAnnotation};
 
 pub struct TypeCollector {
     ast: Rc<Vec<NodeRef>>,
     types: HashSet<String>,
     fn_instances: HashSet<PathSegment>,
+    current_fn_generics: Option<Rc<[Rc<TypeAnnotation>]>>,
 }
 
 impl TypeCollector {
@@ -14,6 +15,7 @@ impl TypeCollector {
             ast,
             types: HashSet::new(),
             fn_instances: HashSet::new(),
+            current_fn_generics: None,
         }
     }
 
@@ -75,7 +77,9 @@ impl TypeCollector {
                 generics,
                 ..
             } => {
-                if !generics.contains(ret_ty) {
+                self.current_fn_generics = Some(generics.clone());
+
+                if !generics.contains(ret_ty) && !ret_ty.is_generic() {
                     self.types.insert(ret_ty.to_string());
                 }
                 for arg in args.iter() {
@@ -86,6 +90,8 @@ impl TypeCollector {
                 if let Some(body) = body {
                     self.collect_recursively(body.clone());
                 }
+
+                self.current_fn_generics = None;
             }
             NodeKind::Call { path, args } => {
                 for arg in path.generics.iter() {
@@ -97,9 +103,7 @@ impl TypeCollector {
                 }
             }
             NodeKind::Struct {
-                fields,
-                generics,
-                ..
+                fields, generics, ..
             } => {
                 for field in fields.iter() {
                     if !generics.contains(&field.ty) && !field.ty.is_generic() {
@@ -118,7 +122,10 @@ impl TypeCollector {
                 }
             }
             NodeKind::StructLiteral { path, fields } => {
-                self.types.insert(path.to_string());
+                if path.generics.len() == 0 {
+                    self.types.insert(path.to_string());
+                }
+
                 for field in fields.iter() {
                     self.collect_recursively(field.clone().val);
                 }
