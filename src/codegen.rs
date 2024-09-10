@@ -667,6 +667,7 @@ impl ModuleBuilder {
             };
 
             let llvm_val = if as_lvalue {
+                // TODO this would fuck up ptr deref assigns?
                 val.llvm_val
             } else {
                 LLVMBuildLoad2(

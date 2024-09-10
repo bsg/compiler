@@ -378,8 +378,12 @@ fn arraylist_new<T>() -> ArrayList<T> {
     };
 }
 
+fn arraylist_get<T>(list: &ArrayList<T>, idx: u32) -> T {
+    return *(list.data as *u32 + idx);
+}
+
 fn arraylist_insert<T>(list: &ArrayList<T>, item: T) {
-    *list.data = item;
+    *(list.data as *u32 + list.len) = item; // FIXME seems to ignore the deref also list.data needs to be *u32 already
     list.len += 1;
 }
 
@@ -416,10 +420,13 @@ fn main(argc: u32) -> u32 {
     arraylist_insert::<u32>(&list, 111);
     arraylist_insert::<u32>(&list, 222);
 
-    itoa(*list.data, &buf);
+    itoa(list.data, &buf); // HUHH??
     puts(&buf);
 
-    itoa(*(list.data + 1), &buf);
+    itoa(arraylist_get::<u32>(&list, 0), &buf);
+    puts(&buf);
+
+    itoa(arraylist_get::<u32>(&list, 1), &buf);
     puts(&buf);
 
     // TODO spread op
