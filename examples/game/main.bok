@@ -356,24 +356,7 @@ struct GameContext {
 
 const BULLET_SPEED: u32 = 6;
 
-struct A<T> {
-    inner: T;
-}
-
-fn a_get<T>(a: &A<T>) -> T {
-    return a.inner;
-}
-
 fn main(argc: u32) -> u32 {
-    let a: A<u32> = A::<u32> {inner: 123};
-    let b: A<&u8> = A::<&u8> {inner: "asd"};
-
-    let buf: [u8; 16];
-    itoa(a_get::<u32>(&a), &buf);
-    puts(&buf);
-
-    // puts(a_get::<&u8>(&b));
-
     // TODO spread op
     let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};
 
