@@ -5,6 +5,7 @@
 // FIXME top level consts dependent will not resolve compound types on account of type not being available when the const is being generated
 // TODO llvm type aliases for compound types
 // TODO Scope!
+// FIXME pointer arithmetic and deref are fucked
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -645,7 +646,7 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_deref_ptr(
+    fn build_deref(
         &mut self,
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
@@ -667,7 +668,6 @@ impl ModuleBuilder {
             };
 
             let llvm_val = if as_lvalue {
-                // TODO this would fuck up ptr deref assigns?
                 val.llvm_val
             } else {
                 LLVMBuildLoad2(
@@ -699,7 +699,7 @@ impl ModuleBuilder {
                         llvm_val: val.llvm_val,
                     }
                 }
-                Op::Deref => self.build_deref_ptr(env, type_env, rhs.clone(), as_lvalue),
+                Op::Deref => self.build_deref(env, type_env, rhs.clone(), as_lvalue),
                 Op::Not => {
                     let val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
                     let llvm_val = unsafe {
@@ -2133,7 +2133,7 @@ impl ModuleBuilder {
                                         .clone(),
                                 );
 
-                                // TODO this is a hack, substitute type args properly
+                                // HACK substitute type args properly
                                 local_type_env.insert_type_by_name(
                                     ("*".to_string() + &ty_param.to_string()).as_str(),
                                     local_type_env

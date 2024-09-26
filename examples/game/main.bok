@@ -387,13 +387,15 @@ fn arraylist_insert<T>(list: &ArrayList<T>, item: T) {
     list.len += 1;
 }
 
-// fn bar<T>() -> u32 {
-//     return 1;
-// }
+fn bar<T>() -> u32 {
+    return 42;
+}
 
-// fn foo<T>() -> u32 {
-//     return bar::<T>();
-// }
+fn foo<T>() -> u32 {
+    let x: ArrayList<T>;
+    return 5;
+    // return bar::<T>();
+}
 
 fn main(argc: u32) -> u32 {
     let a: A<u32> = A::<u32> {inner: 32};
@@ -420,13 +422,13 @@ fn main(argc: u32) -> u32 {
     arraylist_insert::<u32>(&list, 111);
     arraylist_insert::<u32>(&list, 222);
 
-    itoa(list.data, &buf); // HUHH??
-    puts(&buf);
-
     itoa(arraylist_get::<u32>(&list, 0), &buf);
     puts(&buf);
 
     itoa(arraylist_get::<u32>(&list, 1), &buf);
+    puts(&buf);
+
+    itoa(foo::<u8>(), &buf);
     puts(&buf);
 
     // TODO spread op

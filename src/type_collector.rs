@@ -94,6 +94,11 @@ impl TypeCollector {
                 self.current_fn_generics = None;
             }
             NodeKind::Call { path, args } => {
+                for type_arg in path.generics.iter() {
+                    if self.current_fn_generics.clone().unwrap().contains(type_arg) {
+                        return;
+                    }
+                }
                 for arg in path.generics.iter() {
                     self.types.insert(arg.to_string());
                 }
