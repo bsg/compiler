@@ -178,28 +178,28 @@ pub struct MatchArm {
     pub stmt: NodeRef, // TODO rename to expr and treat this as such when we have block exprs
 }
 
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum TypeAnnotation {
     Simple {
         // TODO rename
         ident: Rc<str>,
-        generics: Rc<[Rc<TypeAnnotation>]>,
+        type_args: Rc<[Rc<TypeAnnotation>]>,
     },
     Fn {
-        param_tys: Rc<[Rc<TypeAnnotation>]>,
-        ret_ty: Rc<TypeAnnotation>,
+        params: Rc<[Rc<TypeAnnotation>]>,
+        return_type: Rc<TypeAnnotation>,
     },
     Ptr {
-        pointee_ty: Rc<TypeAnnotation>,
+        pointee_type: Rc<TypeAnnotation>,
     },
     Ref {
-        referent_ty: Rc<TypeAnnotation>,
+        referent_type: Rc<TypeAnnotation>,
     },
     Array {
-        elem_ty: Rc<TypeAnnotation>,
+        element_type: Rc<TypeAnnotation>,
     },
     Slice {
-        elem_ty: Rc<TypeAnnotation>,
+        element_type: Rc<TypeAnnotation>,
         len: usize,
     },
     SelfByVal,
@@ -209,27 +209,102 @@ pub enum TypeAnnotation {
 impl TypeAnnotation {
     pub fn is_generic(&self) -> bool {
         match self {
-            TypeAnnotation::Simple { generics, .. } => generics.len() > 0,
-            TypeAnnotation::Ptr { pointee_ty } => pointee_ty.is_generic(),
-            TypeAnnotation::Ref { referent_ty } => referent_ty.is_generic(),
+            TypeAnnotation::Simple {
+                type_args: generics,
+                ..
+            } => generics.len() > 0,
+            TypeAnnotation::Ptr {
+                pointee_type: pointee_ty,
+            } => pointee_ty.is_generic(),
+            TypeAnnotation::Ref {
+                referent_type: referent_ty,
+            } => referent_ty.is_generic(),
             _ => false, // TODO
         }
+    }
+
+    pub fn type_args(&self) -> Rc<[Rc<TypeAnnotation>]> {
+        match self {
+            TypeAnnotation::Simple { type_args, .. } => type_args.clone(),
+            _ => todo!(),
+        }
+    }
+
+    pub fn strip_generics(&self) -> Rc<Self> {
+        Rc::new(match self {
+            TypeAnnotation::Simple { ident, .. } => TypeAnnotation::Simple {
+                ident: ident.clone(),
+                type_args: [].into(),
+            },
+            _ => todo!(),
+        })
+    }
+
+    pub fn substitute(
+        &self,
+        substitutions: &[(Rc<TypeAnnotation>, Rc<TypeAnnotation>)],
+    ) -> Rc<Self> {
+        match self {
+            TypeAnnotation::Simple { ident, type_args } => {
+                for substitution in substitutions {
+                    if substitution.0 == self.strip_generics() {
+                        return substitution.1.clone();
+                    }
+                }
+
+                let new_type_args: Vec<Rc<TypeAnnotation>> = type_args
+                    .iter()
+                    .map(|arg| {
+                        let mut new_arg = arg.clone();
+                        for substitution in substitutions {
+                            if substitution.0 == *arg {
+                                new_arg = substitution.1.clone();
+                            }
+                        }
+                        new_arg
+                    })
+                    .collect();
+
+                Rc::new(TypeAnnotation::Simple {
+                    ident: ident.clone(),
+                    type_args: new_type_args.into(),
+                })
+            }
+            TypeAnnotation::Ptr { pointee_type } => TypeAnnotation::Ptr {
+                pointee_type: pointee_type.substitute(substitutions),
+            }
+            .into(),
+            TypeAnnotation::Ref { referent_type } => TypeAnnotation::Ref {
+                referent_type: referent_type.substitute(substitutions),
+            }
+            .into(),
+            _ => todo!(),
+        }
+    }
+
+    pub fn to_ref_type(&self) -> Rc<TypeAnnotation> {
+        Rc::new(TypeAnnotation::Ref {
+            referent_type: self.clone().into(),
+        })
     }
 }
 
 impl TypeAnnotation {
-    pub fn simple_from_name(name: &str) -> Self {
-        TypeAnnotation::Simple {
+    pub fn simple_from_name(name: &str) -> Rc<Self> {
+        Rc::new(TypeAnnotation::Simple {
             ident: name.to_string().into(),
-            generics: [].into(),
-        }
+            type_args: [].into(),
+        })
     }
 }
 
 impl fmt::Display for TypeAnnotation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TypeAnnotation::Simple { ident, generics } => f.write_fmt(format_args!(
+            TypeAnnotation::Simple {
+                ident,
+                type_args: generics,
+            } => f.write_fmt(format_args!(
                 "{}{}",
                 ident,
                 if !generics.is_empty() {
@@ -246,8 +321,8 @@ impl fmt::Display for TypeAnnotation {
                 }
             )),
             TypeAnnotation::Fn {
-                param_tys: params,
-                ret_ty,
+                params,
+                return_type: ret_ty,
             } => f.write_fmt(format_args!(
                 "fn({}) -> {}",
                 params
@@ -257,12 +332,19 @@ impl fmt::Display for TypeAnnotation {
                     .join(","),
                 ret_ty
             )),
-            TypeAnnotation::Ptr { pointee_ty } => f.write_fmt(format_args!("*{}", pointee_ty)),
-            TypeAnnotation::Ref { referent_ty } => f.write_fmt(format_args!("&{}", referent_ty)),
-            TypeAnnotation::Array { elem_ty } => f.write_fmt(format_args!("[{}]", elem_ty)),
-            TypeAnnotation::Slice { elem_ty, len } => {
-                f.write_fmt(format_args!("[{}; {}]", elem_ty, len))
-            }
+            TypeAnnotation::Ptr {
+                pointee_type: pointee_ty,
+            } => f.write_fmt(format_args!("*{}", pointee_ty)),
+            TypeAnnotation::Ref {
+                referent_type: referent_ty,
+            } => f.write_fmt(format_args!("&{}", referent_ty)),
+            TypeAnnotation::Array {
+                element_type: elem_ty,
+            } => f.write_fmt(format_args!("[{}]", elem_ty)),
+            TypeAnnotation::Slice {
+                element_type: elem_ty,
+                len,
+            } => f.write_fmt(format_args!("[{}; {}]", elem_ty, len)),
             TypeAnnotation::SelfByVal => f.write_str("Self"),
             TypeAnnotation::SelfByRef => f.write_str("&Self"),
         }
@@ -612,10 +694,7 @@ impl fmt::Debug for Node {
                         "".to_string()
                     };
 
-                    format!(
-                        "impl{} {}{}",
-                        impl_generics_str, ty, methods_str
-                    )
+                    format!("impl{} {}{}", impl_generics_str, ty, methods_str)
                 }
                 NodeKind::Array { elems } => {
                     let elems_str = elems.iter().fold(String::new(), |mut acc, method| {

@@ -63,7 +63,7 @@ impl Parser {
                 Some(
                     TypeAnnotation::Simple {
                         ident,
-                        generics: generics.into(),
+                        type_args: generics.into(),
                     }
                     .into(),
                 )
@@ -72,7 +72,7 @@ impl Parser {
                 self.next_token();
                 Some(
                     TypeAnnotation::Ptr {
-                        pointee_ty: self.parse_type()?,
+                        pointee_type: self.parse_type()?,
                     }
                     .into(),
                 )
@@ -81,7 +81,7 @@ impl Parser {
                 self.next_token();
                 Some(
                     TypeAnnotation::Ref {
-                        referent_ty: self.parse_type()?,
+                        referent_type: self.parse_type()?,
                     }
                     .into(),
                 )
@@ -96,14 +96,14 @@ impl Parser {
                     if let TokenKind::Int(len) = self.curr_token.clone().kind {
                         self.next_token();
                         TypeAnnotation::Slice {
-                            elem_ty,
+                            element_type: elem_ty,
                             len: len.parse::<usize>().unwrap(),
                         }
                     } else {
                         todo!()
                     }
                 } else {
-                    TypeAnnotation::Array { elem_ty }
+                    TypeAnnotation::Array { element_type: elem_ty }
                 }
                 .into();
 
@@ -144,8 +144,8 @@ impl Parser {
 
                 Some(
                     TypeAnnotation::Fn {
-                        param_tys: param_tys.into(),
-                        ret_ty,
+                        params: param_tys.into(),
+                        return_type: ret_ty,
                     }
                     .into(),
                 )
@@ -335,7 +335,7 @@ impl Parser {
                 }
                 TokenKind::LBrace | TokenKind::Semicolon => TypeAnnotation::Simple {
                     ident: "void".into(),
-                    generics: [].into(),
+                    type_args: [].into(),
                 }
                 .into(),
                 _ => todo!(),
@@ -469,7 +469,7 @@ impl Parser {
                             generics.push(
                                 TypeAnnotation::Simple {
                                     ident: name.clone(),
-                                    generics: [].into(),
+                                    type_args: [].into(),
                                 }
                                 .into(),
                             );

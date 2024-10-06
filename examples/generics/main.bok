@@ -1,0 +1,16 @@
+struct A<T> {
+    inner: T;
+}
+
+struct B<T> {
+    inner: A<T>;
+}
+
+fn b_inner<T>(b: B<T>) -> A<T> {
+    return b.inner;
+}
+
+fn main(argc: u32) -> u32 {
+    let b: B<u32> = B::<u32>{inner: A::<u32>{inner: 42}};
+    return b_inner::<u32>(b).inner;
+}
