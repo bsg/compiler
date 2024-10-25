@@ -10,7 +10,34 @@ fn b_inner<T>(b: B<T>) -> A<T> {
     return b.inner;
 }
 
+fn make_a(inner: u32) -> A<u32> {
+    return A::<u32>{inner: inner};
+}
+
+struct C {}
+
+impl<T> C {
+    fn foo(&self, arg: T) -> T {
+        return arg;
+    }
+
+    fn bar(arg: T) -> T {
+        return arg;
+    }
+}
+
 fn main(argc: u32) -> u32 {
-    let b: B<u32> = B::<u32>{inner: A::<u32>{inner: 42}};
-    return b_inner::<u32>(b).inner;
+    let b: B<u32> = B::<u32>{inner: make_a(42)};
+    let a: A<u32> = b_inner::<u32>(b);
+
+    C::bar::<u32>(11);
+
+    let c: C;
+    // TODO do we wanna transform the ast such that this becomes C::foo::<u32>(&c, 42); ?
+    c.foo::<u32>(42);
+
+    return a.inner;
+
+    // FIXME this one codegens garbage
+    // return b_inner::<u32>(b).inner;
 }

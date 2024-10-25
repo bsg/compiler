@@ -455,7 +455,7 @@ pub enum NodeKind {
     Impl {
         ty: Rc<TypeAnnotation>,
         methods: Rc<[NodeRef]>,
-        generics: Rc<[Rc<str>]>,
+        generics: Rc<[Rc<TypeAnnotation>]>,
     },
     Array {
         elems: Rc<[NodeRef]>,
@@ -689,7 +689,15 @@ impl fmt::Debug for Node {
                     });
 
                     let impl_generics_str = if generics.len() > 0 {
-                        format!("<{}>", generics.join(","))
+                        // FIXME bad
+                        format!(
+                            "<{}>",
+                            generics
+                                .iter()
+                                .map(|ty| ty.to_string())
+                                .collect::<Vec<String>>()
+                                .join(",")
+                        )
                     } else {
                         "".to_string()
                     };

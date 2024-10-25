@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::collections::LinkedList;
 use std::ffi::CString;
 use std::ops::Deref;
+use std::path::Path;
 use std::ptr::null_mut;
 use std::rc::Rc;
 
@@ -281,6 +282,7 @@ impl ModuleBuilder {
         unsafe { &mut *self.fn_decls.get() }.insert(ident, (path_segment, node));
     }
 
+    // TODO why the fuck does this not take ident by ref? similar shit elsewhere
     fn get_fn_decl(&self, ident: String) -> Option<&(PathSegment, NodeRef)> {
         unsafe { &mut *self.fn_decls.get() }.get(&ident)
     }
@@ -698,7 +700,7 @@ impl ModuleBuilder {
                     let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
                     let rhs_ty = type_env.get(&rhs_val.ty).unwrap();
 
-                    if let (rhs_ty @ Type::Struct { .. }, lhs_ty @ Type::Struct { .. }) =
+                    if let (rhs_ty @ Type::Struct { .. }, _lhs_ty @ Type::Struct { .. }) =
                         (lhs_ty, rhs_ty)
                     {
                         // TODO this is to check whether rhs is a struct literal or not, find a better way
@@ -819,31 +821,17 @@ impl ModuleBuilder {
                                 path: PathSegment { ident, generics },
                                 args,
                             } => {
-                                // TODO the following fails for struct members that depend on one another
-                                // build static/member methods lists before you build impl fn bodies
-
-                                // TODO is this even needed? maybe instead consistently mangle fn names?
-
-                                // let func_ident =
-                                //     if let Some(member) = member_methods.get(&ident.to_string()) {
-                                //         member
-                                //     } else {
-                                //         panic!("struct {} has no method {}", struct_name, ident)
-                                //     };
-
                                 let func_ident = format!("{}::{}", struct_name, ident);
-                                let func = if let Some(func) = env.get_func(func_ident.as_str()) {
-                                    func
-                                } else {
-                                    panic!("unresolved method {}\n{}", func_ident, op_span);
+                                let fn_decl = match self.get_fn_decl(func_ident.clone()) {
+                                    Some(decl) => decl,
+                                    None => todo!(),
                                 };
-                                let self_by_ref = if let Some(TypeAnnotation::Ref { .. }) =
-                                    func.param_types.first().map(|t| &**t)
-                                {
-                                    // TODO type checking
-                                    true
-                                } else {
-                                    false
+
+                                let self_by_ref = match &fn_decl.1.kind {
+                                    NodeKind::Fn { params, .. } => {
+                                        matches!(*params[0].ty(), TypeAnnotation::SelfByRef)
+                                    }
+                                    _ => todo!(),
                                 };
 
                                 let mut args = args.to_vec();
@@ -864,12 +852,21 @@ impl ModuleBuilder {
                                     args.insert(0, lhs.clone());
                                 }
 
+                                let local_type_env = TypeEnv::make_child(type_env.clone());
+                                local_type_env.insert(
+                                    TypeAnnotation::SelfByVal.into(),
+                                    type_env
+                                        .get(&TypeAnnotation::simple_from_name(struct_name))
+                                        .unwrap()
+                                        .clone(),
+                                );
+
                                 return self.build_call(
                                     env.clone(),
-                                    type_env.clone(),
+                                    local_type_env.into(),
                                     PathSegment {
                                         ident: func_ident.into(),
-                                        generics: [].into(),
+                                        generics: generics.clone(),
                                     },
                                     &args,
                                 );
@@ -929,24 +926,19 @@ impl ModuleBuilder {
                 Op::ScopeRes => match (&lhs.kind, &rhs.kind) {
                     // TODO probably not the correct way to do this
                     (
-                        NodeKind::Ident { name: type_name },
+                        NodeKind::Ident { name },
                         NodeKind::Call {
-                            path:
-                                path @ PathSegment {
-                                    ident: fn_ident,
-                                    generics,
-                                },
+                            path,
                             args: fn_args,
                         },
                     ) => {
-                        let mangled_name = path.to_string();
-
+                        let mangled_name = format!("{}::{}", name, path.ident);
                         return self.build_call(
                             env,
                             type_env.clone(),
                             PathSegment {
                                 ident: mangled_name.as_str().into(),
-                                generics: [].into(),
+                                generics: path.generics.clone(),
                             },
                             fn_args,
                         );
@@ -1034,53 +1026,59 @@ impl ModuleBuilder {
             } else {
                 todo!()
             }
-        } else if path.generics.len() > 0 {
-            if let Some(fn_decl) = self.get_fn_decl(path.ident.to_string()) {
-                if let NodeKind::Fn { params, ret_ty, .. } = &fn_decl.1.kind {
-                    let concrete_ret_ty = ret_ty
-                        .substitute(&[(fn_decl.0.generics[0].clone(), path.generics[0].clone())]);
-                    let mut concrete_param_tys: Vec<Rc<TypeAnnotation>> = vec![];
-                    let concrete_params: Vec<FnParam> = params
-                        .iter()
-                        .map(|param| {
-                            if let FnParam::Pair { ident, ty } = param {
-                                let new_ty = ty.substitute(&[(
+        } else if let Some(fn_decl) = self.get_fn_decl(path.ident.to_string()) {
+            // TODO this is incomplete, assumes generic arg count < 2
+            if let NodeKind::Fn { params, ret_ty, .. } = &fn_decl.1.kind {
+                let concrete_ret_ty = if path.generics.len() > 0 {
+                    ret_ty.substitute(&[(fn_decl.0.generics[0].clone(), path.generics[0].clone())])
+                } else {
+                    ret_ty.clone()
+                };
+                let mut concrete_param_tys: Vec<Rc<TypeAnnotation>> = vec![];
+                let concrete_params: Vec<FnParam> = params
+                    .iter()
+                    .map(|param| {
+                        if let FnParam::Pair { ident, ty } = param {
+                            let new_ty = if path.generics.len() > 0 {
+                                ty.substitute(&[(
                                     fn_decl.0.generics[0].clone(),
                                     path.generics[0].clone(),
-                                )]);
-                                concrete_param_tys.push(new_ty.clone());
-                                FnParam::Pair {
-                                    ident: ident.clone(),
-                                    ty: new_ty,
-                                }
+                                )])
                             } else {
-                                param.clone()
+                                ty.clone()
+                            };
+                            concrete_param_tys.push(new_ty.clone());
+                            FnParam::Pair {
+                                ident: ident.clone(),
+                                ty: new_ty,
                             }
-                        })
-                        .collect();
+                        } else {
+                            param.clone()
+                        }
+                    })
+                    .collect();
 
-                    let mut local_type_env = TypeEnv::make_child(type_env.clone());
-
+                let local_type_env = TypeEnv::make_child(type_env.clone());
+                if path.generics.len() > 0 {
                     let ty = type_env.get(&path.generics[0]).unwrap();
                     local_type_env.insert(fn_decl.0.generics[0].clone(), ty.clone());
-
-                    self.set_up_function(
-                        env.clone(),
-                        local_type_env.into(),
-                        &path.to_string(),
-                        concrete_params.into(),
-                        concrete_ret_ty,
-                        false,
-                        None,
-                        Some(fn_decl.1.clone()),
-                    );
-
-                    return self.build_call(env, type_env, path, arg_exprs);
                 }
+
+                self.set_up_function(
+                    env.clone(),
+                    local_type_env.into(),
+                    &path.to_string(),
+                    concrete_params.into(),
+                    concrete_ret_ty,
+                    false,
+                    None,
+                    Some(fn_decl.1.clone()),
+                );
+
+                return self.build_call(env, type_env, path, arg_exprs);
             } else {
                 todo!()
             }
-            todo!()
         } else {
             panic!("unresolved fn {}", path);
         };
@@ -1833,6 +1831,26 @@ impl ModuleBuilder {
                             },
                             node.clone(),
                         );
+                    }
+                }
+                NodeKind::Impl {
+                    ty,
+                    methods,
+                    generics,
+                } => {
+                    for node in methods.iter() {
+                        if let NodeKind::Fn { ident, .. } = &node.kind {
+                            let fn_ident = ty.to_string() + "::" + ident.as_ref();
+                            println!("registering fn decl {}", fn_ident,);
+                            self.push_fn_decl(
+                                fn_ident,
+                                PathSegment {
+                                    ident: ident.clone(),
+                                    generics: generics.clone(),
+                                },
+                                node.clone(),
+                            );
+                        }
                     }
                 }
                 _ => (),

@@ -103,7 +103,9 @@ impl Parser {
                         todo!()
                     }
                 } else {
-                    TypeAnnotation::Array { element_type: elem_ty }
+                    TypeAnnotation::Array {
+                        element_type: elem_ty,
+                    }
                 }
                 .into();
 
@@ -617,7 +619,7 @@ impl Parser {
     }
 
     fn parse_impl(&mut self) -> Option<NodeRef> {
-        let mut generics: Vec<Rc<str>> = Vec::new();
+        let mut generics: Vec<Rc<TypeAnnotation>> = Vec::new();
         let mut methods: Vec<NodeRef> = Vec::new();
 
         assert_eq!(TokenKind::Impl, self.curr_token.kind);
@@ -632,7 +634,13 @@ impl Parser {
                     ..
                 }) = self.parse_ident().as_deref()
                 {
-                    generics.push(name.clone());
+                    generics.push(
+                        TypeAnnotation::Simple {
+                            ident: name.clone(),
+                            type_args: [].into(),
+                        }
+                        .into(),
+                    );
                     self.next_token();
                     if let TokenKind::Comma = self.curr_token.kind {
                         self.next_token();
@@ -2053,6 +2061,18 @@ block
             "foo::<T>()",
             "\
 call foo<T>
+"
+        );
+    }
+
+    #[test]
+    fn path_resolution() {
+        assert_parse!(
+            "A::foo::<T>()",
+            "\
+scoperes
+    ident A
+    call foo<T>
 "
         );
     }

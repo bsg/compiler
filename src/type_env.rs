@@ -46,7 +46,7 @@ impl Type {
             Type::Ptr { pointee_type } => format!("*{}", pointee_type),
             Type::Ref { referent_type } => format!("&{}", referent_type),
             Type::Struct { name, .. } => name.to_string(),
-            Type::Array { elem_type, len } => format!("[{}; {}]", elem_type, len).into(),
+            Type::Array { elem_type, len } => format!("[{}; {}]", elem_type, len),
             Type::Fn {
                 params: param_types,
                 ret_type,
@@ -58,8 +58,7 @@ impl Type {
                     .collect::<Vec<String>>()
                     .join(","),
                 ret_type
-            )
-            .into(),
+            ),
         }
     }
 }
@@ -172,7 +171,8 @@ mod tests {
             TypeAnnotation::Simple {
                 ident: "Foo".into(),
                 type_args: [type_param.clone()].into(),
-            }.into(),
+            }
+            .into(),
             Type::Bool,
         );
 
@@ -180,6 +180,30 @@ mod tests {
             env.get(&TypeAnnotation::Simple {
                 ident: "Foo".into(),
                 type_args: [type_param.clone()].into()
+            })
+            .unwrap()
+            .name()
+            .to_string(),
+            "bool"
+        );
+    }
+
+    #[test]
+    fn lookup_ref() {
+        let env = TypeEnv::new();
+
+        env.insert(
+            TypeAnnotation::Simple {
+                ident: "T".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Bool,
+        );
+
+        assert_eq!(
+            env.get(&TypeAnnotation::Ref {
+                referent_type: TypeAnnotation::simple_from_name("T")
             })
             .unwrap()
             .name()
@@ -201,7 +225,8 @@ mod tests {
             TypeAnnotation::Simple {
                 ident: "Foo".into(),
                 type_args: [].into(),
-            }.into(),
+            }
+            .into(),
             Type::Struct {
                 name: "Foo".to_string().into(),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
@@ -249,7 +274,8 @@ mod tests {
             TypeAnnotation::Simple {
                 ident: "Foo".into(),
                 type_args: [].into(),
-            }.into(),
+            }
+            .into(),
             Type::Struct {
                 name: "Foo".to_string().into(),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
@@ -299,7 +325,8 @@ mod tests {
             TypeAnnotation::Simple {
                 ident: "Foo".into(),
                 type_args: [].into(),
-            }.into(),
+            }
+            .into(),
             Type::Struct {
                 name: "Foo".to_string().into(),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
