@@ -240,6 +240,7 @@ pub struct ModuleBuilder {
     break_block: Option<LLVMBasicBlockRef>,
     fn_decls: UnsafeCell<HashMap<String, (PathSegment, NodeRef)>>,
     fn_specializations: UnsafeCell<LinkedList<(PathSegment, NodeRef)>>,
+    fns_to_build: Vec<String>,
 }
 
 impl ModuleBuilder {
@@ -253,7 +254,8 @@ impl ModuleBuilder {
             TypeAnnotation::Simple {
                 ident: "u32".into(),
                 type_args: [].into(),
-            },
+            }
+            .into(),
             Type::Int {
                 width: 32,
                 signed: false,
@@ -271,6 +273,7 @@ impl ModuleBuilder {
             break_block: None,
             fn_decls: UnsafeCell::new(HashMap::new()),
             fn_specializations: UnsafeCell::new(LinkedList::new()),
+            fns_to_build: Vec::new(),
         }
     }
 
@@ -1032,6 +1035,51 @@ impl ModuleBuilder {
                 todo!()
             }
         } else if path.generics.len() > 0 {
+            if let Some(fn_decl) = self.get_fn_decl(path.ident.to_string()) {
+                if let NodeKind::Fn { params, ret_ty, .. } = &fn_decl.1.kind {
+                    let concrete_ret_ty = ret_ty
+                        .substitute(&[(fn_decl.0.generics[0].clone(), path.generics[0].clone())]);
+                    let mut concrete_param_tys: Vec<Rc<TypeAnnotation>> = vec![];
+                    let concrete_params: Vec<FnParam> = params
+                        .iter()
+                        .map(|param| {
+                            if let FnParam::Pair { ident, ty } = param {
+                                let new_ty = ty.substitute(&[(
+                                    fn_decl.0.generics[0].clone(),
+                                    path.generics[0].clone(),
+                                )]);
+                                concrete_param_tys.push(new_ty.clone());
+                                FnParam::Pair {
+                                    ident: ident.clone(),
+                                    ty: new_ty,
+                                }
+                            } else {
+                                param.clone()
+                            }
+                        })
+                        .collect();
+
+                    let mut local_type_env = TypeEnv::make_child(type_env.clone());
+
+                    let ty = type_env.get(&path.generics[0]).unwrap();
+                    local_type_env.insert(fn_decl.0.generics[0].clone(), ty.clone());
+
+                    self.set_up_function(
+                        env.clone(),
+                        local_type_env.into(),
+                        &path.to_string(),
+                        concrete_params.into(),
+                        concrete_ret_ty,
+                        false,
+                        None,
+                        Some(fn_decl.1.clone()),
+                    );
+
+                    return self.build_call(env, type_env, path, arg_exprs);
+                }
+            } else {
+                todo!()
+            }
             todo!()
         } else {
             panic!("unresolved fn {}", path);
@@ -1127,10 +1175,10 @@ impl ModuleBuilder {
             NodeKind::Int { value } => unsafe {
                 // FIXME int type
                 // TODO sign extend
-                let llvm_val = LLVMConstInt(LLVMInt32Type(), (*value).try_into().unwrap(), 0);
+                let llvm_val = LLVMConstInt(LLVMInt32Type(), *value, 0);
 
                 Val {
-                    ty: TypeAnnotation::simple_from_name("u32").into(),
+                    ty: TypeAnnotation::simple_from_name("u32"),
                     llvm_val,
                 }
             },
@@ -1138,7 +1186,7 @@ impl ModuleBuilder {
                 let llvm_val = LLVMConstInt(LLVMInt1Type(), if *value { 1 } else { 0 }, 0);
 
                 Val {
-                    ty: TypeAnnotation::simple_from_name("bool").into(),
+                    ty: TypeAnnotation::simple_from_name("bool"),
                     llvm_val,
                 }
             },
@@ -1146,7 +1194,7 @@ impl ModuleBuilder {
                 let llvm_val = LLVMConstInt(LLVMInt8Type(), **value as u64, 0);
 
                 Val {
-                    ty: TypeAnnotation::simple_from_name("u8").into(),
+                    ty: TypeAnnotation::simple_from_name("u8"),
                     llvm_val,
                 }
             },
@@ -1157,21 +1205,21 @@ impl ModuleBuilder {
                     } else {
                         let var_ty = type_env.get(&var.ty).unwrap();
                         let llvm_ty = if let Type::Fn { .. } = var_ty {
-                            LLVMPointerType(llvm_type(&var_ty, type_env.clone()), 0)
+                            LLVMPointerType(llvm_type(var_ty, type_env.clone()), 0)
                         } else {
-                            llvm_type(&var_ty, type_env.clone())
+                            llvm_type(var_ty, type_env.clone())
                         };
 
                         LLVMBuildLoad2(self.builder, llvm_ty, var.val, "".to_cstring().as_ptr())
                     };
 
                     Val {
-                        ty: var.ty.clone().into(),
+                        ty: var.ty.clone(),
                         llvm_val,
                     }
                 } else if let Some(f) = env.get_func(name) {
                     Val {
-                        ty: f.ty.clone().into(),
+                        ty: f.ty.clone(),
                         llvm_val: f.val,
                     }
                 } else {
@@ -1323,7 +1371,7 @@ impl ModuleBuilder {
             } => unsafe {
                 // TODO alloca the var and let assign do the rest?
                 if let NodeKind::Ident { name } = &lhs.kind {
-                    let var_ty = match type_env.get(&type_annotation) {
+                    let var_ty = match type_env.get(type_annotation) {
                         t @ Some(_) => t,
                         None => panic!("unknown type {}", type_annotation),
                     };
@@ -1643,6 +1691,7 @@ impl ModuleBuilder {
                 node,
             },
         );
+        self.fns_to_build.push(ident.to_owned());
     }
 
     fn build_function(
@@ -1752,7 +1801,8 @@ impl ModuleBuilder {
                         TypeAnnotation::Simple {
                             ident: ident.clone(),
                             type_args: [].into(),
-                        },
+                        }
+                        .into(),
                         Type::Struct {
                             name: ident.to_string().into(),
                             field_indices,
@@ -1799,7 +1849,7 @@ impl ModuleBuilder {
                 let type_env = TypeEnv::make_child(self.type_env.clone());
                 for (ty_param, ty_arg) in spec.generics.iter().zip(spec.generics.iter()) {
                     type_env.insert(
-                        Rc::unwrap_or_clone(ty_param.clone()),
+                        Rc::unwrap_or_clone(ty_param.clone().into()),
                         type_env.get(ty_arg).unwrap().clone(),
                     );
                 }
@@ -1847,260 +1897,55 @@ impl ModuleBuilder {
                         }
                     }
                 }
-                // NodeKind::Impl {
-                //     ty,
-                //     methods,
-                //     generics,
-                // } => {
-                //     for method in methods.iter() {
-                //         println!("setting up fn {}\nspecs:", ident);
-                //         for spec in &*self.get_fn_specializations(ident.to_string()) {
-                //             assert_eq!(impl_generics.len(), spec.generics.len());
-                //             println!("{}", spec);
-                //             let type_env = TypeEnv::make_child(self.type_env.clone());
-                //             for (ty_param, ty_arg) in generics.iter().zip(spec.generics.iter()) {
-                //                 type_env.insert_type_by_name(
-                //                     &ty_param.to_string(),
-                //                     type_env
-                //                         .get_type_by_name(&ty_arg.to_string())
-                //                         .unwrap()
-                //                         .clone(),
-                //                 );
-                //             }
-                //             self.set_up_function(
-                //                 self.env.clone(),
-                //                 type_env.into(),
-                //                 &spec.to_string(),
-                //                 params.clone(),
-                //                 ret_ty.to_string().into(),
-                //                 false,
-                //                 None,
-                //                 Some(node.clone()),
-                //             )
-                //         }
-                //         println!();
-                //     }
-                // }
                 _ => (),
             }
         }
     }
 
-    // fn pass4(&mut self) {
-    //     for node in &*self.ast.clone() {
-    //         #[allow(clippy::single_match)]
-    //         match &node.kind {
-    //             NodeKind::Impl {
-    //                 ident: impl_ty,
-    //                 methods,
-    //                 type_generics,
-    //                 ..
-    //             } => {
-    //                 if type_generics.len() > 0 {
-    //                     self.type_env
-    //                         .insert_generic_impl(impl_ty.clone(), node.clone());
-    //                 } else {
-    //                     let env = Rc::new(Env::make_child(self.env.clone()));
-    //                     let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
-
-    //                     type_env.insert_type_by_name(
-    //                         "Self",
-    //                         self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
-    //                     );
-
-    //                     let (static_methods, member_methods) = if let Some(Type::Struct {
-    //                         static_methods,
-    //                         member_methods,
-    //                         ..
-    //                     }) =
-    //                         type_env.get_type_by_name_mut(impl_ty)
-    //                     {
-    //                         (static_methods, member_methods)
-    //                     } else {
-    //                         todo!();
-    //                     };
-
-    //                     for method in methods.iter() {
-    //                         if let NodeKind::Fn {
-    //                             ident: method_name,
-    //                             params,
-    //                             ret_ty,
-    //                             ..
-    //                         } = &method.kind
-    //                         {
-    //                             let is_static = if let Some(arg) = params.first() {
-    //                                 !(*arg.ty() == TypeAnnotation::SelfByVal
-    //                                     || *arg.ty() == TypeAnnotation::SelfByRef)
-    //                             } else {
-    //                                 true
-    //                             };
-
-    //                             let mangled_name = format!("{}::{}", impl_ty, method_name);
-
-    //                             if is_static {
-    //                                 static_methods
-    //                                     .insert(method_name.to_string(), mangled_name.clone());
-    //                             } else {
-    //                                 member_methods
-    //                                     .insert(method_name.to_string(), mangled_name.clone());
-    //                             }
-
-    //                             self.set_up_function(
-    //                                 env.clone(),
-    //                                 type_env.clone(),
-    //                                 &mangled_name,
-    //                                 params.clone(),
-    //                                 ret_ty.to_string().into(),
-    //                                 false,
-    //                                 None,
-    //                                 Some(node.clone()),
-    //                             );
-    //                         } else {
-    //                             todo!()
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //             _ => (),
-    //         }
-    //     }
-    // }
-
-    // fn pass5(&mut self) {
-    //     for node in &*self.ast.clone() {
-    //         if let NodeKind::Impl {
-    //             ident: impl_ty,
-    //             methods,
-    //             type_generics,
-    //             ..
-    //         } = &node.kind
-    //         {
-    //             // TODO duplicated stuff here
-    //             if type_generics.is_empty() {
-    //                 let env = Rc::new(Env::make_child(self.env.clone()));
-    //                 let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
-    //                 type_env.insert_type_by_name(
-    //                     "Self",
-    //                     self.type_env.get_type_by_name(impl_ty).unwrap().clone(),
-    //                 );
-
-    //                 for method in methods.iter() {
-    //                     if let NodeKind::Fn {
-    //                         ident,
-    //                         params,
-    //                         body,
-    //                         generics,
-    //                         ..
-    //                     } = &method.kind
-    //                     {
-    //                         let mangled_name = format!("{}::{}", impl_ty, ident);
-    //                         if generics.is_empty() {
-    //                             self.build_function(
-    //                                 env.clone(),
-    //                                 type_env.clone(),
-    //                                 mangled_name.into(),
-    //                                 params.clone(),
-    //                                 body.clone().unwrap(),
-    //                             )
-    //                         }
-    //                     } else {
-    //                         todo!()
-    //                     }
-    //                 }
-    //             } else {
-    //                 let monos: Vec<Vec<String>> = self
-    //                     .struct_specializations
-    //                     .iter()
-    //                     .filter(|(name, _)| name == &**impl_ty)
-    //                     .map(|(_, concrete_types)| concrete_types.clone())
-    //                     .collect();
-
-    //                 for concrete_types in monos {
-    //                     let impl_ty = format!("{}<{}>", impl_ty, concrete_types.join(","));
-    //                     let env = Rc::new(Env::make_child(self.env.clone()));
-    //                     let type_env = Rc::new(TypeEnv::make_child(self.type_env.clone()));
-    //                     type_env.insert_type_by_name(
-    //                         "Self",
-    //                         self.type_env.get_type_by_name(&impl_ty).unwrap().clone(),
-    //                     );
-
-    //                     for (generic, ty) in type_generics.iter().zip(concrete_types.iter()) {
-    //                         if let Some(ty) = type_env.get_type_by_name(ty) {
-    //                             type_env.insert_type_by_name(generic, ty.clone());
-    //                         } else {
-    //                             return; // FIXME we get here if we have non-monomorphized types in the set, which shouldn't happen
-    //                         }
-    //                     }
-
-    //                     for method in methods.iter() {
-    //                         if let NodeKind::Fn {
-    //                             ident,
-    //                             params,
-    //                             body,
-    //                             ret_ty,
-    //                             generics,
-    //                             ..
-    //                         } = &method.kind
-    //                         {
-    //                             let mangled_name = format!("{}::{}", impl_ty, ident);
-    //                             self.set_up_function(
-    //                                 env.clone(),
-    //                                 type_env.clone(),
-    //                                 &mangled_name,
-    //                                 params.clone(),
-    //                                 ret_ty.to_string().into(),
-    //                                 false,
-    //                                 None,
-    //                                 Some(node.clone()),
-    //                             );
-
-    //                             // TODO defer this to a later stage or member fns might not be able to resolve each other
-    //                             if generics.is_empty() {
-    //                                 self.build_function(
-    //                                     env.clone(),
-    //                                     type_env.clone(),
-    //                                     mangled_name.into(),
-    //                                     params.clone(),
-    //                                     body.clone().unwrap(),
-    //                                 )
-    //                             }
-    //                         } else {
-    //                             todo!()
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-
-    fn pass6(&mut self) {
-        for func in unsafe { &*self.env.funcs.get() } {
+    fn pass4(&mut self) {
+        while !self.fns_to_build.is_empty() {
+            let func_ident = self.fns_to_build.pop().unwrap();
+            let func = unsafe { &*self.env.funcs.get() }.get(&func_ident).unwrap();
             if let Some(Node {
                 kind: NodeKind::Fn { params, body, .. },
                 ..
-            }) = func.1.node.as_deref()
+            }) = func.node.as_deref()
             {
                 if let Some(body) = body {
                     self.build_function(
                         self.env.clone(),
-                        func.1.type_env.clone(),
-                        func.0.clone().into(),
+                        func.type_env.clone(),
+                        func_ident.into(),
                         params.clone(),
                         body.clone(),
                     )
                 }
             }
         }
+        // for func in unsafe { &*self.env.funcs.get() } {
+        //     if let Some(Node {
+        //         kind: NodeKind::Fn { params, body, .. },
+        //         ..
+        //     }) = func.1.node.as_deref()
+        //     {
+        //         if let Some(body) = body {
+        //             self.build_function(
+        //                 self.env.clone(),
+        //                 func.1.type_env.clone(),
+        //                 func.0.clone().into(),
+        //                 params.clone(),
+        //                 body.clone(),
+        //             )
+        //         }
+        //     }
+        // }
     }
 
     pub fn build(&mut self) {
         self.pass1();
         self.pass2();
         self.pass3();
-        // self.pass4();
-        // self.pass5();
-        self.pass6();
+        self.pass4();
     }
 
     pub unsafe fn get_llvm_module_ref(&mut self) -> LLVMModuleRef {

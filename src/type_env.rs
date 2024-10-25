@@ -66,7 +66,7 @@ impl Type {
 
 pub struct TypeEnv {
     parent: Option<Rc<TypeEnv>>,
-    types: UnsafeCell<HashMap<TypeAnnotation, Type>>,
+    types: UnsafeCell<HashMap<Rc<TypeAnnotation>, Type>>,
 }
 
 impl TypeEnv {
@@ -84,7 +84,7 @@ impl TypeEnv {
         }
     }
 
-    pub fn insert(&self, type_annotation: TypeAnnotation, ty: Type) {
+    pub fn insert(&self, type_annotation: Rc<TypeAnnotation>, ty: Type) {
         (unsafe { &mut *self.types.get() }).insert(type_annotation, ty);
     }
 
@@ -113,7 +113,7 @@ impl TypeEnv {
                                     .collect();
 
                                 self.insert(
-                                    type_annotation.clone(),
+                                    type_annotation.clone().into(),
                                     Type::Struct {
                                         name: type_annotation.to_string().into(),
                                         field_indices: field_indices.clone(),
@@ -172,7 +172,7 @@ mod tests {
             TypeAnnotation::Simple {
                 ident: "Foo".into(),
                 type_args: [type_param.clone()].into(),
-            },
+            }.into(),
             Type::Bool,
         );
 
@@ -201,7 +201,7 @@ mod tests {
             TypeAnnotation::Simple {
                 ident: "Foo".into(),
                 type_args: [].into(),
-            },
+            }.into(),
             Type::Struct {
                 name: "Foo".to_string().into(),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
@@ -249,7 +249,7 @@ mod tests {
             TypeAnnotation::Simple {
                 ident: "Foo".into(),
                 type_args: [].into(),
-            },
+            }.into(),
             Type::Struct {
                 name: "Foo".to_string().into(),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
@@ -299,7 +299,7 @@ mod tests {
             TypeAnnotation::Simple {
                 ident: "Foo".into(),
                 type_args: [].into(),
-            },
+            }.into(),
             Type::Struct {
                 name: "Foo".to_string().into(),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
