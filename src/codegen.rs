@@ -307,6 +307,7 @@ impl ModuleBuilder {
             let ty = match &*val.ty {
                 TypeAnnotation::Ref { referent_type } => referent_type.clone(),
                 TypeAnnotation::Ptr { pointee_type } => pointee_type.clone(),
+                TypeAnnotation::SelfByRef => TypeAnnotation::simple_from_name("Self"),
                 _ => panic!("cannot deref"),
             };
 
@@ -853,10 +854,23 @@ impl ModuleBuilder {
                                 }
 
                                 let local_type_env = TypeEnv::make_child(type_env.clone());
+
                                 local_type_env.insert(
-                                    TypeAnnotation::SelfByVal.into(),
+                                    TypeAnnotation::simple_from_name("Self"),
                                     type_env
                                         .get(&TypeAnnotation::simple_from_name(struct_name))
+                                        .unwrap()
+                                        .clone(),
+                                );
+
+                                local_type_env.insert(
+                                    TypeAnnotation::SelfByRef.into(),
+                                    type_env
+                                        .get(&TypeAnnotation::Ref {
+                                            referent_type: TypeAnnotation::simple_from_name(
+                                                struct_name,
+                                            ),
+                                        })
                                         .unwrap()
                                         .clone(),
                                 );

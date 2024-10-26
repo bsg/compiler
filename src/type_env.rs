@@ -147,7 +147,29 @@ impl TypeEnv {
                 } else if let Some(parent) = &self.parent {
                     parent.get(type_annotation)
                 } else {
-                    None
+                    match type_annotation {
+                        TypeAnnotation::Ref { referent_type } => {
+                            self.insert(
+                                type_annotation.clone().into(),
+                                Type::Ref {
+                                    referent_type: referent_type.clone(),
+                                },
+                            );
+
+                            return self.get(type_annotation);
+                        }
+                        TypeAnnotation::Ptr { pointee_type } => {
+                            self.insert(
+                                type_annotation.clone().into(),
+                                Type::Ptr {
+                                    pointee_type: pointee_type.clone(),
+                                },
+                            );
+
+                            return self.get(type_annotation);
+                        }
+                        _ => return None,
+                    }
                 }
             }
         }
@@ -194,7 +216,7 @@ mod tests {
 
         env.insert(
             TypeAnnotation::Simple {
-                ident: "T".into(),
+                ident: "bool".into(),
                 type_args: [].into(),
             }
             .into(),
@@ -203,12 +225,12 @@ mod tests {
 
         assert_eq!(
             env.get(&TypeAnnotation::Ref {
-                referent_type: TypeAnnotation::simple_from_name("T")
+                referent_type: TypeAnnotation::simple_from_name("bool")
             })
             .unwrap()
             .name()
             .to_string(),
-            "bool"
+            "&bool"
         );
     }
 
