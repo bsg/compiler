@@ -258,6 +258,17 @@ impl ModuleBuilder {
                 signed: false,
             },
         );
+        type_env.insert(
+            TypeAnnotation::Simple {
+                ident: "u8".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Int {
+                width: 8,
+                signed: false,
+            },
+        );
 
         Self {
             ast: Rc::from(ast),
@@ -818,7 +829,8 @@ impl ModuleBuilder {
                                 path: PathSegment { ident, generics },
                                 args,
                             } => {
-                                let func_ident = format!("{}::{}", struct_name, ident);
+                                let func_ident =
+                                    format!("{}::{}", struct_name.strip_generics(), ident);
                                 let fn_decl = match self.get_fn_decl(func_ident.clone()) {
                                     Some(decl) => decl,
                                     None => todo!(),
@@ -1796,14 +1808,15 @@ impl ModuleBuilder {
                         field_indices.insert(field.ident.to_string(), idx);
                     }
 
+                    let name = Rc::from(TypeAnnotation::Simple {
+                        ident: ident.clone(),
+                        type_args: [].into(),
+                    });
+
                     self.type_env.insert(
-                        TypeAnnotation::Simple {
-                            ident: ident.clone(),
-                            type_args: [].into(),
-                        }
-                        .into(),
+                        name.clone(),
                         Type::Struct {
-                            name: ident.to_string().into(),
+                            name,
                             field_indices,
                             field_types,
                             type_params: generics.clone(),
@@ -1841,8 +1854,8 @@ impl ModuleBuilder {
                 } => {
                     for node in methods.iter() {
                         if let NodeKind::Fn { ident, .. } = &node.kind {
-                            let fn_ident = ty.to_string() + "::" + ident.as_ref();
-                            println!("registering fn decl {}", fn_ident,);
+                            let fn_ident = ty.strip_generics().to_string() + "::" + ident.as_ref();
+                            println!("registering fn decl {}", fn_ident);
                             self.push_fn_decl(
                                 fn_ident,
                                 PathSegment {

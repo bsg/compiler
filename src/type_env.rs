@@ -19,7 +19,7 @@ pub enum Type {
         referent_type: Rc<TypeAnnotation>,
     },
     Struct {
-        name: Rc<String>,
+        name: Rc<TypeAnnotation>,
         field_indices: HashMap<String, usize>,
         field_types: Vec<Rc<TypeAnnotation>>,
         type_params: Rc<[Rc<TypeAnnotation>]>,
@@ -124,7 +124,7 @@ impl TypeEnv {
                                 self.insert(
                                     type_annotation.clone().into(),
                                     Type::Struct {
-                                        name: type_annotation.to_string().into(),
+                                        name: type_annotation.clone().into(),
                                         field_indices: field_indices.clone(),
                                         field_types: field_types
                                             .iter()
@@ -256,7 +256,7 @@ mod tests {
             }
             .into(),
             Type::Struct {
-                name: "Foo".to_string().into(),
+                name: TypeAnnotation::simple_from_name("Foo").into(),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
                 field_types: [type_param.clone()].into(),
                 type_params: [type_param].into(),
@@ -305,7 +305,7 @@ mod tests {
             }
             .into(),
             Type::Struct {
-                name: "Foo".to_string().into(),
+                name: TypeAnnotation::simple_from_name("Foo").into(),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
                 field_types: [field_type.clone()].into(),
                 type_params: [type_param].into(),
@@ -356,7 +356,7 @@ mod tests {
             }
             .into(),
             Type::Struct {
-                name: "Foo".to_string().into(),
+                name: TypeAnnotation::simple_from_name("Foo").into(),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
                 field_types: [field_type.clone()].into(),
                 type_params: [type_param].into(),

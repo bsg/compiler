@@ -55,7 +55,7 @@ fn main(argc: u32) -> u32 {
     c.foo::<u32>(42);
     c.get_inner();
     
-    return a.get_inner();
+    return a.get_inner::<u32>();
 
     // FIXME this one codegens garbage
     // return b_inner::<u32>(b).inner;
