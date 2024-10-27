@@ -6,22 +6,18 @@
 // TODO llvm type aliases for compound types
 // TODO Scope!
 // FIXME pointer arithmetic and deref are fucked
+// TODO generic param bindings should be aliases, not newtypes
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
-use llvm_sys::target::LLVMCreateTargetData;
-use llvm_sys::target::LLVMPointerSize;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
 use std::ffi::CString;
-use std::ops::Deref;
-use std::path::Path;
 use std::ptr::null_mut;
 use std::rc::Rc;
 
 use crate::ast::*;
-use crate::type_collector::TypeCollector;
 use crate::type_env::Type;
 use crate::type_env::TypeEnv;
 
@@ -855,24 +851,15 @@ impl ModuleBuilder {
 
                                 let local_type_env = TypeEnv::make_child(type_env.clone());
 
-                                local_type_env.insert(
-                                    TypeAnnotation::simple_from_name("Self"),
-                                    type_env
-                                        .get(&TypeAnnotation::simple_from_name(struct_name))
-                                        .unwrap()
-                                        .clone(),
-                                );
+                                let self_ty = TypeAnnotation::simple_from_name("Self");
 
-                                local_type_env.insert(
+                                local_type_env.insert_local(self_ty.clone(), lhs_ty.clone());
+
+                                local_type_env.insert_local(
                                     TypeAnnotation::SelfByRef.into(),
-                                    type_env
-                                        .get(&TypeAnnotation::Ref {
-                                            referent_type: TypeAnnotation::simple_from_name(
-                                                struct_name,
-                                            ),
-                                        })
-                                        .unwrap()
-                                        .clone(),
+                                    Type::Ref {
+                                        referent_type: self_ty,
+                                    },
                                 );
 
                                 return self.build_call(
@@ -1075,7 +1062,7 @@ impl ModuleBuilder {
                 let local_type_env = TypeEnv::make_child(type_env.clone());
                 if path.generics.len() > 0 {
                     let ty = type_env.get(&path.generics[0]).unwrap();
-                    local_type_env.insert(fn_decl.0.generics[0].clone(), ty.clone());
+                    local_type_env.insert_local(fn_decl.0.generics[0].clone(), ty.clone());
                 }
 
                 self.set_up_function(
@@ -1117,7 +1104,7 @@ impl ModuleBuilder {
         };
 
         Val {
-            ty: ret_ty.into(),
+            ty: ret_ty,
             llvm_val,
         }
     }
@@ -1159,7 +1146,7 @@ impl ModuleBuilder {
 
         Val {
             ty: TypeAnnotation::Array {
-                element_type: TypeAnnotation::simple_from_name("u8").into(),
+                element_type: TypeAnnotation::simple_from_name("u8"),
             }
             .into(),
             llvm_val,
@@ -1880,7 +1867,7 @@ impl ModuleBuilder {
                 println!("{}", spec);
                 let type_env = TypeEnv::make_child(self.type_env.clone());
                 for (ty_param, ty_arg) in spec.generics.iter().zip(spec.generics.iter()) {
-                    type_env.insert(
+                    type_env.insert_local(
                         Rc::unwrap_or_clone(ty_param.clone().into()),
                         type_env.get(ty_arg).unwrap().clone(),
                     );

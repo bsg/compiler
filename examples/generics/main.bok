@@ -32,6 +32,18 @@ impl<T> C {
     }
 }
 
+impl<T> A<T> {
+    fn get_inner(&self) -> T {
+        return self.inner;
+    }
+}
+
+// impl A<u32> {
+//     fn get_inner(&self) -> u32 {
+//         return 32;
+//     }
+// }
+
 fn main(argc: u32) -> u32 {
     let b: B<u32> = B::<u32>{inner: make_a(42)};
     let a: A<u32> = b_inner::<u32>(b);
@@ -41,9 +53,9 @@ fn main(argc: u32) -> u32 {
     let c: C = C{inner: 99};
     // TODO do we wanna transform the ast such that this becomes C::foo::<u32>(&c, 42); ?
     c.foo::<u32>(42);
+    c.get_inner();
     
-
-    return c.get_inner();
+    return a.get_inner();
 
     // FIXME this one codegens garbage
     // return b_inner::<u32>(b).inner;

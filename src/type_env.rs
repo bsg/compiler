@@ -84,6 +84,14 @@ impl TypeEnv {
     }
 
     pub fn insert(&self, type_annotation: Rc<TypeAnnotation>, ty: Type) {
+        if let Some(parent) = &self.parent {
+            parent.insert(type_annotation, ty);
+        } else {
+            (unsafe { &mut *self.types.get() }).insert(type_annotation, ty);
+        }
+    }
+
+    pub fn insert_local(&self, type_annotation: Rc<TypeAnnotation>, ty: Type) {
         (unsafe { &mut *self.types.get() }).insert(type_annotation, ty);
     }
 
@@ -91,7 +99,9 @@ impl TypeEnv {
         match (unsafe { &*self.types.get() }).get(type_annotation) {
             ty @ Some(_) => ty,
             None => {
-                if type_annotation.is_generic() {
+                if let Some(parent) = &self.parent {
+                    parent.get(type_annotation)
+                } else if type_annotation.is_generic() {
                     println!("attempting type monomorphization for {}", type_annotation);
                     if let Some(ty) = self.get(&type_annotation.strip_generics()) {
                         match ty {
@@ -139,13 +149,9 @@ impl TypeEnv {
                             }
                             _ => todo!(),
                         }
-                    } else if let Some(parent) = &self.parent {
-                        parent.get(type_annotation)
                     } else {
                         None
                     }
-                } else if let Some(parent) = &self.parent {
-                    parent.get(type_annotation)
                 } else {
                     match type_annotation {
                         TypeAnnotation::Ref { referent_type } => {

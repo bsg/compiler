@@ -12,7 +12,6 @@ mod codegen;
 mod lexer;
 mod parser;
 mod type_env;
-mod type_collector;
 
 use llvm_sys::core::*;
 use llvm_sys::target_machine::*;
