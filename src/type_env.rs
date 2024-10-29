@@ -101,57 +101,6 @@ impl TypeEnv {
             None => {
                 if let Some(parent) = &self.parent {
                     parent.get(type_annotation)
-                } else if type_annotation.is_generic() {
-                    println!("attempting type monomorphization for {}", type_annotation);
-                    if let Some(ty) = self.get(&type_annotation.strip_generics()) {
-                        match ty {
-                            Type::Struct {
-                                field_indices,
-                                field_types,
-                                type_params,
-                                attributes,
-                                ..
-                            } => {
-                                let type_substitutions: Vec<(
-                                    Rc<TypeAnnotation>,
-                                    Rc<TypeAnnotation>,
-                                )> = type_params
-                                    .iter()
-                                    .zip(type_annotation.type_args().iter())
-                                    .map(|(param, arg)| (param.clone(), arg.clone()))
-                                    .collect();
-
-                                self.insert(
-                                    type_annotation.clone().into(),
-                                    Type::Struct {
-                                        name: type_annotation.clone().into(),
-                                        field_indices: field_indices.clone(),
-                                        field_types: field_types
-                                            .iter()
-                                            .map(|ty_param| {
-                                                ty_param.substitute(&type_substitutions)
-                                            })
-                                            .collect(),
-                                        type_params: [].into(),
-                                        attributes: attributes.clone(),
-                                    },
-                                );
-
-                                match self.get(type_annotation) {
-                                    ty @ Some(_) => ty,
-                                    None => {
-                                        panic!(
-                                            "failed to retrieve type after specialization {}",
-                                            type_annotation
-                                        );
-                                    }
-                                }
-                            }
-                            _ => todo!(),
-                        }
-                    } else {
-                        None
-                    }
                 } else {
                     match type_annotation {
                         TypeAnnotation::Ref { referent_type } => {
@@ -174,7 +123,92 @@ impl TypeEnv {
 
                             return self.get(type_annotation);
                         }
-                        _ => return None,
+                        TypeAnnotation::Slice { element_type, len } => {
+                            self.insert(
+                                type_annotation.clone().into(),
+                                Type::Array {
+                                    elem_type: element_type.clone(),
+                                    len: *len,
+                                },
+                            );
+
+                            return self.get(type_annotation);
+                        }
+                        TypeAnnotation::Fn {
+                            params,
+                            return_type,
+                        } => {
+                            self.insert(
+                                type_annotation.clone().into(),
+                                Type::Fn {
+                                    params: params.to_vec(),
+                                    ret_type: return_type.clone(),
+                                },
+                            );
+
+                            return self.get(type_annotation);
+                        }
+                        _ => {
+                            if type_annotation.is_generic() {
+                                println!(
+                                    "attempting type monomorphization for {}",
+                                    type_annotation
+                                );
+                                if let Some(ty) =
+                                    self.get(&type_annotation.deref_type().strip_generics())
+                                {
+                                    match ty {
+                                        Type::Struct {
+                                            field_indices,
+                                            field_types,
+                                            type_params,
+                                            attributes,
+                                            ..
+                                        } => {
+                                            let type_substitutions: Vec<(
+                                                Rc<TypeAnnotation>,
+                                                Rc<TypeAnnotation>,
+                                            )> = type_params
+                                                .iter()
+                                                .zip(type_annotation.type_args().iter())
+                                                .map(|(param, arg)| (param.clone(), arg.clone()))
+                                                .collect();
+
+                                            self.insert(
+                                                type_annotation.clone().into(),
+                                                Type::Struct {
+                                                    name: type_annotation.clone().into(),
+                                                    field_indices: field_indices.clone(),
+                                                    field_types: field_types
+                                                        .iter()
+                                                        .map(|ty_param| {
+                                                            ty_param.substitute(&type_substitutions)
+                                                        })
+                                                        .collect(),
+                                                    type_params: [].into(),
+                                                    attributes: attributes.clone(),
+                                                },
+                                            );
+
+                                            match self.get(type_annotation) {
+                                                ty @ Some(_) => ty,
+                                                None => {
+                                                    panic!(
+                                            "failed to retrieve type after specialization {}",
+                                            type_annotation
+                                        );
+                                                }
+                                            }
+                                        }
+                                        _ => todo!(),
+                                    }
+                                } else {
+                                    todo!()
+                                }
+                            } else {
+                                None
+                            }
+                        }
                     }
                 }
             }
@@ -238,6 +272,16 @@ mod tests {
             .to_string(),
             "&bool"
         );
+
+        assert_eq!(
+            env.get(&TypeAnnotation::Ptr {
+                pointee_type: TypeAnnotation::simple_from_name("bool")
+            })
+            .unwrap()
+            .name()
+            .to_string(),
+            "*bool"
+        );
     }
 
     #[test]
@@ -256,7 +300,7 @@ mod tests {
             }
             .into(),
             Type::Struct {
-                name: TypeAnnotation::simple_from_name("Foo").into(),
+                name: TypeAnnotation::simple_from_name("Foo"),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
                 field_types: [type_param.clone()].into(),
                 type_params: [type_param].into(),
@@ -305,7 +349,7 @@ mod tests {
             }
             .into(),
             Type::Struct {
-                name: TypeAnnotation::simple_from_name("Foo").into(),
+                name: TypeAnnotation::simple_from_name("Foo"),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
                 field_types: [field_type.clone()].into(),
                 type_params: [type_param].into(),
@@ -356,7 +400,7 @@ mod tests {
             }
             .into(),
             Type::Struct {
-                name: TypeAnnotation::simple_from_name("Foo").into(),
+                name: TypeAnnotation::simple_from_name("Foo"),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
                 field_types: [field_type.clone()].into(),
                 type_params: [type_param].into(),

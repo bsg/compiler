@@ -226,6 +226,8 @@ impl TypeAnnotation {
     pub fn type_args(&self) -> Rc<[Rc<TypeAnnotation>]> {
         match self {
             TypeAnnotation::Simple { type_args, .. } => type_args.clone(),
+            TypeAnnotation::Ptr { pointee_type } => pointee_type.type_args(),
+            TypeAnnotation::Ref { referent_type } => referent_type.type_args(),
             _ => todo!(),
         }
     }
@@ -235,6 +237,12 @@ impl TypeAnnotation {
             TypeAnnotation::Simple { ident, .. } => TypeAnnotation::Simple {
                 ident: ident.clone(),
                 type_args: [].into(),
+            },
+            TypeAnnotation::Ptr { pointee_type } => TypeAnnotation::Ptr {
+                pointee_type: pointee_type.strip_generics(),
+            },
+            TypeAnnotation::Ref { referent_type } => TypeAnnotation::Ref {
+                referent_type: referent_type.strip_generics(),
             },
             _ => todo!(),
         })
@@ -278,6 +286,20 @@ impl TypeAnnotation {
                 referent_type: referent_type.substitute(substitutions),
             }
             .into(),
+            TypeAnnotation::Fn {
+                params,
+                return_type,
+            } => {
+                let params = params
+                    .iter()
+                    .map(|param| param.substitute(substitutions))
+                    .collect::<Vec<Rc<TypeAnnotation>>>();
+                TypeAnnotation::Fn {
+                    params: params.into(),
+                    return_type: return_type.substitute(substitutions),
+                }
+            }
+            .into(),
             _ => todo!(),
         }
     }
@@ -286,6 +308,14 @@ impl TypeAnnotation {
         Rc::new(TypeAnnotation::Ref {
             referent_type: self.clone().into(),
         })
+    }
+
+    pub fn deref_type(&self) -> Rc<TypeAnnotation> {
+        match self {
+            TypeAnnotation::Ptr { pointee_type } => pointee_type.clone(),
+            TypeAnnotation::Ref { referent_type } => referent_type.clone(),
+            ty => ty.clone().into(),
+        }
     }
 }
 
@@ -353,7 +383,7 @@ impl fmt::Display for TypeAnnotation {
 
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct PathSegment {
-    pub ident: Rc<str>,
+    pub ident: Rc<str>, // TODO this should be a TypeAnnotation + Module union
     pub generics: Rc<[Rc<TypeAnnotation>]>,
 }
 
@@ -381,6 +411,10 @@ pub enum NodeKind {
     NullPtr,
     Ident {
         name: Rc<str>,
+    },
+    // TODO temporary. make the paths work properly
+    Type {
+        ty: Rc<TypeAnnotation>,
     },
     Path {
         // TODO full path
@@ -497,6 +531,7 @@ impl fmt::Debug for Node {
             s += match &node.kind {
                 NodeKind::NullPtr => "nullptr".to_string(),
                 NodeKind::Ident { name } => format!("ident {}", name),
+                NodeKind::Type { ty } => ty.to_string(),
                 NodeKind::Path { segment } => format!("{}", segment),
                 NodeKind::Int { value } => format!("{}", value),
                 NodeKind::Bool { value } => format!("{}", value),

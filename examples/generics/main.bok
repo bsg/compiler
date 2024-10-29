@@ -6,7 +6,7 @@ struct B<T> {
     inner: A<T>;
 }
 
-fn b_inner<T>(b: B<T>) -> A<T> {
+fn b_inner<T>(b: &B<T>) -> A<T> {
     return b.inner;
 }
 
@@ -61,7 +61,7 @@ impl<T> A<T> {
 
 fn main(argc: u32) -> u32 {
     let b: B<u32> = B::<u32>{inner: make_a(42)};
-    let a: A<u32> = b_inner::<u32>(b);
+    let a: A<u32> = b_inner::<u32>(&b);
 
     C::bar::<u32>(11);
 

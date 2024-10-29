@@ -864,19 +864,17 @@ impl Parser {
                     let span = self.curr_token.span.clone();
                     self.next_token();
 
-                    let ident_span_start = self.curr_token.span.clone();
-                    let type_ident = self.parse_type()?;
-                    let ident_span_end = self.curr_token.span.clone();
+                    let ty_span_start = self.curr_token.span.clone();
+                    let ty = self.parse_type()?;
+                    let ty_span_end = self.curr_token.span.clone();
 
                     Node {
                         kind: NodeKind::BinOp {
                             op: Op::Cast,
                             lhs,
                             rhs: Node {
-                                kind: NodeKind::Ident {
-                                    name: type_ident.to_string().into(),
-                                },
-                                span: ident_span_start.merge(&ident_span_end),
+                                kind: NodeKind::Type { ty },
+                                span: ty_span_start.merge(&ty_span_end),
                             }
                             .into(),
                         },
@@ -1000,12 +998,16 @@ impl Parser {
             }
             TokenKind::Return => {
                 let span = self.curr_token.span.clone();
-                self.next_token();
+                let expr = if let TokenKind::Semicolon = self.peek_token.kind {
+                    None
+                } else {
+                    self.next_token();
+                    self.parse_expression(0)
+                };
+
                 let r = Some(
                     Node {
-                        kind: NodeKind::Return {
-                            expr: self.parse_expression(0),
-                        },
+                        kind: NodeKind::Return { expr },
                         span,
                     }
                     .into(),
@@ -1509,6 +1511,12 @@ return
     add
         1
         2
+"
+        );
+        assert_parse!(
+            "return;",
+            "\
+return
 "
         );
     }

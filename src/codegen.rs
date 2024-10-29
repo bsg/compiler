@@ -249,6 +249,44 @@ impl ModuleBuilder {
         let type_env = Rc::new(TypeEnv::new());
         type_env.insert(
             TypeAnnotation::Simple {
+                ident: "void".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Void,
+        );
+        type_env.insert(
+            TypeAnnotation::Simple {
+                ident: "bool".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Bool,
+        );
+        type_env.insert(
+            TypeAnnotation::Simple {
+                ident: "u8".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Int {
+                width: 8,
+                signed: false,
+            },
+        );
+        type_env.insert(
+            TypeAnnotation::Simple {
+                ident: "u16".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Int {
+                width: 16,
+                signed: false,
+            },
+        );
+        type_env.insert(
+            TypeAnnotation::Simple {
                 ident: "u32".into(),
                 type_args: [].into(),
             }
@@ -260,13 +298,35 @@ impl ModuleBuilder {
         );
         type_env.insert(
             TypeAnnotation::Simple {
-                ident: "u8".into(),
+                ident: "i8".into(),
                 type_args: [].into(),
             }
             .into(),
             Type::Int {
                 width: 8,
-                signed: false,
+                signed: true,
+            },
+        );
+        type_env.insert(
+            TypeAnnotation::Simple {
+                ident: "i16".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Int {
+                width: 16,
+                signed: true,
+            },
+        );
+        type_env.insert(
+            TypeAnnotation::Simple {
+                ident: "i32".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Int {
+                width: 32,
+                signed: true,
             },
         );
 
@@ -964,49 +1024,54 @@ impl ModuleBuilder {
                     _ => todo!(),
                 },
                 Op::Cast => {
-                    todo!()
-                    // let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
-                    // let ty = if let NodeKind::Ident { name } = &rhs.kind {
-                    //     type_env.get_type_by_name(name).unwrap()
-                    // } else {
-                    //     todo!()
-                    // };
+                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
+                    let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    let rhs_ty_annotation = if let NodeKind::Type { ty } = &rhs.kind {
+                        ty
+                    } else {
+                        todo!()
+                    };
 
-                    // match (&lhs_val.ty, ty) {
-                    //     (Type::Ref { referent_type_name }, Type::Ptr { pointee_type_name }) => {
-                    //         if *referent_type_name == *pointee_type_name {
-                    //             (lhs_val.llvm_val, ty.clone())
-                    //         } else {
-                    //             todo!()
-                    //         }
-                    //     }
-                    //     (Type::Ptr { pointee_type_name }, Type::Ref { referent_type_name }) => {
-                    //         if *referent_type_name == *pointee_type_name {
-                    //             (lhs_val.llvm_val, ty.clone())
-                    //         } else {
-                    //             todo!()
-                    //         }
-                    //     }
-                    //     (
-                    //         Type::Int { .. },
-                    //         Type::Int {
-                    //             signed: signed_b, ..
-                    //         },
-                    //     ) => (
-                    //         // TODO compare widths and signs and not build the cast if they match
-                    //         unsafe {
-                    //             LLVMBuildIntCast2(
-                    //                 self.builder,
-                    //                 lhs_val.llvm_val,
-                    //                 ty.llvm_type(type_env.clone()),
-                    //                 if *signed_b { 1 } else { 0 },
-                    //                 "".to_cstring().as_ptr(),
-                    //             )
-                    //         },
-                    //         ty.clone(),
-                    //     ),
-                    //     _ => todo!(),
-                    // }
+                    let rhs_ty = type_env.get(rhs_ty_annotation).unwrap();
+
+                    match (lhs_ty, rhs_ty) {
+                        (Type::Ptr { .. }, Type::Ptr { .. }) => {
+                            (lhs_val.llvm_val, rhs_ty_annotation.clone())
+                        }
+                        (Type::Ref { referent_type }, Type::Ptr { pointee_type }) => {
+                            if *referent_type == *pointee_type {
+                                (lhs_val.llvm_val, pointee_type.clone())
+                            } else {
+                                todo!()
+                            }
+                        }
+                        (Type::Ptr { pointee_type }, Type::Ref { referent_type }) => {
+                            if *referent_type == *pointee_type {
+                                (lhs_val.llvm_val, referent_type.clone())
+                            } else {
+                                todo!()
+                            }
+                        }
+                        (
+                            Type::Int { .. },
+                            Type::Int {
+                                signed: signed_b, ..
+                            },
+                        ) => (
+                            // TODO compare widths and signs and not build the cast if they match
+                            unsafe {
+                                LLVMBuildIntCast2(
+                                    self.builder,
+                                    lhs_val.llvm_val,
+                                    llvm_type(rhs_ty, type_env.clone()),
+                                    if *signed_b { 1 } else { 0 },
+                                    "".to_cstring().as_ptr(),
+                                )
+                            },
+                            rhs_ty_annotation.clone(),
+                        ),
+                        _ => todo!(),
+                    }
                 }
                 _ => todo!(),
             };
@@ -1238,6 +1303,8 @@ impl ModuleBuilder {
                         ty: f.ty.clone(),
                         llvm_val: f.val,
                     }
+                } else if let Some(decl) = self.get_fn_decl(name.to_string()) {
+                    todo!("got here because fn pointers...");
                 } else {
                     panic!("unresolved ident {}", name)
                 }
@@ -1638,6 +1705,7 @@ impl ModuleBuilder {
         _linkage: Option<Rc<str>>,
         node: Option<NodeRef>,
     ) {
+        println!("setting up fn {}", ident);
         let ret_type = match type_env.get(&ret_ty) {
             Some(ty) => ty.clone(),
             None => panic!("unresolved type {} setting up fn {}", ret_ty, ident),
