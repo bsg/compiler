@@ -874,12 +874,17 @@ impl ModuleBuilder {
                                     },
                                 );
 
+                                // Infer impl type args from lhs
+                                let mut type_args: Vec<Rc<TypeAnnotation>> =
+                                    struct_name.type_args().to_vec();
+                                type_args.append(&mut generics.to_vec());
+
                                 return self.build_call(
                                     env.clone(),
                                     local_type_env.into(),
                                     PathSegment {
                                         ident: func_ident.into(),
-                                        generics: generics.clone(),
+                                        generics: type_args.into(),
                                     },
                                     &args,
                                 );
@@ -1850,17 +1855,25 @@ impl ModuleBuilder {
                 NodeKind::Impl {
                     ty,
                     methods,
-                    generics,
+                    generics: impl_generics,
                 } => {
                     for node in methods.iter() {
-                        if let NodeKind::Fn { ident, .. } = &node.kind {
+                        if let NodeKind::Fn {
+                            ident,
+                            generics: fn_generics,
+                            ..
+                        } = &node.kind
+                        {
                             let fn_ident = ty.strip_generics().to_string() + "::" + ident.as_ref();
+                            let mut generics: Vec<Rc<TypeAnnotation>> = impl_generics.to_vec();
+                            generics.append(&mut fn_generics.to_vec());
+
                             println!("registering fn decl {}", fn_ident);
                             self.push_fn_decl(
                                 fn_ident,
                                 PathSegment {
                                     ident: ident.clone(),
-                                    generics: generics.clone(),
+                                    generics: generics.into(),
                                 },
                                 node.clone(),
                             );

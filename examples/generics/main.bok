@@ -18,12 +18,12 @@ struct C {
     inner: u32;
 }
 
-impl<T> C {
-    fn foo(&self, arg: T) -> T {
+impl C {
+    fn foo<T>(&self, arg: T) -> T {
         return arg;
     }
 
-    fn bar(arg: T) -> T {
+    fn bar<T>(arg: T) -> T {
         return arg;
     }
 
@@ -32,8 +32,23 @@ impl<T> C {
     }
 }
 
+// TODO do not allow this because T cannot be inferred
+// impl<T> C {
+//     fn foo(&self, arg: T) -> T {
+//         return arg;
+//     }
+
+//     fn bar(arg: T) -> T {
+//         return arg;
+//     }
+
+//     fn get_inner(&self) -> u32 {
+//         return self.inner;
+//     }
+// }
+
 impl<T> A<T> {
-    fn get_inner(&self) -> T {
+    fn inner(&self) -> T {
         return self.inner;
     }
 }
@@ -55,7 +70,7 @@ fn main(argc: u32) -> u32 {
     c.foo::<u32>(42);
     c.get_inner();
     
-    return a.get_inner::<u32>();
+    return a.inner();
 
     // FIXME this one codegens garbage
     // return b_inner::<u32>(b).inner;
