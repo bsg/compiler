@@ -150,6 +150,12 @@ fn abort(msg: &u8) {
     exit(1);
 }
 
+fn sdl_nullcheck<T>(ptr: *T) {
+    if ptr == nullptr {
+        abort(SDL_GetError());
+    }
+}
+
 fn rand_range(lower: u32, upper: u32) -> u32 {
     return random() % (upper + 1 - lower) + lower;
 }
@@ -372,47 +378,31 @@ fn main(argc: u32) -> u32 {
     }
 
     let window: *SDL_Window = SDL_CreateWindow("gaem", 800, 400, ctx.window_w, ctx.window_h, 4);
-    if window == nullptr {
-        abort(SDL_GetError());
-    }
+    sdl_nullcheck::<SDL_Window>(window);
 
     ctx.renderer = SDL_CreateRenderer(window, -1, 1);
-    if ctx.renderer == nullptr {
-        abort(SDL_GetError());
-    }
+    sdl_nullcheck::<SDL_Renderer>(ctx.renderer);
 
     let surface: *SDL_Surface = SDL_GetWindowSurface(window);
-    if surface == nullptr {
-        abort(SDL_GetError());
-    }
+    sdl_nullcheck::<SDL_Surface>(surface);
 
     let img: *SDL_Surface = IMG_Load("spritesheet.png");
-    if img == nullptr {
-        abort(SDL_GetError());
-    }
+    sdl_nullcheck::<SDL_Surface>(img);
 
     let texSpritesheet: *SDL_Texture = SDL_CreateTextureFromSurface(ctx.renderer, img);
+    sdl_nullcheck::<SDL_Texture>(texSpritesheet);
     SDL_FreeSurface(img);
-    if texSpritesheet == nullptr {
-        abort(SDL_GetError());
-    }
     
     ctx.spritesheet = SpriteSheet::new(16, texSpritesheet);
 
     ctx.font = TTF_OpenFont("arcade_n.ttf", 16);
-    if ctx.font == nullptr {
-        abort(SDL_GetError());
-    }
+    sdl_nullcheck::<TTF_Font>(ctx.font);
 
     ctx.sfx_pew = Mix_LoadWAV("pew.wav");
-    if ctx.sfx_pew == nullptr {
-        abort(SDL_GetError());
-    }
+    sdl_nullcheck::<Mix_Chunk>(ctx.sfx_pew);
 
     ctx.sfx_explosion = Mix_LoadWAV("explosion.wav");
-    if ctx.sfx_explosion == nullptr {
-        abort(SDL_GetError());
-    }
+    sdl_nullcheck::<Mix_Chunk>(ctx.sfx_explosion);
 
     let player: Player = Player {
         sprite: Sprite {tile_x: 0, tile_y: 0, tile_w: 1, tile_h: 1},
