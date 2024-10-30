@@ -134,8 +134,7 @@ pub struct Func {
     ty: Rc<TypeAnnotation>,
     env: Rc<Env>,
     type_env: Rc<TypeEnv>,
-    param_types: Vec<Rc<TypeAnnotation>>, // TODO should not be necessary because we have ty
-    ret_type: Rc<TypeAnnotation>,         // TODO should not be necessary because we have ty
+    ret_type: Rc<TypeAnnotation>, // TODO should not be necessary because we have ty
     val: LLVMValueRef,
     llvm_type: LLVMTypeRef, // TODO not necessary because we have ty
     // TODO group these two together -- (wtf did I mean here?)
@@ -1222,7 +1221,7 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_string(&mut self, type_env: Rc<TypeEnv>, value: Rc<str>) -> Val {
+    fn build_string(&mut self, value: Rc<str>) -> Val {
         let bytes: Vec<u8> = value.bytes().collect();
 
         let llvm_val = unsafe {
@@ -1345,7 +1344,7 @@ impl ModuleBuilder {
                 }
             }
             NodeKind::Array { elems } => self.build_array(env, type_env, elems),
-            NodeKind::Str { value } => self.build_string(type_env, value.clone()),
+            NodeKind::Str { value } => self.build_string(value.clone()),
             NodeKind::StructLiteral {
                 path: path @ PathSegment { .. },
                 fields,
@@ -1773,7 +1772,6 @@ impl ModuleBuilder {
                 .into(),
                 env: Rc::new(fn_env),
                 type_env: type_env.clone(),
-                param_types,
                 ret_type: ret_ty,
                 val,
                 llvm_type: func_type,
@@ -1841,7 +1839,6 @@ impl ModuleBuilder {
 
     fn pass1(&mut self) {
         for node in &*self.ast {
-            #[allow(clippy::single_match)]
             match &node.kind {
                 NodeKind::Const {
                     ty: type_annotation,
@@ -1960,7 +1957,7 @@ impl ModuleBuilder {
         }
     }
 
-    fn pass2(&mut self) {
+    fn set_up_fns(&mut self) {
         while let Some((spec, node)) = self.get_fn_specializations().pop_front() {
             if let NodeKind::Fn { params, ret_ty, .. } = &node.kind {
                 println!("setting up fn {}\nspecs:", spec.ident);
@@ -1986,86 +1983,66 @@ impl ModuleBuilder {
             }
         }
         println!();
-    }
 
-    fn pass3(&mut self) {
+        // TODO collect this in pass1, don't walk the ast again
         for node in &*self.ast.clone() {
-            match &node.kind {
-                NodeKind::ExternBlock { linkage, block } => {
-                    if let NodeKind::Block { statements } = &block.kind {
-                        for stmt in statements.iter() {
-                            if let NodeKind::Fn {
+            if let NodeKind::ExternBlock { linkage, block } = &node.kind {
+                if let NodeKind::Block { statements } = &block.kind {
+                    for stmt in statements.iter() {
+                        if let NodeKind::Fn {
+                            ident,
+                            params,
+                            ret_ty,
+                            ..
+                        } = &stmt.kind
+                        {
+                            self.set_up_function(
+                                self.env.clone(),
+                                self.type_env.clone(),
                                 ident,
-                                params,
-                                ret_ty,
-                                ..
-                            } = &stmt.kind
-                            {
-                                self.set_up_function(
-                                    self.env.clone(),
-                                    self.type_env.clone(),
-                                    ident,
-                                    params.clone(),
-                                    ret_ty.clone(),
-                                    true,
-                                    linkage.clone(),
-                                    Some(node.clone()),
-                                )
-                            } else {
-                                todo!()
-                            }
+                                params.clone(),
+                                ret_ty.clone(),
+                                true,
+                                linkage.clone(),
+                                Some(node.clone()),
+                            )
+                        } else {
+                            todo!()
                         }
                     }
                 }
-                _ => (),
             }
         }
     }
 
-    fn pass4(&mut self) {
-        while !self.fns_to_build.is_empty() {
-            let func_ident = self.fns_to_build.pop().unwrap();
+    fn build_fns(&mut self) {
+        while let Some(func_ident) = self.fns_to_build.pop() {
             let func = unsafe { &*self.env.funcs.get() }.get(&func_ident).unwrap();
             if let Some(Node {
-                kind: NodeKind::Fn { params, body, .. },
+                kind:
+                    NodeKind::Fn {
+                        params,
+                        body: Some(body),
+                        ..
+                    },
                 ..
             }) = func.node.as_deref()
             {
-                if let Some(body) = body {
-                    self.build_function(
-                        self.env.clone(),
-                        func.type_env.clone(),
-                        func_ident.into(),
-                        params.clone(),
-                        body.clone(),
-                    )
-                }
+                self.build_function(
+                    self.env.clone(),
+                    func.type_env.clone(),
+                    func_ident.into(),
+                    params.clone(),
+                    body.clone(),
+                )
             }
         }
-        // for func in unsafe { &*self.env.funcs.get() } {
-        //     if let Some(Node {
-        //         kind: NodeKind::Fn { params, body, .. },
-        //         ..
-        //     }) = func.1.node.as_deref()
-        //     {
-        //         if let Some(body) = body {
-        //             self.build_function(
-        //                 self.env.clone(),
-        //                 func.1.type_env.clone(),
-        //                 func.0.clone().into(),
-        //                 params.clone(),
-        //                 body.clone(),
-        //             )
-        //         }
-        //     }
-        // }
     }
 
     pub fn build(&mut self) {
         self.pass1();
-        self.pass2();
-        self.pass3();
-        self.pass4();
+        self.set_up_fns();
+        self.build_fns();
     }
 
     pub unsafe fn get_llvm_module_ref(&mut self) -> LLVMModuleRef {

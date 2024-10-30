@@ -353,7 +353,6 @@ struct GameContext {
 const BULLET_SPEED: u32 = 6;
 
 fn main(argc: u32) -> u32 {
-    // TODO spread op
     let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};
 
     if SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 {
