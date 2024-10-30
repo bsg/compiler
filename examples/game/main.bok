@@ -150,6 +150,7 @@ fn abort(msg: &u8) {
     exit(1);
 }
 
+// TODO fn sdl_nullcheck(ptr: *Any) ?
 fn sdl_nullcheck<T>(ptr: *T) {
     if ptr == nullptr {
         abort(SDL_GetError());
@@ -360,15 +361,15 @@ const BULLET_SPEED: u32 = 6;
 fn main(argc: u32) -> u32 {
     let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};
 
-    if SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 {
+    if SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 as i32 {
         abort(SDL_GetError());
     } 
 
-    if IMG_Init(2) < 0 {
+    if IMG_Init(2) < 0 as i32 {
         abort(SDL_GetError());
     }
 
-    if TTF_Init() < 0 {
+    if TTF_Init() < 0 as u32 {
         abort(SDL_GetError());
     }
 
@@ -447,16 +448,16 @@ fn main(argc: u32) -> u32 {
             }
         }
         
-        if input.up && player.pos.y > 0 {
+        if input.up && player.pos.y > 0 as i32 {
             player.pos.y -= player.speed;
         }
-        if input.left && player.pos.x > 0 {
+        if input.left && player.pos.x > 0 as i32 {
             player.pos.x -= player.speed;
         }
-        if input.down && player.pos.y < (ctx.window_h - player.h) {
+        if input.down && player.pos.y < (ctx.window_h - player.h) as i32 {
             player.pos.y += player.speed;
         }
-        if input.right && player.pos.x < (ctx.window_w - player.w) {
+        if input.right && player.pos.x < (ctx.window_w - player.w) as i32 {
             player.pos.x += player.speed;
         }
         
@@ -581,15 +582,15 @@ fn update_and_render_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
     enemy.pos.x += enemy.velocity.x;
     enemy.pos.y += enemy.velocity.y;
 
-    if enemy.pos.x < 0 && enemy.velocity.x < 0 {
+    if enemy.pos.x < 0 as i32 && enemy.velocity.x < 0 as i32 {
         enemy.velocity.x = -enemy.velocity.x;
     }
 
-    if enemy.pos.x > ctx.window_w - 32 && enemy.velocity.x > 0 {
+    if enemy.pos.x > (ctx.window_w - 32) as i32 && enemy.velocity.x > 0 as i32 {
         enemy.velocity.x = -enemy.velocity.x;
     }
 
-    if enemy.pos.y > ctx.window_h {
+    if enemy.pos.y > ctx.window_h as i32 {
         ctx.enemies.despawn(idx);
     }
 
@@ -603,7 +604,7 @@ fn update_and_render_bullet(idx: u32, ctx: &GameContext, bullet: &Bullet) {
     ctx.spritesheet.draw_tile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
 
     bullet.pos.y -= BULLET_SPEED;
-    if bullet.pos.y < 0 {
+    if bullet.pos.y < 0 as i32 {
         ctx.bullets.despawn(idx);
     }
 }
@@ -617,7 +618,7 @@ fn update_and_render_particle(idx: u32, ctx: &GameContext, particle: &Particle) 
     );
 
     particle.pos.y += particle.speed;
-    if particle.pos.y > ctx.window_h {
+    if particle.pos.y > ctx.window_h as i32 {
         ctx.particles.despawn(idx);
     }
 }
