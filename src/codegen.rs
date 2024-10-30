@@ -8,11 +8,11 @@
 // FIXME pointer arithmetic and deref are fucked
 // TODO generic param bindings should be aliases, not newtypes
 
+use core::ffi;
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
 use llvm_sys::LLVMRealPredicate;
 use llvm_sys::LLVMValue;
-use core::ffi;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
@@ -1274,11 +1274,23 @@ impl ModuleBuilder {
                         ) => (
                             // TODO compare widths and signs and not build the cast if they match
                             unsafe {
-                                // TODO this is a hack and needs to be removed asap
-                                let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
+                                // TODO feels hacky. should lhs_val.llvm_val be a ptr in the first place?
+                                let val = if LLVMTypeOf(lhs_val.llvm_val)
+                                    == LLVMPointerType(llvm_type(lhs_ty, type_env.clone()), 0)
+                                {
+                                    LLVMBuildLoad2(
+                                        self.builder,
+                                        llvm_type(lhs_ty, type_env.clone()),
+                                        lhs_val.llvm_val,
+                                        "".to_cstring().as_ptr(),
+                                    )
+                                } else {
+                                    lhs_val.llvm_val
+                                };
+
                                 LLVMBuildIntCast2(
                                     self.builder,
-                                    lhs_val.llvm_val,
+                                    val,
                                     llvm_type(rhs_ty, type_env.clone()),
                                     if *signed_b { 1 } else { 0 },
                                     "".to_cstring().as_ptr(),

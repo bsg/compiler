@@ -541,7 +541,7 @@ fn main(argc: u32) -> u32 {
         SDL_DestroyTexture(tex_score);
 
         SDL_RenderPresent(ctx.renderer);
-        SDL_Delay(16);
+        // SDL_Delay(16);
     }
 
     return 0;
