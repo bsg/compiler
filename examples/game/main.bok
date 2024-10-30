@@ -274,12 +274,13 @@ struct EntityList<T> {
 }
 
 // TODO iter()
-// TODO for_each() but it requires closures
 impl<T> EntityList<T> {
-    fn init(&self, cap: u32) {
-        self.len = 0;
-        self.cap = cap;
-        self.ptr = malloc(size_of::<T>() * cap);
+    fn new_with_capacity(cap: u32) -> EntityList<T> {
+        return EntityList::<T> {
+            len: 0,
+            cap: cap,
+            ptr: malloc(size_of::<T>() * cap)
+        };
     }
 
     fn get(&self, id: u32) -> &T {
@@ -426,9 +427,10 @@ fn main(argc: u32) -> u32 {
         shoot_ticks_left: 0
     };
 
-    ctx.bullets.init(100);
-    ctx.enemies.init(100);
-    ctx.particles.init(100);
+    // TODO type arg inference
+    ctx.bullets = EntityList::new_with_capacity::<Bullet>(100);
+    ctx.enemies = EntityList::new_with_capacity::<Enemy>(100);
+    ctx.particles = EntityList::new_with_capacity::<Particle>(100);
 
     ctx.enemy_spawn_cooldown = 120;
     ctx.enemy_spawn_ticks_left = 0;
@@ -440,14 +442,12 @@ fn main(argc: u32) -> u32 {
 
     while true {
         let ev: SDL_Event;
-        let kb_event: SDL_KeyboardEvent;
         
         while SDL_PollEvent(&ev) == 1 {
             match ev.type {
                 SDL_QUIT => exit(0),
                 SDL_KEYDOWN | SDL_KEYUP => {
-                    kb_event = ev; // TODO as SDL_KeyboardEvent
-                    match kb_event.keysym.scancode {
+                    match (ev as SDL_KeyboardEvent).keysym.scancode {
                         SDL_SCANCODE_ESCAPE => exit(0),
                         SDL_SCANCODE_W      => input.up    = ev.type == SDL_KEYDOWN,
                         SDL_SCANCODE_A      => input.left  = ev.type == SDL_KEYDOWN,
@@ -579,7 +579,6 @@ fn update_and_render_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
     // TODO closures would be nice for this kinda stuff
     let bullet_idx: u32 = 0;
     while bullet_idx < ctx.bullets.len {
-        // TODO removing the type annotation raises unresolved type
         let bullet: &Bullet = ctx.bullets.get(bullet_idx);
         if bullet.is_alive {  
             if aabb(

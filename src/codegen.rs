@@ -1052,6 +1052,9 @@ impl ModuleBuilder {
                                 todo!()
                             }
                         }
+                        (Type::Struct { .. }, Type::Struct { name, .. }) => {
+                            (lhs_val.llvm_val, name.clone())
+                        }
                         (
                             Type::Int { .. },
                             Type::Int {
