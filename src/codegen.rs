@@ -304,6 +304,17 @@ impl ModuleBuilder {
         );
         type_env.insert(
             TypeAnnotation::Simple {
+                ident: "u64".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Int {
+                width: 64,
+                signed: false,
+            },
+        );
+        type_env.insert(
+            TypeAnnotation::Simple {
                 ident: "i8".into(),
                 type_args: [].into(),
             }
@@ -332,6 +343,17 @@ impl ModuleBuilder {
             .into(),
             Type::Int {
                 width: 32,
+                signed: true,
+            },
+        );
+        type_env.insert(
+            TypeAnnotation::Simple {
+                ident: "i64".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Int {
+                width: 64,
                 signed: true,
             },
         );
