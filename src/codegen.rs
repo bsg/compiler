@@ -53,7 +53,7 @@ fn llvm_type(ty: &Type, type_env: Rc<TypeEnv>) -> LLVMTypeRef {
             if let Some(ty) = type_env.get(referent_type) {
                 LLVMPointerType(llvm_type(ty, type_env.clone()), 0)
             } else {
-                // TODO this and similar needs to be propagated up
+                // TODO this and similar needs to be propagated up. maybe llvm_type should return Option<...>
                 panic!("unresolved type {}", referent_type);
             }
         },
@@ -1110,10 +1110,17 @@ impl ModuleBuilder {
                 todo!()
             }
         } else if let Some(fn_decl) = self.get_fn_decl(path.ident.to_string()) {
-            // TODO this is incomplete, assumes generic arg count < 2
             if let NodeKind::Fn { params, ret_ty, .. } = &fn_decl.1.kind {
+                let substitutions: Vec<(Rc<TypeAnnotation>, Rc<TypeAnnotation>)> = fn_decl
+                    .0
+                    .generics
+                    .iter()
+                    .zip(path.generics.iter())
+                    .map(|(ty, concrete_ty)| (ty.clone(), concrete_ty.clone()))
+                    .collect();
+
                 let concrete_ret_ty = if path.generics.len() > 0 {
-                    ret_ty.substitute(&[(fn_decl.0.generics[0].clone(), path.generics[0].clone())])
+                    ret_ty.substitute(&substitutions)
                 } else {
                     ret_ty.clone()
                 };
@@ -1123,10 +1130,7 @@ impl ModuleBuilder {
                     .map(|param| {
                         if let FnParam::Pair { ident, ty } = param {
                             let new_ty = if path.generics.len() > 0 {
-                                ty.substitute(&[(
-                                    fn_decl.0.generics[0].clone(),
-                                    path.generics[0].clone(),
-                                )])
+                                ty.substitute(&substitutions)
                             } else {
                                 ty.clone()
                             };
@@ -1142,9 +1146,9 @@ impl ModuleBuilder {
                     .collect();
 
                 let local_type_env = TypeEnv::make_child(type_env.clone());
-                if path.generics.len() > 0 {
-                    let ty = type_env.get(&path.generics[0]).unwrap();
-                    local_type_env.insert_local(fn_decl.0.generics[0].clone(), ty.clone());
+                for i in 0..path.generics.len() {
+                    let ty = type_env.get(&path.generics[i]).unwrap();
+                    local_type_env.insert_local(fn_decl.0.generics[i].clone(), ty.clone());
                 }
 
                 self.set_up_function(
