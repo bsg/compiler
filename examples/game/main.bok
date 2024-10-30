@@ -202,8 +202,7 @@ struct SpriteSheet {
 }
 
 impl SpriteSheet {
-    // TODO fn new(tile_size: u32, tex: *SDL_Texture) -> Self {
-    fn new(tile_size: u32, tex: *SDL_Texture) -> SpriteSheet {
+    fn new(tile_size: u32, tex: *SDL_Texture) -> Self {
         let spritesheet: SpriteSheet;
         spritesheet.tile_size = tile_size;
         spritesheet.tex = tex;
@@ -233,7 +232,7 @@ struct InputState {
 }
 
 impl InputState {
-    fn new() -> InputState {
+    fn new() -> Self {
         let input: InputState;
         input.up = false;
         input.down = false;
@@ -281,7 +280,7 @@ struct EntityList<T> {
 
 // TODO iter()
 impl<T> EntityList<T> {
-    fn new_with_capacity(cap: u32) -> EntityList<T> {
+    fn new_with_capacity(cap: u32) -> Self {
         return EntityList::<T> {
             len: 0,
             cap: cap,

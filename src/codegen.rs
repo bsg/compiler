@@ -1009,6 +1009,11 @@ impl ModuleBuilder {
                             args: fn_args,
                         },
                     ) => {
+                        type_env.insert(
+                            TypeAnnotation::simple_from_name("Self"),
+                            type_env.get(&TypeAnnotation::simple_from_name(name)).unwrap().clone(),
+                        );
+
                         let mangled_name = format!("{}::{}", name, path.ident);
                         return self.build_call(
                             env,
