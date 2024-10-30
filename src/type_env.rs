@@ -12,6 +12,9 @@ pub enum Type {
         width: usize,
         signed: bool,
     },
+    Float {
+        width: usize,
+    },
     Ptr {
         pointee_type: Rc<TypeAnnotation>,
     },
@@ -42,6 +45,9 @@ impl Type {
             Type::Bool => "bool".to_string(),
             Type::Int { width, signed } => {
                 format!("{}{}", if *signed { "i" } else { "u" }, width)
+            }
+            Type::Float { width } => {
+                format!("f{}", width)
             }
             Type::Ptr { pointee_type } => format!("*{}", pointee_type),
             Type::Ref { referent_type } => format!("&{}", referent_type),

@@ -725,6 +725,18 @@ impl Parser {
                 }
                 .into()
             }
+            TokenKind::Float(s) => {
+                let value = match s.parse::<f64>() {
+                    Ok(i) => i,
+                    Err(_) => todo!(),
+                };
+
+                Node {
+                    kind: NodeKind::Float { value },
+                    span: self.curr_token.span.clone(),
+                }
+                .into()
+            }
             TokenKind::Str(s) => Node {
                 kind: NodeKind::Str { value: s.clone() },
                 span: self.curr_token.span.clone(),

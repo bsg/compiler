@@ -132,7 +132,7 @@ impl Op {
 }
 pub type NodeRef = Rc<Node>;
 
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Clone)]
 pub enum FnParam {
     SelfByVal,
     SelfByRef,
@@ -160,19 +160,19 @@ impl FnParam {
     }
 }
 
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Clone)]
 pub struct StructField {
     pub ident: Rc<str>,
     pub ty: Rc<TypeAnnotation>,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Clone)]
 pub struct StructLiteralField {
     pub ident: Rc<str>,
     pub val: NodeRef,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Clone)]
 pub struct MatchArm {
     pub pattern: Rc<[NodeRef]>,
     pub stmt: NodeRef, // TODO rename to expr and treat this as such when we have block exprs
@@ -406,7 +406,7 @@ impl fmt::Display for PathSegment {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq)]
 pub enum NodeKind {
     NullPtr,
     Ident {
@@ -422,6 +422,9 @@ pub enum NodeKind {
     },
     Int {
         value: u64,
+    },
+    Float {
+        value: f64,
     },
     Bool {
         value: bool,
@@ -511,7 +514,7 @@ pub enum NodeKind {
     Continue,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq)]
 pub struct Node {
     pub kind: NodeKind,
     pub span: Span,
@@ -534,6 +537,7 @@ impl fmt::Debug for Node {
                 NodeKind::Type { ty } => ty.to_string(),
                 NodeKind::Path { segment } => format!("{}", segment),
                 NodeKind::Int { value } => format!("{}", value),
+                NodeKind::Float { value } => format!("{}", value),
                 NodeKind::Bool { value } => format!("{}", value),
                 NodeKind::Str { value } => format!("{:?}", value),
                 NodeKind::Char { value } => {

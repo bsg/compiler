@@ -50,6 +50,10 @@ fn llvm_type(ty: &Type, type_env: Rc<TypeEnv>) -> LLVMTypeRef {
             128 => unsafe { LLVMInt128Type() },
             _ => todo!(),
         },
+        Type::Float { width } => match width {
+            32 => unsafe { LLVMFloatType() },
+            _ => todo!(),
+        },
         Type::Ref { referent_type } => unsafe {
             if let Some(ty) = type_env.get(referent_type) {
                 LLVMPointerType(llvm_type(ty, type_env.clone()), 0)
@@ -329,6 +333,14 @@ impl ModuleBuilder {
                 signed: true,
             },
         );
+        type_env.insert(
+            TypeAnnotation::Simple {
+                ident: "f32".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Float { width: 32 },
+        );
 
         Self {
             ast: Rc::from(ast),
@@ -462,6 +474,15 @@ impl ModuleBuilder {
                     match (lhs_ty, rhs_ty) {
                         (Type::Int { .. }, Type::Int { .. }) => (
                             LLVMBuildAdd(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        (Type::Float { .. }, Type::Float { .. }) => (
+                            LLVMBuildFAdd(
                                 self.builder,
                                 lhs_val.llvm_val,
                                 rhs_val.llvm_val,
@@ -1011,7 +1032,10 @@ impl ModuleBuilder {
                     ) => {
                         type_env.insert(
                             TypeAnnotation::simple_from_name("Self"),
-                            type_env.get(&TypeAnnotation::simple_from_name(name)).unwrap().clone(),
+                            type_env
+                                .get(&TypeAnnotation::simple_from_name(name))
+                                .unwrap()
+                                .clone(),
                         );
 
                         let mangled_name = format!("{}::{}", name, path.ident);
@@ -1074,6 +1098,26 @@ impl ModuleBuilder {
                                     if *signed_b { 1 } else { 0 },
                                     "".to_cstring().as_ptr(),
                                 )
+                            },
+                            rhs_ty_annotation.clone(),
+                        ),
+                        (Type::Float { .. }, Type::Int { signed, .. }) => (
+                            unsafe {
+                                if *signed {
+                                    LLVMBuildFPToSI(
+                                        self.builder,
+                                        lhs_val.llvm_val,
+                                        llvm_type(rhs_ty, type_env.clone()),
+                                        "".to_cstring().as_ptr(),
+                                    )
+                                } else {
+                                    LLVMBuildFPToUI(
+                                        self.builder,
+                                        lhs_val.llvm_val,
+                                        llvm_type(rhs_ty, type_env.clone()),
+                                        "".to_cstring().as_ptr(),
+                                    )
+                                }
                             },
                             rhs_ty_annotation.clone(),
                         ),
@@ -1271,6 +1315,14 @@ impl ModuleBuilder {
 
                 Val {
                     ty: TypeAnnotation::simple_from_name("u32"),
+                    llvm_val,
+                }
+            },
+            NodeKind::Float { value } => unsafe {
+                let llvm_val = LLVMConstReal(LLVMFloatType(), *value);
+
+                Val {
+                    ty: TypeAnnotation::simple_from_name("f32"),
                     llvm_val,
                 }
             },

@@ -8,6 +8,7 @@ pub enum TokenKind {
     Illegal,
     Ident(Rc<str>),
     Int(Rc<str>),
+    Float(Rc<str>),
     Str(Rc<str>),
     Char(Rc<u8>),
 
@@ -164,14 +165,22 @@ impl Tokens {
         Rc::from(self.input[pos_start..self.position].to_string())
     }
 
-    fn read_number(&mut self) -> Rc<str> {
+    fn read_number(&mut self) -> TokenKind {
         let pos_start = self.position;
+        let mut is_float = false;
 
-        while let Some(b'0'..=b'9' | b'x' | b'a'..=b'f' | b'A'..=b'F') = self.ch {
+        while let Some(b'0'..=b'9' | b'x' | b'a'..=b'f' | b'A'..=b'F' | b'.') = self.ch {
+            if let Some(b'.') = self.ch {
+                is_float = true
+            };
             self.read_char();
         }
 
-        Rc::from(self.input[pos_start..self.position].to_string())
+        if !is_float {
+            TokenKind::Int(Rc::from(self.input[pos_start..self.position].to_string()))
+        } else {
+            TokenKind::Float(Rc::from(self.input[pos_start..self.position].to_string()))
+        }
     }
 
     fn read_string(&mut self) -> Rc<str> {
@@ -295,7 +304,7 @@ impl Tokens {
                         Some(b'<') => {
                             self.read_char();
                             TokenKind::Turbofish
-                        },
+                        }
                         _ => TokenKind::ColonColon,
                     }
                 }
@@ -357,7 +366,7 @@ impl Tokens {
                             _ => TokenKind::Ident(ident),
                         }
                     }
-                    (b'0'..=b'9') => TokenKind::Int(self.read_number()),
+                    (b'0'..=b'9') => self.read_number(),
 
                     _ => TokenKind::Illegal,
                 }
