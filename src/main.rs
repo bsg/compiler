@@ -78,7 +78,7 @@ fn main() {
             triple,
             cpu,
             LLVMGetHostCPUFeatures(),
-            LLVMCodeGenOptLevel::LLVMCodeGenLevelNone,
+            LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault,
             LLVMRelocMode::LLVMRelocDefault,
             LLVMCodeModel::LLVMCodeModelDefault,
         )
