@@ -527,6 +527,15 @@ impl ModuleBuilder {
                             ),
                             lhs_val.ty,
                         ),
+                        (Type::Float { .. }, Type::Float { .. }) => (
+                            LLVMBuildFSub(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
                         (Type::Ptr { pointee_type }, Type::Int { .. }) => {
                             // TODO type check and sext
                             let pointee_ty = type_env.get(pointee_type).unwrap();
@@ -555,39 +564,62 @@ impl ModuleBuilder {
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    (
-                        LLVMBuildMul(
-                            self.builder,
-                            lhs_val.llvm_val,
-                            rhs_val.llvm_val,
-                            "".to_cstring().as_ptr(),
+
+                    let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    let rhs_ty = type_env.get(&rhs_val.ty).unwrap();
+
+                    match (lhs_ty, rhs_ty) {
+                        (Type::Int { .. }, Type::Int { .. }) => (
+                            LLVMBuildMul(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
                         ),
-                        TypeAnnotation::Simple {
-                            ident: "u32".into(),
-                            type_args: [].into(),
-                        }
-                        .into(),
-                    )
+                        (Type::Float { .. }, Type::Float { .. }) => (
+                            LLVMBuildFMul(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        _ => todo!(),
+                    }
                 },
                 Op::Div => unsafe {
                     let lhs_val =
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    // TODO
-                    (
-                        LLVMBuildUDiv(
-                            self.builder,
-                            lhs_val.llvm_val,
-                            rhs_val.llvm_val,
-                            "".to_cstring().as_ptr(),
+
+                    let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    let rhs_ty = type_env.get(&rhs_val.ty).unwrap();
+
+                    match (lhs_ty, rhs_ty) {
+                        (Type::Int { .. }, Type::Int { .. }) => (
+                            LLVMBuildUDiv(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
                         ),
-                        TypeAnnotation::Simple {
-                            ident: "u32".into(),
-                            type_args: [].into(),
-                        }
-                        .into(),
-                    )
+                        (Type::Float { .. }, Type::Float { .. }) => (
+                            LLVMBuildFDiv(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        _ => todo!(),
+                    }
                 },
                 Op::Mod => unsafe {
                     let lhs_val =
@@ -1112,6 +1144,26 @@ impl ModuleBuilder {
                                     )
                                 } else {
                                     LLVMBuildFPToUI(
+                                        self.builder,
+                                        lhs_val.llvm_val,
+                                        llvm_type(rhs_ty, type_env.clone()),
+                                        "".to_cstring().as_ptr(),
+                                    )
+                                }
+                            },
+                            rhs_ty_annotation.clone(),
+                        ),
+                        (Type::Int { signed, .. }, Type::Float { .. }) => (
+                            unsafe {
+                                if *signed {
+                                    LLVMBuildSIToFP(
+                                        self.builder,
+                                        lhs_val.llvm_val,
+                                        llvm_type(rhs_ty, type_env.clone()),
+                                        "".to_cstring().as_ptr(),
+                                    )
+                                } else {
+                                    LLVMBuildUIToFP(
                                         self.builder,
                                         lhs_val.llvm_val,
                                         llvm_type(rhs_ty, type_env.clone()),

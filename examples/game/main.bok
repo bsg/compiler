@@ -547,6 +547,7 @@ fn main(argc: u32) -> u32 {
 }
 
 fn aabb(a: &SDL_Rect, b: &SDL_Rect) -> bool {
+    //ctx; FIXME the fuck?
     return
         a.x < b.x + b.w &&
         a.x + a.w > b.x &&
