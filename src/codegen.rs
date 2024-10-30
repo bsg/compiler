@@ -1694,6 +1694,7 @@ impl ModuleBuilder {
 
     fn build_block(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, node: NodeRef) -> bool {
         let mut returns = false;
+        let local_env = Rc::new(Env::make_child(env));
         if let NodeKind::Block { statements } = &node.kind {
             for (i, stmt) in statements.iter().enumerate() {
                 // TODO this is a quick hack. build_stmt should return info, including whether the stmt returns
@@ -1707,7 +1708,7 @@ impl ModuleBuilder {
                     }
                     _ => (),
                 }
-                self.build_stmt(env.clone(), type_env.clone(), stmt.clone());
+                self.build_stmt(local_env.clone(), type_env.clone(), stmt.clone());
             }
         } else {
             panic!()

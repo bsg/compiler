@@ -492,7 +492,6 @@ fn main(argc: u32) -> u32 {
         if ctx.particle_spawn_ticks_left == 0 {
             let x: u32 = rand_range(0, ctx.window_w - 32);
             let particle: Particle = Particle {is_alive: true, pos: Vec2 {x: x, y: 0}, speed: rand_range(4, 8)};
-            // ctx.particles.spawn(&enemy); how the fuck is 'enemy' in scope? -- impl proper block scope
             ctx.particles.spawn(&particle);
             ctx.particle_spawn_ticks_left = ctx.particle_spawn_cooldown;
         } else {
