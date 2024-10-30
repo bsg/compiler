@@ -10,6 +10,7 @@
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
+use llvm_sys::LLVMValue;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
@@ -923,7 +924,6 @@ impl ModuleBuilder {
                                 let local_type_env = TypeEnv::make_child(type_env.clone());
 
                                 let self_ty = TypeAnnotation::simple_from_name("Self");
-
                                 local_type_env.insert_local(self_ty.clone(), lhs_ty.clone());
 
                                 local_type_env.insert_local(
@@ -1309,8 +1309,23 @@ impl ModuleBuilder {
                         ty: f.ty.clone(),
                         llvm_val: f.val,
                     }
-                } else if let Some(decl) = self.get_fn_decl(name.to_string()) {
-                    todo!("got here because fn pointers...");
+                } else if let Some(fn_decl) = self.get_fn_decl(name.to_string()) {
+                    if let NodeKind::Fn { params, ret_ty, .. } = &fn_decl.1.kind {
+                        let local_type_env = TypeEnv::make_child(type_env.clone());
+
+                        self.set_up_function(
+                            env.clone(),
+                            local_type_env.into(),
+                            name,
+                            params.clone(),
+                            ret_ty.clone(),
+                            false,
+                            None,
+                            Some(fn_decl.1.clone()),
+                        )
+                    } else {
+                        todo!()
+                    }
                 } else {
                     panic!("unresolved ident {}", name)
                 }
@@ -1710,7 +1725,7 @@ impl ModuleBuilder {
         is_extern: bool,
         _linkage: Option<Rc<str>>,
         node: Option<NodeRef>,
-    ) {
+    ) -> Val {
         println!("setting up fn {}", ident);
         let ret_type = match type_env.get(&ret_ty) {
             Some(ty) => ty.clone(),
@@ -1772,7 +1787,7 @@ impl ModuleBuilder {
                 .into(),
                 env: Rc::new(fn_env),
                 type_env: type_env.clone(),
-                ret_type: ret_ty,
+                ret_type: ret_ty.clone(),
                 val,
                 llvm_type: func_type,
                 bb_entry,
@@ -1781,6 +1796,15 @@ impl ModuleBuilder {
             },
         );
         self.fns_to_build.push(ident.to_owned());
+
+        Val {
+            ty: TypeAnnotation::Fn {
+                params: param_types.into(),
+                return_type: ret_ty.clone(),
+            }
+            .into(),
+            llvm_val: val,
+        }
     }
 
     fn build_function(
@@ -1979,7 +2003,7 @@ impl ModuleBuilder {
                     false,
                     None,
                     Some(node.clone()),
-                )
+                );
             }
         }
         println!();
@@ -2005,7 +2029,7 @@ impl ModuleBuilder {
                                 true,
                                 linkage.clone(),
                                 Some(node.clone()),
-                            )
+                            );
                         } else {
                             todo!()
                         }

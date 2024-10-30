@@ -520,11 +520,6 @@ fn main(argc: u32) -> u32 {
             &SDL_Rect {x: player.pos.x, y: player.pos.y, w: player.w, h: player.h}
         );
 
-        // FIXME temporary hack until fn pointers can be resolved. this is to bring the fn idents into env
-        update_and_render_particle(0, nullptr, nullptr);
-        update_and_render_enemy(0, nullptr, nullptr);
-        update_and_render_bullet(0, nullptr, nullptr);
-
         // NOTE fn type args will be inferred at some point. until then, ::<> ~ ~ ~ 
         ctx.particles.for_each::<GameContext>(update_and_render_particle, &ctx);
         ctx.enemies.for_each::<GameContext>(update_and_render_enemy, &ctx);
