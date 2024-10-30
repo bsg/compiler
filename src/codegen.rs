@@ -8,8 +8,10 @@
 // FIXME pointer arithmetic and deref are fucked
 // TODO generic param bindings should be aliases, not newtypes
 
+use core::ffi;
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
+use llvm_sys::LLVMRealPredicate;
 use llvm_sys::LLVMValue;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
@@ -302,6 +304,17 @@ impl ModuleBuilder {
         );
         type_env.insert(
             TypeAnnotation::Simple {
+                ident: "u64".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Int {
+                width: 64,
+                signed: false,
+            },
+        );
+        type_env.insert(
+            TypeAnnotation::Simple {
                 ident: "i8".into(),
                 type_args: [].into(),
             }
@@ -330,6 +343,17 @@ impl ModuleBuilder {
             .into(),
             Type::Int {
                 width: 32,
+                signed: true,
+            },
+        );
+        type_env.insert(
+            TypeAnnotation::Simple {
+                ident: "i64".into(),
+                type_args: [].into(),
+            }
+            .into(),
+            Type::Int {
+                width: 64,
                 signed: true,
             },
         );
@@ -626,20 +650,31 @@ impl ModuleBuilder {
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    // TODO
-                    (
-                        LLVMBuildURem(
-                            self.builder,
-                            lhs_val.llvm_val,
-                            rhs_val.llvm_val,
-                            "".to_cstring().as_ptr(),
+
+                    let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    let rhs_ty = type_env.get(&rhs_val.ty).unwrap();
+
+                    match (lhs_ty, rhs_ty) {
+                        (Type::Int { .. }, Type::Int { .. }) => (
+                            LLVMBuildURem(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
                         ),
-                        TypeAnnotation::Simple {
-                            ident: "u32".into(),
-                            type_args: [].into(),
-                        }
-                        .into(),
-                    )
+                        (Type::Float { .. }, Type::Float { .. }) => (
+                            LLVMBuildFRem(
+                                self.builder,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        _ => todo!(),
+                    }
                 },
                 Op::And => unsafe {
                     let lhs_val =
@@ -718,80 +753,218 @@ impl ModuleBuilder {
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    (
-                        LLVMBuildICmp(
-                            self.builder,
-                            llvm_sys::LLVMIntPredicate::LLVMIntEQ,
-                            lhs_val.llvm_val,
-                            rhs_val.llvm_val,
-                            "".to_cstring().as_ptr(),
+
+                    let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    let rhs_ty = type_env.get(&rhs_val.ty).unwrap();
+
+                    match (lhs_ty, rhs_ty) {
+                        (Type::Int { .. }, Type::Int { .. }) => (
+                            LLVMBuildICmp(
+                                self.builder,
+                                llvm_sys::LLVMIntPredicate::LLVMIntEQ,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
                         ),
-                        TypeAnnotation::Simple {
-                            ident: "bool".into(),
-                            type_args: [].into(),
-                        }
-                        .into(),
-                    )
+                        (Type::Float { .. }, Type::Float { .. }) => (
+                            LLVMBuildFCmp(
+                                self.builder,
+                                llvm_sys::LLVMRealPredicate::LLVMRealOEQ,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        (
+                            Type::Ptr { .. } | Type::Ref { .. },
+                            Type::Ptr { .. } | Type::Ref { .. },
+                        ) => (
+                            LLVMBuildICmp(
+                                self.builder,
+                                llvm_sys::LLVMIntPredicate::LLVMIntEQ,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        _ => panic!("cannot compare types {}", op_span),
+                    }
                 },
                 Op::NotEq => unsafe {
                     let lhs_val =
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    (
-                        LLVMBuildICmp(
-                            self.builder,
-                            llvm_sys::LLVMIntPredicate::LLVMIntNE,
-                            lhs_val.llvm_val,
-                            rhs_val.llvm_val,
-                            "".to_cstring().as_ptr(),
+
+                    let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    let rhs_ty = type_env.get(&rhs_val.ty).unwrap();
+
+                    match (lhs_ty, rhs_ty) {
+                        (Type::Int { .. }, Type::Int { .. }) => (
+                            LLVMBuildICmp(
+                                self.builder,
+                                llvm_sys::LLVMIntPredicate::LLVMIntNE,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
                         ),
-                        TypeAnnotation::Simple {
-                            ident: "bool".into(),
-                            type_args: [].into(),
-                        }
-                        .into(),
-                    )
+                        (Type::Float { .. }, Type::Float { .. }) => (
+                            LLVMBuildFCmp(
+                                self.builder,
+                                llvm_sys::LLVMRealPredicate::LLVMRealONE,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        (
+                            Type::Ptr { .. } | Type::Ref { .. },
+                            Type::Ptr { .. } | Type::Ref { .. },
+                        ) => (
+                            LLVMBuildICmp(
+                                self.builder,
+                                llvm_sys::LLVMIntPredicate::LLVMIntNE,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        _ => panic!("cannot compare types {}", op_span),
+                    }
                 },
                 Op::Gt => unsafe {
                     let lhs_val =
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    (
-                        LLVMBuildICmp(
-                            self.builder,
-                            llvm_sys::LLVMIntPredicate::LLVMIntSGT, // TODO
-                            lhs_val.llvm_val,
-                            rhs_val.llvm_val,
-                            "".to_cstring().as_ptr(),
-                        ),
-                        TypeAnnotation::Simple {
-                            ident: "bool".into(),
-                            type_args: [].into(),
+
+                    let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    let rhs_ty = type_env.get(&rhs_val.ty).unwrap();
+
+                    match (lhs_ty, rhs_ty) {
+                        (
+                            Type::Int {
+                                signed: lhs_signed, ..
+                            },
+                            Type::Int {
+                                signed: rhs_signed, ..
+                            },
+                        ) => {
+                            if *lhs_signed == *rhs_signed {
+                                (
+                                    LLVMBuildICmp(
+                                        self.builder,
+                                        if *lhs_signed {
+                                            llvm_sys::LLVMIntPredicate::LLVMIntSGT
+                                        } else {
+                                            llvm_sys::LLVMIntPredicate::LLVMIntUGT
+                                        },
+                                        lhs_val.llvm_val,
+                                        rhs_val.llvm_val,
+                                        "".to_cstring().as_ptr(),
+                                    ),
+                                    lhs_val.ty,
+                                )
+                            } else {
+                                panic!("cannot compare types {}", op_span);
+                            }
                         }
-                        .into(),
-                    )
+                        (Type::Float { .. }, Type::Float { .. }) => (
+                            LLVMBuildFCmp(
+                                self.builder,
+                                llvm_sys::LLVMRealPredicate::LLVMRealOGT,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        (
+                            Type::Ptr { .. } | Type::Ref { .. },
+                            Type::Ptr { .. } | Type::Ref { .. },
+                        ) => (
+                            LLVMBuildICmp(
+                                self.builder,
+                                llvm_sys::LLVMIntPredicate::LLVMIntUGT,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        _ => todo!(),
+                    }
                 },
                 Op::Lt => unsafe {
                     let lhs_val =
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    (
-                        LLVMBuildICmp(
-                            self.builder,
-                            llvm_sys::LLVMIntPredicate::LLVMIntSLT, // TODO
-                            lhs_val.llvm_val,
-                            rhs_val.llvm_val,
-                            "".to_cstring().as_ptr(),
-                        ),
-                        TypeAnnotation::Simple {
-                            ident: "bool".into(),
-                            type_args: [].into(),
+
+                    let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    let rhs_ty = type_env.get(&rhs_val.ty).unwrap();
+
+                    match (lhs_ty, rhs_ty) {
+                        (
+                            Type::Int {
+                                signed: lhs_signed, ..
+                            },
+                            Type::Int {
+                                signed: rhs_signed, ..
+                            },
+                        ) => {
+                            if *lhs_signed == *rhs_signed {
+                                (
+                                    LLVMBuildICmp(
+                                        self.builder,
+                                        if *lhs_signed {
+                                            llvm_sys::LLVMIntPredicate::LLVMIntSLT
+                                        } else {
+                                            llvm_sys::LLVMIntPredicate::LLVMIntULT
+                                        },
+                                        lhs_val.llvm_val,
+                                        rhs_val.llvm_val,
+                                        "".to_cstring().as_ptr(),
+                                    ),
+                                    lhs_val.ty,
+                                )
+                            } else {
+                                panic!("cannot compare types {}", op_span);
+                            }
                         }
-                        .into(),
-                    )
+                        (Type::Float { .. }, Type::Float { .. }) => (
+                            LLVMBuildFCmp(
+                                self.builder,
+                                llvm_sys::LLVMRealPredicate::LLVMRealOLT,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        (
+                            Type::Ptr { .. } | Type::Ref { .. },
+                            Type::Ptr { .. } | Type::Ref { .. },
+                        ) => (
+                            LLVMBuildICmp(
+                                self.builder,
+                                llvm_sys::LLVMIntPredicate::LLVMIntULT,
+                                lhs_val.llvm_val,
+                                rhs_val.llvm_val,
+                                "".to_cstring().as_ptr(),
+                            ),
+                            lhs_val.ty,
+                        ),
+                        _ => panic!("cannot compare types {}", op_span),
+                    }
                 },
                 Op::Assign(op) => unsafe {
                     macro_rules! make_binop {
@@ -1123,9 +1296,23 @@ impl ModuleBuilder {
                         ) => (
                             // TODO compare widths and signs and not build the cast if they match
                             unsafe {
+                                // TODO feels hacky. should lhs_val.llvm_val be a ptr in the first place?
+                                let val = if LLVMTypeOf(lhs_val.llvm_val)
+                                    == LLVMPointerType(llvm_type(lhs_ty, type_env.clone()), 0)
+                                {
+                                    LLVMBuildLoad2(
+                                        self.builder,
+                                        llvm_type(lhs_ty, type_env.clone()),
+                                        lhs_val.llvm_val,
+                                        "".to_cstring().as_ptr(),
+                                    )
+                                } else {
+                                    lhs_val.llvm_val
+                                };
+
                                 LLVMBuildIntCast2(
                                     self.builder,
-                                    lhs_val.llvm_val,
+                                    val,
                                     llvm_type(rhs_ty, type_env.clone()),
                                     if *signed_b { 1 } else { 0 },
                                     "".to_cstring().as_ptr(),
@@ -1170,6 +1357,20 @@ impl ModuleBuilder {
                                         "".to_cstring().as_ptr(),
                                     )
                                 }
+                            },
+                            rhs_ty_annotation.clone(),
+                        ),
+                        (Type::Int { signed, .. }, Type::Ptr { .. }) => (
+                            unsafe {
+                                if *signed {
+                                    panic!()
+                                }
+                                LLVMBuildIntToPtr(
+                                    self.builder,
+                                    lhs_val.llvm_val,
+                                    LLVMPointerType(llvm_type(lhs_ty, type_env.clone()), 0),
+                                    "".to_cstring().as_ptr(),
+                                )
                             },
                             rhs_ty_annotation.clone(),
                         ),
@@ -1353,8 +1554,8 @@ impl ModuleBuilder {
             NodeKind::NullPtr => {
                 Val {
                     // TODO type
-                    ty: TypeAnnotation::Ref {
-                        referent_type: TypeAnnotation::simple_from_name("void"),
+                    ty: TypeAnnotation::Ptr {
+                        pointee_type: TypeAnnotation::simple_from_name("void"),
                     }
                     .into(),
                     llvm_val: unsafe { LLVMConstPointerNull(LLVMPointerType(LLVMVoidType(), 0)) },
