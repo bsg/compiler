@@ -1,0 +1,80 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "bok",
+	"patterns": [
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#strings"
+		},
+        {
+			"include": "#chars"
+		},
+        {
+			"include": "#comments"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [{
+                "name": "keyword.operator",
+                "match": "\\.|\\||\\|\\||&|&&|=>|>|<|>=|<=|=|==|\\*|:|::|\\+|\\-(\\s|=)|/(\\s|=)|,|;|->"
+            },
+            {
+				"name": "keyword.control",
+				"match": "\\b(if|else|return|while|match|break|continue)\\b"
+			},
+            {
+				"name": "keyword.other.bok",
+				"match": "\\b(fn|let|struct|enum|impl|self|Self|as|extern|const|sizeof)\\b"
+			},
+            {
+				"name": "support.type.bok",
+				"match": "\\b(u8|i8|u16|i16|u32|i32|u64|i64|f32|f64|usize|isize|bool|void)\\b"
+			},
+            {
+				"name": "constant.language",
+				"match": "\\b(true|false|nullptr)\\b"
+			},
+            {
+				"name": "constant.numeric",
+				"match": "(?<![a-zA-Z_])-?(0x[\\dA-Fa-f]+|\\d+)"
+			}]
+		},
+		"strings": {
+			"name": "string.quoted.double.bok",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "string",
+					"match": "\\\\."
+				}
+			]
+		},
+        "chars": {
+			"name": "constant.character",
+			"begin": "'",
+			"end": "'",
+			"patterns": [
+				{
+					"name": "constant.character.escape.bok",
+					"match": "\\\\."
+				}
+			]
+		},
+        "comments": {
+			"name": "comment",
+			"begin": "//",
+			"end": "\n",
+			"patterns": [
+				{
+					"name": "constant.character.escape.bok",
+					"match": "\\\\."
+				}
+			]
+		}
+	},
+	"scopeName": "source.bok"
+}

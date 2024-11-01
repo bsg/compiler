@@ -1,0 +1,25 @@
+{
+  "name": "bok",
+  "displayName": "bok",
+  "description": "bok",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "bok",
+      "aliases": ["bok", "bok"],
+      "extensions": [".bok"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "bok",
+      "scopeName": "source.bok",
+      "path": "./syntaxes/bok.tmLanguage.json"
+    }]
+  }
+}
