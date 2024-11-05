@@ -563,7 +563,7 @@ fn main(argc: u32) -> u32 {
     return 0;
 }
 
-fn aabb(a: &SDL_Rect, b: &SDL_Rect) -> bool {
+fn aabb(a: SDL_Rect, b: SDL_Rect) -> bool {
     //ctx; FIXME the fuck?
     return
         a.x < b.x + b.w &&
@@ -582,8 +582,8 @@ fn update_and_render_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
         let bullet: &Bullet = ctx.bullets.get(bullet_idx);
         if bullet.is_alive {  
             if aabb(
-                &SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32},
-                &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 16, h: 16})
+                SDL_Rect {x: enemy.pos.x, y: enemy.pos.y, w: 32, h: 32},
+                SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 16, h: 16})
             {
                 enemy.is_alive = false;
                 bullet.is_alive = false;

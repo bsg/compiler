@@ -2,17 +2,14 @@
 // FIXME function pointer related stuff resulted in a lot of duplicate code
 // FIXME attributes are fucked
 // FIXME assigning a struct to another seems to 'move' it instead of copying it
-// FIXME top level consts dependent will not resolve compound types on account of type not being available when the const is being generated
-// TODO llvm type aliases for compound types
+// FIXME top level consts will not resolve aggregate types on account of type not being available when the const is being generated
+// TODO llvm type aliases for aggregate types
 // TODO Scope!
 // FIXME pointer arithmetic and deref are fucked
 // TODO generic param bindings should be aliases, not newtypes
 
-use core::ffi;
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
-use llvm_sys::LLVMRealPredicate;
-use llvm_sys::LLVMValue;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
@@ -133,15 +130,15 @@ fn llvm_type(ty: &Type, type_env: Rc<TypeEnv>) -> LLVMTypeRef {
 #[derive(Clone, Debug)]
 pub struct Var {
     val: LLVMValueRef,
-    ty: Rc<TypeAnnotation>,
+    ty: Rc<TypeName>,
     is_const: bool,
 }
 
 pub struct Func {
-    ty: Rc<TypeAnnotation>,
+    ty: Rc<TypeName>,
     env: Rc<Env>,
     type_env: Rc<TypeEnv>,
-    ret_type: Rc<TypeAnnotation>, // TODO should not be necessary because we have ty
+    ret_type: Rc<TypeName>, // TODO should not be necessary because we have ty
     val: LLVMValueRef,
     llvm_type: LLVMTypeRef, // TODO not necessary because we have ty
     // TODO group these two together -- (wtf did I mean here?)
@@ -175,7 +172,7 @@ impl Env {
         }
     }
 
-    pub fn insert_var(&self, ident: &str, val: LLVMValueRef, ty: Rc<TypeAnnotation>) {
+    pub fn insert_var(&self, ident: &str, val: LLVMValueRef, ty: Rc<TypeName>) {
         (unsafe { &mut *self.vars.get() }).insert(
             ident.to_string(),
             Var {
@@ -186,7 +183,7 @@ impl Env {
         );
     }
 
-    pub fn insert_const(&self, ident: &str, val: LLVMValueRef, ty: Rc<TypeAnnotation>) {
+    pub fn insert_const(&self, ident: &str, val: LLVMValueRef, ty: Rc<TypeName>) {
         (unsafe { &mut *self.vars.get() }).insert(
             ident.to_string(),
             Var {
@@ -225,10 +222,9 @@ impl Env {
     }
 }
 
-// TODO rename
 #[derive(Clone)]
 struct Val {
-    ty: Rc<TypeAnnotation>,
+    ty: Rc<TypeName>,
     llvm_val: LLVMValueRef,
 }
 
@@ -242,7 +238,7 @@ pub struct ModuleBuilder {
     continue_block: Option<LLVMBasicBlockRef>,
     break_block: Option<LLVMBasicBlockRef>,
     fn_decls: UnsafeCell<HashMap<String, (PathSegment, NodeRef)>>,
-    fn_specializations: UnsafeCell<LinkedList<(PathSegment, NodeRef)>>,
+    fn_specs: UnsafeCell<LinkedList<(PathSegment, NodeRef)>>,
     fns_to_build: Vec<String>,
 }
 
@@ -254,7 +250,7 @@ impl ModuleBuilder {
 
         let type_env = Rc::new(TypeEnv::new());
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "void".into(),
                 type_args: [].into(),
             }
@@ -262,7 +258,7 @@ impl ModuleBuilder {
             Type::Void,
         );
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "bool".into(),
                 type_args: [].into(),
             }
@@ -270,7 +266,7 @@ impl ModuleBuilder {
             Type::Bool,
         );
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "u8".into(),
                 type_args: [].into(),
             }
@@ -281,7 +277,7 @@ impl ModuleBuilder {
             },
         );
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "u16".into(),
                 type_args: [].into(),
             }
@@ -292,7 +288,7 @@ impl ModuleBuilder {
             },
         );
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "u32".into(),
                 type_args: [].into(),
             }
@@ -303,7 +299,7 @@ impl ModuleBuilder {
             },
         );
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "u64".into(),
                 type_args: [].into(),
             }
@@ -314,7 +310,7 @@ impl ModuleBuilder {
             },
         );
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "i8".into(),
                 type_args: [].into(),
             }
@@ -325,7 +321,7 @@ impl ModuleBuilder {
             },
         );
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "i16".into(),
                 type_args: [].into(),
             }
@@ -336,7 +332,7 @@ impl ModuleBuilder {
             },
         );
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "i32".into(),
                 type_args: [].into(),
             }
@@ -347,7 +343,7 @@ impl ModuleBuilder {
             },
         );
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "i64".into(),
                 type_args: [].into(),
             }
@@ -358,7 +354,7 @@ impl ModuleBuilder {
             },
         );
         type_env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "f32".into(),
                 type_args: [].into(),
             }
@@ -376,7 +372,7 @@ impl ModuleBuilder {
             continue_block: None,
             break_block: None,
             fn_decls: UnsafeCell::new(HashMap::new()),
-            fn_specializations: UnsafeCell::new(LinkedList::new()),
+            fn_specs: UnsafeCell::new(LinkedList::new()),
             fns_to_build: Vec::new(),
         }
     }
@@ -390,12 +386,12 @@ impl ModuleBuilder {
         unsafe { &mut *self.fn_decls.get() }.get(&ident)
     }
 
-    fn push_fn_specialization(&self, path_segment: PathSegment, node: NodeRef) {
-        { unsafe { &mut *self.fn_specializations.get() } }.push_back((path_segment, node));
+    fn push_fn_spec(&self, path_segment: PathSegment, node: NodeRef) {
+        { unsafe { &mut *self.fn_specs.get() } }.push_back((path_segment, node));
     }
 
     fn get_fn_specializations(&mut self) -> &mut LinkedList<(PathSegment, NodeRef)> {
-        unsafe { &mut *self.fn_specializations.get() }
+        unsafe { &mut *self.fn_specs.get() }
     }
 
     fn build_deref(
@@ -408,9 +404,9 @@ impl ModuleBuilder {
         unsafe {
             let val = self.build_expr(env.clone(), type_env.clone(), node.clone(), false);
             let ty = match &*val.ty {
-                TypeAnnotation::Ref { referent_type } => referent_type.clone(),
-                TypeAnnotation::Ptr { pointee_type } => pointee_type.clone(),
-                TypeAnnotation::SelfByRef => TypeAnnotation::simple_from_name("Self"),
+                TypeName::Ref { referent_type } => referent_type.clone(),
+                TypeName::Ptr { pointee_type } => pointee_type.clone(),
+                TypeName::SelfByRef => TypeName::simple_from_name("Self"),
                 _ => panic!("cannot deref"),
             };
 
@@ -689,7 +685,7 @@ impl ModuleBuilder {
                             rhs_val.llvm_val,
                             "".to_cstring().as_ptr(),
                         ),
-                        TypeAnnotation::Simple {
+                        TypeName::Simple {
                             ident: "bool".into(),
                             type_args: [].into(),
                         }
@@ -709,7 +705,7 @@ impl ModuleBuilder {
                             rhs_val.llvm_val,
                             "".to_cstring().as_ptr(),
                         ),
-                        TypeAnnotation::Simple {
+                        TypeName::Simple {
                             ident: "bool".into(),
                             type_args: [].into(),
                         }
@@ -1032,7 +1028,7 @@ impl ModuleBuilder {
                         LLVMBuildStore(self.builder, rhs_val.llvm_val, lhs_val.llvm_val)
                     };
 
-                    (null_mut(), TypeAnnotation::simple_from_name("void"))
+                    (null_mut(), TypeName::simple_from_name("void"))
                 },
                 Op::Dot => unsafe {
                     let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
@@ -1124,7 +1120,7 @@ impl ModuleBuilder {
 
                                 let self_by_ref = match &fn_decl.1.kind {
                                     NodeKind::Fn { params, .. } => {
-                                        matches!(*params[0].ty(), TypeAnnotation::SelfByRef)
+                                        matches!(*params[0].ty(), TypeName::SelfByRef)
                                     }
                                     _ => todo!(),
                                 };
@@ -1149,18 +1145,18 @@ impl ModuleBuilder {
 
                                 let local_type_env = TypeEnv::make_child(type_env.clone());
 
-                                let self_ty = TypeAnnotation::simple_from_name("Self");
+                                let self_ty = TypeName::simple_from_name("Self");
                                 local_type_env.insert_local(self_ty.clone(), lhs_ty.clone());
 
                                 local_type_env.insert_local(
-                                    TypeAnnotation::SelfByRef.into(),
+                                    TypeName::SelfByRef.into(),
                                     Type::Ref {
                                         referent_type: self_ty,
                                     },
                                 );
 
                                 // Infer impl type args from lhs
-                                let mut type_args: Vec<Rc<TypeAnnotation>> =
+                                let mut type_args: Vec<Rc<TypeName>> =
                                     struct_name.type_args().to_vec();
                                 type_args.append(&mut generics.to_vec());
 
@@ -1236,9 +1232,9 @@ impl ModuleBuilder {
                         },
                     ) => {
                         type_env.insert(
-                            TypeAnnotation::simple_from_name("Self"),
+                            TypeName::simple_from_name("Self"),
                             type_env
-                                .get(&TypeAnnotation::simple_from_name(name))
+                                .get(&TypeName::simple_from_name(name))
                                 .unwrap()
                                 .clone(),
                         );
@@ -1259,17 +1255,17 @@ impl ModuleBuilder {
                 Op::Cast => {
                     let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
                     let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
-                    let rhs_ty_annotation = if let NodeKind::Type { ty } = &rhs.kind {
+                    let rhs_ty_name = if let NodeKind::Type { ty } = &rhs.kind {
                         ty
                     } else {
                         todo!()
                     };
 
-                    let rhs_ty = type_env.get(rhs_ty_annotation).unwrap();
+                    let rhs_ty = type_env.get(rhs_ty_name).unwrap();
 
                     match (lhs_ty, rhs_ty) {
                         (Type::Ptr { .. }, Type::Ptr { .. }) => {
-                            (lhs_val.llvm_val, rhs_ty_annotation.clone())
+                            (lhs_val.llvm_val, rhs_ty_name.clone())
                         }
                         (Type::Ref { referent_type }, Type::Ptr { pointee_type }) => {
                             if *referent_type == *pointee_type {
@@ -1318,7 +1314,7 @@ impl ModuleBuilder {
                                     "".to_cstring().as_ptr(),
                                 )
                             },
-                            rhs_ty_annotation.clone(),
+                            rhs_ty_name.clone(),
                         ),
                         (Type::Float { .. }, Type::Int { signed, .. }) => (
                             unsafe {
@@ -1338,7 +1334,7 @@ impl ModuleBuilder {
                                     )
                                 }
                             },
-                            rhs_ty_annotation.clone(),
+                            rhs_ty_name.clone(),
                         ),
                         (Type::Int { signed, .. }, Type::Float { .. }) => (
                             unsafe {
@@ -1358,7 +1354,7 @@ impl ModuleBuilder {
                                     )
                                 }
                             },
-                            rhs_ty_annotation.clone(),
+                            rhs_ty_name.clone(),
                         ),
                         (Type::Int { signed, .. }, Type::Ptr { .. }) => (
                             unsafe {
@@ -1372,7 +1368,7 @@ impl ModuleBuilder {
                                     "".to_cstring().as_ptr(),
                                 )
                             },
-                            rhs_ty_annotation.clone(),
+                            rhs_ty_name.clone(),
                         ),
                         _ => todo!(),
                     }
@@ -1415,7 +1411,7 @@ impl ModuleBuilder {
             }
         } else if let Some(fn_decl) = self.get_fn_decl(path.ident.to_string()) {
             if let NodeKind::Fn { params, ret_ty, .. } = &fn_decl.1.kind {
-                let substitutions: Vec<(Rc<TypeAnnotation>, Rc<TypeAnnotation>)> = fn_decl
+                let substitutions: Vec<(Rc<TypeName>, Rc<TypeName>)> = fn_decl
                     .0
                     .generics
                     .iter()
@@ -1428,7 +1424,7 @@ impl ModuleBuilder {
                 } else {
                     ret_ty.clone()
                 };
-                let mut concrete_param_tys: Vec<Rc<TypeAnnotation>> = vec![];
+                let mut concrete_param_tys: Vec<Rc<TypeName>> = vec![];
                 let concrete_params: Vec<FnParam> = params
                     .iter()
                     .map(|param| {
@@ -1455,7 +1451,7 @@ impl ModuleBuilder {
                     local_type_env.insert_local(fn_decl.0.generics[i].clone(), ty.clone());
                 }
 
-                self.set_up_function(
+                self.setup_function(
                     env.clone(),
                     local_type_env.into(),
                     &path.to_string(),
@@ -1515,7 +1511,7 @@ impl ModuleBuilder {
         };
 
         Val {
-            ty: TypeAnnotation::Array {
+            ty: TypeName::Array {
                 element_type: elem_ty.clone(),
             }
             .into(),
@@ -1535,8 +1531,8 @@ impl ModuleBuilder {
         };
 
         Val {
-            ty: TypeAnnotation::Array {
-                element_type: TypeAnnotation::simple_from_name("u8"),
+            ty: TypeName::Array {
+                element_type: TypeName::simple_from_name("u8"),
             }
             .into(),
             llvm_val,
@@ -1554,8 +1550,8 @@ impl ModuleBuilder {
             NodeKind::NullPtr => {
                 Val {
                     // TODO type
-                    ty: TypeAnnotation::Ptr {
-                        pointee_type: TypeAnnotation::simple_from_name("void"),
+                    ty: TypeName::Ptr {
+                        pointee_type: TypeName::simple_from_name("void"),
                     }
                     .into(),
                     llvm_val: unsafe { LLVMConstPointerNull(LLVMPointerType(LLVMVoidType(), 0)) },
@@ -1567,7 +1563,7 @@ impl ModuleBuilder {
                 let llvm_val = LLVMConstInt(LLVMInt32Type(), *value, 0);
 
                 Val {
-                    ty: TypeAnnotation::simple_from_name("u32"),
+                    ty: TypeName::simple_from_name("u32"),
                     llvm_val,
                 }
             },
@@ -1575,7 +1571,7 @@ impl ModuleBuilder {
                 let llvm_val = LLVMConstReal(LLVMFloatType(), *value);
 
                 Val {
-                    ty: TypeAnnotation::simple_from_name("f32"),
+                    ty: TypeName::simple_from_name("f32"),
                     llvm_val,
                 }
             },
@@ -1583,7 +1579,7 @@ impl ModuleBuilder {
                 let llvm_val = LLVMConstInt(LLVMInt1Type(), if *value { 1 } else { 0 }, 0);
 
                 Val {
-                    ty: TypeAnnotation::simple_from_name("bool"),
+                    ty: TypeName::simple_from_name("bool"),
                     llvm_val,
                 }
             },
@@ -1591,7 +1587,7 @@ impl ModuleBuilder {
                 let llvm_val = LLVMConstInt(LLVMInt8Type(), **value as u64, 0);
 
                 Val {
-                    ty: TypeAnnotation::simple_from_name("u8"),
+                    ty: TypeName::simple_from_name("u8"),
                     llvm_val,
                 }
             },
@@ -1623,7 +1619,7 @@ impl ModuleBuilder {
                     if let NodeKind::Fn { params, ret_ty, .. } = &fn_decl.1.kind {
                         let local_type_env = TypeEnv::make_child(type_env.clone());
 
-                        self.set_up_function(
+                        self.setup_function(
                             env.clone(),
                             local_type_env.into(),
                             name,
@@ -1648,7 +1644,7 @@ impl ModuleBuilder {
             } => {
                 if &**ident == "size_of" {
                     assert!(generics.len() == 1);
-                    let ty_usize = TypeAnnotation::simple_from_name("u32"); // TODO usize
+                    let ty_usize = TypeName::simple_from_name("u32"); // TODO usize
                     Val {
                         ty: ty_usize.clone(),
                         llvm_val: unsafe {
@@ -1679,7 +1675,7 @@ impl ModuleBuilder {
                 // TODO in (for instance) let ... = T {...}, alloca and load here are redundant
 
                 if let Some(ty @ Type::Struct { field_indices, .. }) =
-                    type_env.get(&TypeAnnotation::Simple {
+                    type_env.get(&TypeName::Simple {
                         ident: path.ident.clone(),
                         type_args: path.generics.clone(),
                     })
@@ -1752,7 +1748,7 @@ impl ModuleBuilder {
                     };
 
                     Val {
-                        ty: TypeAnnotation::simple_from_name(&path.to_string()),
+                        ty: TypeName::simple_from_name(&path.to_string()),
                         llvm_val,
                     }
                 } else {
@@ -1774,20 +1770,20 @@ impl ModuleBuilder {
                 };
 
                 Val {
-                    ty: TypeAnnotation::simple_from_name("void"),
+                    ty: TypeName::simple_from_name("void"),
                     llvm_val,
                 }
             }
             NodeKind::Let {
-                ty: type_annotation,
+                ty: type_name,
                 lhs,
                 rhs,
             } => unsafe {
                 // TODO alloca the var and let assign do the rest?
                 if let NodeKind::Ident { name } = &lhs.kind {
-                    let var_ty = match type_env.get(type_annotation) {
+                    let var_ty = match type_env.get(type_name) {
                         t @ Some(_) => t,
-                        None => panic!("unknown type {}", type_annotation),
+                        None => panic!("unknown type {}", type_name),
                     };
 
                     let func = self.env.get_func(&self.current_func_ident.clone().unwrap());
@@ -1820,7 +1816,7 @@ impl ModuleBuilder {
                     let reg = LLVMBuildAlloca(self.builder, llvm_ty, "".to_cstring().as_ptr());
                     LLVMPositionBuilderAtEnd(self.builder, bb_current);
 
-                    env.insert_var(name, reg, type_annotation.clone());
+                    env.insert_var(name, reg, type_name.clone());
 
                     if let Some(val) = rhs_val {
                         LLVMBuildStore(self.builder, val.llvm_val, reg);
@@ -1828,7 +1824,7 @@ impl ModuleBuilder {
 
                     // TODO llvm_val or val should be optional
                     Val {
-                        ty: TypeAnnotation::simple_from_name(""),
+                        ty: TypeName::simple_from_name(""),
                         llvm_val: LLVMConstInt(LLVMInt1Type(), 0, 0),
                     }
                 } else {
@@ -1871,7 +1867,7 @@ impl ModuleBuilder {
 
                     LLVMPositionBuilderAtEnd(self.builder, bb_exit);
                     Val {
-                        ty: TypeAnnotation::simple_from_name("void"),
+                        ty: TypeName::simple_from_name("void"),
                         llvm_val: cond,
                     }
                 } else {
@@ -1911,7 +1907,7 @@ impl ModuleBuilder {
                     self.continue_block = None;
 
                     Val {
-                        ty: TypeAnnotation::simple_from_name("void"),
+                        ty: TypeName::simple_from_name("void"),
                         llvm_val: null_mut(),
                     }
                 } else {
@@ -1967,7 +1963,7 @@ impl ModuleBuilder {
                     unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_exit) };
 
                     Val {
-                        ty: TypeAnnotation::simple_from_name("void"),
+                        ty: TypeName::simple_from_name("void"),
                         llvm_val: null_mut(),
                     }
                 } else {
@@ -1982,7 +1978,7 @@ impl ModuleBuilder {
                 }
 
                 Val {
-                    ty: TypeAnnotation::simple_from_name("void"),
+                    ty: TypeName::simple_from_name("void"),
                     llvm_val: null_mut(),
                 }
             }
@@ -1994,7 +1990,7 @@ impl ModuleBuilder {
                 }
 
                 Val {
-                    ty: TypeAnnotation::simple_from_name("void"),
+                    ty: TypeName::simple_from_name("void"),
                     llvm_val: null_mut(),
                 }
             }
@@ -2026,13 +2022,13 @@ impl ModuleBuilder {
         returns
     }
 
-    fn set_up_function(
+    fn setup_function(
         &mut self,
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
         ident: &str,
         params: Rc<[FnParam]>,
-        ret_ty: Rc<TypeAnnotation>,
+        ret_ty: Rc<TypeName>,
         is_extern: bool,
         _linkage: Option<Rc<str>>,
         node: Option<NodeRef>,
@@ -2043,7 +2039,7 @@ impl ModuleBuilder {
             None => panic!("unresolved type {} setting up fn {}", ret_ty, ident),
         };
 
-        let mut param_types: Vec<Rc<TypeAnnotation>> = Vec::new();
+        let mut param_types: Vec<Rc<TypeName>> = Vec::new();
         let mut llvm_param_types: Vec<LLVMTypeRef> = Vec::new();
         for param in params.iter() {
             if let Some(ty) = type_env.get(&param.ty()) {
@@ -2091,7 +2087,7 @@ impl ModuleBuilder {
         self.env.insert_func(
             ident,
             Func {
-                ty: TypeAnnotation::Fn {
+                ty: TypeName::Fn {
                     params: param_types.clone().into(),
                     return_type: ret_ty.clone(),
                 }
@@ -2109,7 +2105,7 @@ impl ModuleBuilder {
         self.fns_to_build.push(ident.to_owned());
 
         Val {
-            ty: TypeAnnotation::Fn {
+            ty: TypeName::Fn {
                 params: param_types.into(),
                 return_type: ret_ty.clone(),
             }
@@ -2176,14 +2172,14 @@ impl ModuleBuilder {
         for node in &*self.ast {
             match &node.kind {
                 NodeKind::Const {
-                    ty: type_annotation,
+                    ty: type_name,
                     lhs,
                     rhs,
                 } => {
                     if let NodeKind::Ident { name } = &lhs.kind {
-                        let ty = match self.type_env.get(type_annotation) {
+                        let ty = match self.type_env.get(type_name) {
                             Some(t) => t,
-                            None => panic!("unknown type {}", type_annotation),
+                            None => panic!("unknown type {}", type_name),
                         };
 
                         // TODO type checking and missing types
@@ -2197,7 +2193,7 @@ impl ModuleBuilder {
                                 unsafe {
                                     LLVMConstInt(llvm_type(ty, self.type_env.clone()), *value, 0)
                                 },
-                                type_annotation.clone(),
+                                type_name.clone(),
                             );
                         } else {
                             unimplemented!()
@@ -2214,13 +2210,13 @@ impl ModuleBuilder {
                     ..
                 } => {
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
-                    let mut field_types: Vec<Rc<TypeAnnotation>> = Vec::new();
+                    let mut field_types: Vec<Rc<TypeName>> = Vec::new();
                     for (idx, field) in fields.iter().enumerate() {
                         field_types.push(field.ty.clone());
                         field_indices.insert(field.ident.to_string(), idx);
                     }
 
-                    let name = Rc::from(TypeAnnotation::Simple {
+                    let name = Rc::from(TypeName::Simple {
                         ident: ident.clone(),
                         type_args: [].into(),
                     });
@@ -2250,7 +2246,7 @@ impl ModuleBuilder {
                     );
 
                     if &**ident == "main" {
-                        self.push_fn_specialization(
+                        self.push_fn_spec(
                             PathSegment {
                                 ident: "main".into(),
                                 generics: [].as_slice().into(),
@@ -2272,7 +2268,7 @@ impl ModuleBuilder {
                         } = &node.kind
                         {
                             let fn_ident = ty.strip_generics().to_string() + "::" + ident.as_ref();
-                            let mut generics: Vec<Rc<TypeAnnotation>> = impl_generics.to_vec();
+                            let mut generics: Vec<Rc<TypeName>> = impl_generics.to_vec();
                             generics.append(&mut fn_generics.to_vec());
 
                             println!("registering fn decl {}", fn_ident);
@@ -2296,7 +2292,6 @@ impl ModuleBuilder {
         while let Some((spec, node)) = self.get_fn_specializations().pop_front() {
             if let NodeKind::Fn { params, ret_ty, .. } = &node.kind {
                 println!("setting up fn {}\nspecs:", spec.ident);
-                assert_eq!(spec.generics.len(), spec.generics.len());
                 println!("{}", spec);
                 let type_env = TypeEnv::make_child(self.type_env.clone());
                 for (ty_param, ty_arg) in spec.generics.iter().zip(spec.generics.iter()) {
@@ -2305,7 +2300,7 @@ impl ModuleBuilder {
                         type_env.get(ty_arg).unwrap().clone(),
                     );
                 }
-                self.set_up_function(
+                self.setup_function(
                     self.env.clone(),
                     type_env.into(),
                     &spec.to_string(),
@@ -2331,7 +2326,7 @@ impl ModuleBuilder {
                             ..
                         } = &stmt.kind
                         {
-                            self.set_up_function(
+                            self.setup_function(
                                 self.env.clone(),
                                 self.type_env.clone(),
                                 ident,

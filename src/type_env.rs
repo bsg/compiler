@@ -1,6 +1,6 @@
 use std::{cell::UnsafeCell, collections::HashMap, rc::Rc};
 
-use crate::ast::TypeAnnotation;
+use crate::ast::TypeName;
 
 // TODO attach id and llvm type to the variants
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -16,25 +16,25 @@ pub enum Type {
         width: usize,
     },
     Ptr {
-        pointee_type: Rc<TypeAnnotation>,
+        pointee_type: Rc<TypeName>,
     },
     Ref {
-        referent_type: Rc<TypeAnnotation>,
+        referent_type: Rc<TypeName>,
     },
     Struct {
-        name: Rc<TypeAnnotation>,
+        name: Rc<TypeName>,
         field_indices: HashMap<String, usize>,
-        field_types: Vec<Rc<TypeAnnotation>>,
-        type_params: Rc<[Rc<TypeAnnotation>]>,
+        field_types: Vec<Rc<TypeName>>,
+        type_params: Rc<[Rc<TypeName>]>,
         attributes: Option<Rc<[Rc<str>]>>,
     },
     Array {
-        elem_type: Rc<TypeAnnotation>,
+        elem_type: Rc<TypeName>,
         len: usize,
     },
     Fn {
-        params: Vec<Rc<TypeAnnotation>>,
-        ret_type: Rc<TypeAnnotation>,
+        params: Vec<Rc<TypeName>>,
+        ret_type: Rc<TypeName>,
     },
 }
 
@@ -71,7 +71,7 @@ impl Type {
 
 pub struct TypeEnv {
     parent: Option<Rc<TypeEnv>>,
-    types: UnsafeCell<HashMap<Rc<TypeAnnotation>, Type>>,
+    types: UnsafeCell<HashMap<Rc<TypeName>, Type>>,
 }
 
 impl TypeEnv {
@@ -89,7 +89,7 @@ impl TypeEnv {
         }
     }
 
-    pub fn insert(&self, type_annotation: Rc<TypeAnnotation>, ty: Type) {
+    pub fn insert(&self, type_annotation: Rc<TypeName>, ty: Type) {
         if let Some(parent) = &self.parent {
             parent.insert(type_annotation, ty);
         } else {
@@ -97,11 +97,11 @@ impl TypeEnv {
         }
     }
 
-    pub fn insert_local(&self, type_annotation: Rc<TypeAnnotation>, ty: Type) {
+    pub fn insert_local(&self, type_annotation: Rc<TypeName>, ty: Type) {
         (unsafe { &mut *self.types.get() }).insert(type_annotation, ty);
     }
 
-    pub fn get(&self, type_annotation: &TypeAnnotation) -> Option<&Type> {
+    pub fn get(&self, type_annotation: &TypeName) -> Option<&Type> {
         match (unsafe { &*self.types.get() }).get(type_annotation) {
             ty @ Some(_) => ty,
             None => {
@@ -109,7 +109,7 @@ impl TypeEnv {
                     parent.get(type_annotation)
                 } else {
                     match type_annotation {
-                        TypeAnnotation::Ref { referent_type } => {
+                        TypeName::Ref { referent_type } => {
                             self.insert(
                                 type_annotation.clone().into(),
                                 Type::Ref {
@@ -119,7 +119,7 @@ impl TypeEnv {
 
                             return self.get(type_annotation);
                         }
-                        TypeAnnotation::Ptr { pointee_type } => {
+                        TypeName::Ptr { pointee_type } => {
                             self.insert(
                                 type_annotation.clone().into(),
                                 Type::Ptr {
@@ -129,7 +129,7 @@ impl TypeEnv {
 
                             return self.get(type_annotation);
                         }
-                        TypeAnnotation::Slice { element_type, len } => {
+                        TypeName::Slice { element_type, len } => {
                             self.insert(
                                 type_annotation.clone().into(),
                                 Type::Array {
@@ -140,7 +140,7 @@ impl TypeEnv {
 
                             return self.get(type_annotation);
                         }
-                        TypeAnnotation::Fn {
+                        TypeName::Fn {
                             params,
                             return_type,
                         } => {
@@ -172,8 +172,8 @@ impl TypeEnv {
                                             ..
                                         } => {
                                             let type_substitutions: Vec<(
-                                                Rc<TypeAnnotation>,
-                                                Rc<TypeAnnotation>,
+                                                Rc<TypeName>,
+                                                Rc<TypeName>,
                                             )> = type_params
                                                 .iter()
                                                 .zip(type_annotation.type_args().iter())
@@ -230,13 +230,13 @@ mod tests {
     fn register_and_lookup() {
         let env = TypeEnv::new();
 
-        let type_param = Rc::new(TypeAnnotation::Simple {
+        let type_param = Rc::new(TypeName::Simple {
             ident: "T".into(),
             type_args: [].into(),
         });
 
         env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "Foo".into(),
                 type_args: [type_param.clone()].into(),
             }
@@ -245,7 +245,7 @@ mod tests {
         );
 
         assert_eq!(
-            env.get(&TypeAnnotation::Simple {
+            env.get(&TypeName::Simple {
                 ident: "Foo".into(),
                 type_args: [type_param.clone()].into()
             })
@@ -261,7 +261,7 @@ mod tests {
         let env = TypeEnv::new();
 
         env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "bool".into(),
                 type_args: [].into(),
             }
@@ -270,8 +270,8 @@ mod tests {
         );
 
         assert_eq!(
-            env.get(&TypeAnnotation::Ref {
-                referent_type: TypeAnnotation::simple_from_name("bool")
+            env.get(&TypeName::Ref {
+                referent_type: TypeName::simple_from_name("bool")
             })
             .unwrap()
             .name()
@@ -280,8 +280,8 @@ mod tests {
         );
 
         assert_eq!(
-            env.get(&TypeAnnotation::Ptr {
-                pointee_type: TypeAnnotation::simple_from_name("bool")
+            env.get(&TypeName::Ptr {
+                pointee_type: TypeName::simple_from_name("bool")
             })
             .unwrap()
             .name()
@@ -294,19 +294,19 @@ mod tests {
     fn monomorphization_1() {
         let env = TypeEnv::new();
 
-        let type_param = Rc::new(TypeAnnotation::Simple {
+        let type_param = Rc::new(TypeName::Simple {
             ident: "T".into(),
             type_args: [].into(),
         });
 
         env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "Foo".into(),
                 type_args: [].into(),
             }
             .into(),
             Type::Struct {
-                name: TypeAnnotation::simple_from_name("Foo"),
+                name: TypeName::simple_from_name("Foo"),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
                 field_types: [type_param.clone()].into(),
                 type_params: [type_param].into(),
@@ -314,13 +314,13 @@ mod tests {
             },
         );
 
-        let type_arg = Rc::new(TypeAnnotation::Simple {
+        let type_arg = Rc::new(TypeName::Simple {
             ident: "u32".into(),
             type_args: [].into(),
         });
 
         let monomorph = env
-            .get(&TypeAnnotation::Simple {
+            .get(&TypeName::Simple {
                 ident: "Foo".into(),
                 type_args: [type_arg.clone()].into(),
             })
@@ -338,24 +338,24 @@ mod tests {
     fn monomorphization_2() {
         let env = TypeEnv::new();
 
-        let type_param = Rc::new(TypeAnnotation::Simple {
+        let type_param = Rc::new(TypeName::Simple {
             ident: "T".into(),
             type_args: [].into(),
         });
 
-        let field_type = Rc::new(TypeAnnotation::Simple {
+        let field_type = Rc::new(TypeName::Simple {
             ident: "Bar".into(),
             type_args: [type_param.clone()].into(),
         });
 
         env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "Foo".into(),
                 type_args: [].into(),
             }
             .into(),
             Type::Struct {
-                name: TypeAnnotation::simple_from_name("Foo"),
+                name: TypeName::simple_from_name("Foo"),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
                 field_types: [field_type.clone()].into(),
                 type_params: [type_param].into(),
@@ -363,13 +363,13 @@ mod tests {
             },
         );
 
-        let type_arg = Rc::new(TypeAnnotation::Simple {
+        let type_arg = Rc::new(TypeName::Simple {
             ident: "u32".into(),
             type_args: [].into(),
         });
 
         let monomorph = env
-            .get(&TypeAnnotation::Simple {
+            .get(&TypeName::Simple {
                 ident: "Foo".into(),
                 type_args: [type_arg.clone()].into(),
             })
@@ -387,26 +387,26 @@ mod tests {
     fn monomorphization_3() {
         let env = TypeEnv::new();
 
-        let type_param = Rc::new(TypeAnnotation::Simple {
+        let type_param = Rc::new(TypeName::Simple {
             ident: "T".into(),
             type_args: [].into(),
         });
 
-        let field_type = Rc::new(TypeAnnotation::Ptr {
-            pointee_type: Rc::new(TypeAnnotation::Simple {
+        let field_type = Rc::new(TypeName::Ptr {
+            pointee_type: Rc::new(TypeName::Simple {
                 ident: "Bar".into(),
                 type_args: [type_param.clone()].into(),
             }),
         });
 
         env.insert(
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident: "Foo".into(),
                 type_args: [].into(),
             }
             .into(),
             Type::Struct {
-                name: TypeAnnotation::simple_from_name("Foo"),
+                name: TypeName::simple_from_name("Foo"),
                 field_indices: [("inner".to_string(), 0usize)].iter().cloned().collect(),
                 field_types: [field_type.clone()].into(),
                 type_params: [type_param].into(),
@@ -414,7 +414,7 @@ mod tests {
             },
         );
 
-        let type_arg = Rc::new(TypeAnnotation::Simple {
+        let type_arg = Rc::new(TypeName::Simple {
             ident: "u32".into(),
             type_args: [].into(),
         });
@@ -422,7 +422,7 @@ mod tests {
         let env = TypeEnv::make_child(env.into());
 
         let monomorph = env
-            .get(&TypeAnnotation::Simple {
+            .get(&TypeName::Simple {
                 ident: "Foo".into(),
                 type_args: [type_arg.clone()].into(),
             })

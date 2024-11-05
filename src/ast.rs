@@ -136,10 +136,7 @@ pub type NodeRef = Rc<Node>;
 pub enum FnParam {
     SelfByVal,
     SelfByRef,
-    Pair {
-        ident: Rc<str>,
-        ty: Rc<TypeAnnotation>,
-    },
+    Pair { ident: Rc<str>, ty: Rc<TypeName> },
 }
 
 impl FnParam {
@@ -151,10 +148,10 @@ impl FnParam {
         }
     }
 
-    pub fn ty(&self) -> Rc<TypeAnnotation> {
+    pub fn ty(&self) -> Rc<TypeName> {
         match self {
-            FnParam::SelfByVal => TypeAnnotation::SelfByVal.into(),
-            FnParam::SelfByRef => TypeAnnotation::SelfByRef.into(),
+            FnParam::SelfByVal => TypeName::SelfByVal.into(),
+            FnParam::SelfByRef => TypeName::SelfByRef.into(),
             FnParam::Pair { ty, .. } => ty.clone(),
         }
     }
@@ -163,7 +160,7 @@ impl FnParam {
 #[derive(PartialEq, Clone)]
 pub struct StructField {
     pub ident: Rc<str>,
-    pub ty: Rc<TypeAnnotation>,
+    pub ty: Rc<TypeName>,
 }
 
 #[derive(PartialEq, Clone)]
@@ -179,88 +176,85 @@ pub struct MatchArm {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub enum TypeAnnotation {
+pub enum TypeName {
     Simple {
         // TODO rename
         ident: Rc<str>,
-        type_args: Rc<[Rc<TypeAnnotation>]>,
+        type_args: Rc<[Rc<TypeName>]>,
     },
     Fn {
-        params: Rc<[Rc<TypeAnnotation>]>,
-        return_type: Rc<TypeAnnotation>,
+        params: Rc<[Rc<TypeName>]>,
+        return_type: Rc<TypeName>,
     },
     Ptr {
-        pointee_type: Rc<TypeAnnotation>,
+        pointee_type: Rc<TypeName>,
     },
     Ref {
-        referent_type: Rc<TypeAnnotation>,
+        referent_type: Rc<TypeName>,
     },
     Array {
-        element_type: Rc<TypeAnnotation>,
+        element_type: Rc<TypeName>,
     },
     Slice {
-        element_type: Rc<TypeAnnotation>,
+        element_type: Rc<TypeName>,
         len: usize,
     },
     SelfByVal,
     SelfByRef,
 }
 
-impl TypeAnnotation {
+impl TypeName {
     pub fn is_generic(&self) -> bool {
         match self {
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 type_args: generics,
                 ..
             } => generics.len() > 0,
-            TypeAnnotation::Ptr {
+            TypeName::Ptr {
                 pointee_type: pointee_ty,
             } => pointee_ty.is_generic(),
-            TypeAnnotation::Ref {
+            TypeName::Ref {
                 referent_type: referent_ty,
             } => referent_ty.is_generic(),
             _ => false, // TODO
         }
     }
 
-    pub fn type_args(&self) -> Rc<[Rc<TypeAnnotation>]> {
+    pub fn type_args(&self) -> Rc<[Rc<TypeName>]> {
         match self {
-            TypeAnnotation::Simple { type_args, .. } => type_args.clone(),
-            TypeAnnotation::Ptr { pointee_type } => pointee_type.type_args(),
-            TypeAnnotation::Ref { referent_type } => referent_type.type_args(),
+            TypeName::Simple { type_args, .. } => type_args.clone(),
+            TypeName::Ptr { pointee_type } => pointee_type.type_args(),
+            TypeName::Ref { referent_type } => referent_type.type_args(),
             _ => todo!(),
         }
     }
 
     pub fn strip_generics(&self) -> Rc<Self> {
         Rc::new(match self {
-            TypeAnnotation::Simple { ident, .. } => TypeAnnotation::Simple {
+            TypeName::Simple { ident, .. } => TypeName::Simple {
                 ident: ident.clone(),
                 type_args: [].into(),
             },
-            TypeAnnotation::Ptr { pointee_type } => TypeAnnotation::Ptr {
+            TypeName::Ptr { pointee_type } => TypeName::Ptr {
                 pointee_type: pointee_type.strip_generics(),
             },
-            TypeAnnotation::Ref { referent_type } => TypeAnnotation::Ref {
+            TypeName::Ref { referent_type } => TypeName::Ref {
                 referent_type: referent_type.strip_generics(),
             },
             _ => todo!(),
         })
     }
 
-    pub fn substitute(
-        &self,
-        substitutions: &[(Rc<TypeAnnotation>, Rc<TypeAnnotation>)],
-    ) -> Rc<Self> {
+    pub fn substitute(&self, substitutions: &[(Rc<TypeName>, Rc<TypeName>)]) -> Rc<Self> {
         match self {
-            TypeAnnotation::Simple { ident, type_args } => {
+            TypeName::Simple { ident, type_args } => {
                 for substitution in substitutions {
                     if substitution.0 == self.strip_generics() {
                         return substitution.1.clone();
                     }
                 }
 
-                let new_type_args: Vec<Rc<TypeAnnotation>> = type_args
+                let new_type_args: Vec<Rc<TypeName>> = type_args
                     .iter()
                     .map(|arg| {
                         let mut new_arg = arg.clone();
@@ -273,28 +267,28 @@ impl TypeAnnotation {
                     })
                     .collect();
 
-                Rc::new(TypeAnnotation::Simple {
+                Rc::new(TypeName::Simple {
                     ident: ident.clone(),
                     type_args: new_type_args.into(),
                 })
             }
-            TypeAnnotation::Ptr { pointee_type } => TypeAnnotation::Ptr {
+            TypeName::Ptr { pointee_type } => TypeName::Ptr {
                 pointee_type: pointee_type.substitute(substitutions),
             }
             .into(),
-            TypeAnnotation::Ref { referent_type } => TypeAnnotation::Ref {
+            TypeName::Ref { referent_type } => TypeName::Ref {
                 referent_type: referent_type.substitute(substitutions),
             }
             .into(),
-            TypeAnnotation::Fn {
+            TypeName::Fn {
                 params,
                 return_type,
             } => {
                 let params = params
                     .iter()
                     .map(|param| param.substitute(substitutions))
-                    .collect::<Vec<Rc<TypeAnnotation>>>();
-                TypeAnnotation::Fn {
+                    .collect::<Vec<Rc<TypeName>>>();
+                TypeName::Fn {
                     params: params.into(),
                     return_type: return_type.substitute(substitutions),
                 }
@@ -304,34 +298,34 @@ impl TypeAnnotation {
         }
     }
 
-    pub fn to_ref_type(&self) -> Rc<TypeAnnotation> {
-        Rc::new(TypeAnnotation::Ref {
+    pub fn to_ref_type(&self) -> Rc<TypeName> {
+        Rc::new(TypeName::Ref {
             referent_type: self.clone().into(),
         })
     }
 
-    pub fn deref_type(&self) -> Rc<TypeAnnotation> {
+    pub fn deref_type(&self) -> Rc<TypeName> {
         match self {
-            TypeAnnotation::Ptr { pointee_type } => pointee_type.clone(),
-            TypeAnnotation::Ref { referent_type } => referent_type.clone(),
+            TypeName::Ptr { pointee_type } => pointee_type.clone(),
+            TypeName::Ref { referent_type } => referent_type.clone(),
             ty => ty.clone().into(),
         }
     }
 }
 
-impl TypeAnnotation {
+impl TypeName {
     pub fn simple_from_name(name: &str) -> Rc<Self> {
-        Rc::new(TypeAnnotation::Simple {
+        Rc::new(TypeName::Simple {
             ident: name.to_string().into(),
             type_args: [].into(),
         })
     }
 }
 
-impl fmt::Display for TypeAnnotation {
+impl fmt::Display for TypeName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TypeAnnotation::Simple {
+            TypeName::Simple {
                 ident,
                 type_args: generics,
             } => f.write_fmt(format_args!(
@@ -350,7 +344,7 @@ impl fmt::Display for TypeAnnotation {
                     String::new()
                 }
             )),
-            TypeAnnotation::Fn {
+            TypeName::Fn {
                 params,
                 return_type: ret_ty,
             } => f.write_fmt(format_args!(
@@ -362,21 +356,21 @@ impl fmt::Display for TypeAnnotation {
                     .join(","),
                 ret_ty
             )),
-            TypeAnnotation::Ptr {
+            TypeName::Ptr {
                 pointee_type: pointee_ty,
             } => f.write_fmt(format_args!("*{}", pointee_ty)),
-            TypeAnnotation::Ref {
+            TypeName::Ref {
                 referent_type: referent_ty,
             } => f.write_fmt(format_args!("&{}", referent_ty)),
-            TypeAnnotation::Array {
+            TypeName::Array {
                 element_type: elem_ty,
             } => f.write_fmt(format_args!("[{}]", elem_ty)),
-            TypeAnnotation::Slice {
+            TypeName::Slice {
                 element_type: elem_ty,
                 len,
             } => f.write_fmt(format_args!("[{}; {}]", elem_ty, len)),
-            TypeAnnotation::SelfByVal => f.write_str("Self"),
-            TypeAnnotation::SelfByRef => f.write_str("&Self"),
+            TypeName::SelfByVal => f.write_str("Self"),
+            TypeName::SelfByRef => f.write_str("&Self"),
         }
     }
 }
@@ -384,7 +378,7 @@ impl fmt::Display for TypeAnnotation {
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct PathSegment {
     pub ident: Rc<str>, // TODO this should be a TypeAnnotation + Module union
-    pub generics: Rc<[Rc<TypeAnnotation>]>,
+    pub generics: Rc<[Rc<TypeName>]>,
 }
 
 impl fmt::Display for PathSegment {
@@ -414,7 +408,7 @@ pub enum NodeKind {
     },
     // TODO temporary. make the paths work properly
     Type {
-        ty: Rc<TypeAnnotation>,
+        ty: Rc<TypeName>,
     },
     Path {
         // TODO full path
@@ -445,13 +439,13 @@ pub enum NodeKind {
         rhs: NodeRef,
     },
     Let {
-        ty: Rc<TypeAnnotation>,
+        ty: Rc<TypeName>,
         lhs: NodeRef,
         rhs: Option<NodeRef>,
     },
     // TODO could be merged with let as 'binding'
     Const {
-        ty: Rc<TypeAnnotation>,
+        ty: Rc<TypeName>,
         lhs: NodeRef,
         rhs: Option<NodeRef>,
     },
@@ -473,8 +467,8 @@ pub enum NodeKind {
     Fn {
         ident: Rc<str>,
         params: Rc<[FnParam]>,
-        ret_ty: Rc<TypeAnnotation>,
-        generics: Rc<[Rc<TypeAnnotation>]>,
+        ret_ty: Rc<TypeName>,
+        generics: Rc<[Rc<TypeName>]>,
         is_extern: bool,
         linkage: Option<Rc<str>>,
         body: Option<NodeRef>,
@@ -486,13 +480,13 @@ pub enum NodeKind {
     Struct {
         ident: Rc<str>,
         fields: Rc<[StructField]>,
-        generics: Rc<[Rc<TypeAnnotation>]>, // TODO BoundedTy or something
+        generics: Rc<[Rc<TypeName>]>, // TODO BoundedTy or something
         attributes: Option<Rc<[Rc<str>]>>,
     },
     Impl {
-        ty: Rc<TypeAnnotation>,
+        ty: Rc<TypeName>,
         methods: Rc<[NodeRef]>,
-        generics: Rc<[Rc<TypeAnnotation>]>,
+        generics: Rc<[Rc<TypeName>]>,
     },
     Array {
         elems: Rc<[NodeRef]>,
