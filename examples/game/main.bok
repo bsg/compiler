@@ -183,7 +183,7 @@ fn rand_range(lower: u32, upper: u32) -> u32 {
 
 fn itoa(n: u32, buf: *u8) {
     // FIXME the reason this exists is that the += overwrites the passed in ptr
-    
+    // make an exception for this in op-assign. will need to overwrite Var with the op result instead
     let buf: *u8 = buf;
 
     if n == 0 {
