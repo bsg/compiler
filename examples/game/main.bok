@@ -182,10 +182,14 @@ fn rand_range(lower: u32, upper: u32) -> u32 {
 }
 
 fn itoa(n: u32, buf: *u8) {
+    // FIXME the reason this exists is that the += overwrites the passed in ptr
+    
+    let buf: *u8 = buf;
+
     if n == 0 {
         *buf = '0';
         buf += 1;
-        *buf = 0;
+        *buf = 0 as u8;
     } else {
         let divisor: u32 = 1000000000;
 
@@ -571,8 +575,6 @@ fn main(argc: u32) -> u32 {
         // Render score
         let score_buf: [u8; 16];
         itoa(ctx.score, &score_buf);
-        // FIXME something here got fucked possibly after the LLVM IR emit refactor
-        // if you substitute a string literal in place of &score_buf, it works
         let surface_text: *SDL_Surface = TTF_RenderText_Solid(ctx.font, &score_buf, 0xFFFFFFFF);
         let tex_score: *SDL_Texture = SDL_CreateTextureFromSurface(ctx.renderer, surface_text);
         let w: u32;
