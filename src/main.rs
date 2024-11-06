@@ -20,8 +20,10 @@ use llvm_sys::target_machine::*;
 #[command()]
 struct Args {
     path: Option<String>,
-    #[clap(long, short, action)]
+    #[clap(long, action)]
     ast: bool,
+    #[clap(long, action)]
+    asm: bool,
 }
 
 fn main() {
@@ -54,11 +56,13 @@ fn main() {
     let mut module = codegen::ModuleBuilder::new("main", ast);
     module.build();
 
-    unsafe { LLVMVerifyModule(
-        module.get_llvm_module_ref(),
-        llvm_sys::analysis::LLVMVerifierFailureAction::LLVMPrintMessageAction,
-        null_mut(),
-    ) };
+    unsafe {
+        LLVMVerifyModule(
+            module.get_llvm_module_ref(),
+            llvm_sys::analysis::LLVMVerifierFailureAction::LLVMPrintMessageAction,
+            null_mut(),
+        )
+    };
 
     unsafe {
         LLVMPrintModuleToFile(
@@ -89,10 +93,14 @@ fn main() {
         let res = LLVMTargetMachineEmitToFile(
             machine,
             module.get_llvm_module_ref(),
-            core::ffi::CStr::from_bytes_with_nul(b"main.o\0")
+            core::ffi::CStr::from_bytes_with_nul(if args.asm { b"main.s\0" } else { b"main.o\0" })
                 .unwrap()
                 .as_ptr() as *mut i8,
-            LLVMCodeGenFileType::LLVMObjectFile,
+            if args.asm {
+                LLVMCodeGenFileType::LLVMAssemblyFile
+            } else {
+                LLVMCodeGenFileType::LLVMObjectFile
+            },
             &mut err,
         );
 
