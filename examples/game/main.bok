@@ -53,6 +53,15 @@ const SDL_QUIT:               u32 = 0x100;
 const SDL_KEYDOWN:            u32 = 0x300;
 const SDL_KEYUP:              u32 = 0x301;
 
+struct SDL_RendererInfo {
+    name: *u8;                   // The name of the renderer
+    flags: u32;                  // Supported SDL_RendererFlags
+    num_texture_formats: u32;    // The number of available texture formats
+    texture_formats: [u32; 16];  // The available texture formats
+    max_texture_width: i32;      // The maximum texture width
+    max_texture_height: i32;     // The maximum texture height
+}
+
 struct SDL_Keysym {
     scancode: u32;
     sym: u32;
@@ -123,6 +132,7 @@ extern "C" {
     fn random() -> u32;
     fn gettimeofday(tv: *timeval_t, tz: *timezone_t) -> u32;
     fn SDL_Init(flags: u32) -> i32;
+    fn SDL_SetHint(name: *u8, value: *u8) -> u32;
     fn SDL_CreateWindow(title: *u8, x: u32, y: u32, w: u32, h: u32, flags: u32) -> *SDL_Window;
     fn SDL_PollEvent(ev: *u32) -> u32;
     fn SDL_GetWindowSurface(window: *u8) -> *SDL_Surface;
@@ -130,6 +140,7 @@ extern "C" {
     fn SDL_GetError() -> *u8;
     fn SDL_ClearError();
     fn SDL_CreateRenderer(window: *SDL_Window, index: i32, flags: u32) -> *SDL_Renderer;
+    fn SDL_GetRendererInfo(renderer: *SDL_Renderer, info: &SDL_RendererInfo) -> i32;
     fn SDL_RenderCopy(renderer: *SDL_Renderer, texture: *SDL_Texture, srcrect: *SDL_Rect, dstrect: *SDL_Rect) -> u32;
     fn SDL_CreateTextureFromSurface(renderer: *SDL_Renderer, surface: *SDL_Surface) -> *SDL_Texture;
     fn SDL_FreeSurface(surface: *SDL_Surface);
@@ -138,6 +149,8 @@ extern "C" {
     fn SDL_Delay(ms: u32);
     fn SDL_RenderClear(renderer: *SDL_Renderer) -> u32;
     fn SDL_QueryTexture(texture: *SDL_Texture, format: *u32, access: *u32, w: *u32, h: *u32) -> u32;
+    fn SDL_GL_SetAttribute(attr: u32, value: i32) -> i32;
+    fn SDL_GL_CreateContext(window: *SDL_Window) -> *u8;
     fn IMG_Init(flags: i32) -> i32;
     fn IMG_Load(file: *u8) -> *SDL_Surface;
     fn TTF_Init() -> u32;
@@ -366,7 +379,11 @@ struct GameContext {
 const BULLET_SPEED: u32 = 6;
 
 fn main(argc: u32) -> u32 {
+    puts("schüt");
+
     let ctx: GameContext = GameContext {window_w: 400, window_h: 600, score: 0};
+
+    SDL_SetHint("SDL_HINT_RENDER_DRIVER", "opengl");
 
     if SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 as i32 {
         abort(SDL_GetError());
@@ -384,14 +401,26 @@ fn main(argc: u32) -> u32 {
         abort(SDL_GetError());
     }
 
-    let window: *SDL_Window = SDL_CreateWindow("gaem", 800, 400, ctx.window_w, ctx.window_h, 4);
+    let window: *SDL_Window = SDL_CreateWindow("gaem", 800, 400, ctx.window_w, ctx.window_h, 4); // 4 = SDL_WINDOW_SHOWN
     sdl_nullcheck::<SDL_Window>(window);
 
-    ctx.renderer = SDL_CreateRenderer(window, -1, 1);
+    // FIXME sdl still won't use opengl...
+    SDL_GL_SetAttribute(17, 4); // SDL_GL_CONTEXT_MAJOR_VERSION
+    SDL_GL_SetAttribute(18, 1); // SDL_GL_CONTEXT_MINOR_VERSION
+    SDL_GL_SetAttribute(21, 1); // SDL_GL_CONTEXT_PROFILE_MASK
+    SDL_GL_SetAttribute(13, 1); // SDL_GL_MULTISAMPLEBUFFERS
+    SDL_GL_SetAttribute(14, 4); // SDL_GL_MULTISAMPLESAMPLES
+    SDL_GL_SetAttribute(6, 24); // SDL_GL_DEPTH_SIZE
+    SDL_GL_SetAttribute(5, 1); // SDL_GL_DOUBLEBUFFER
+    sdl_nullcheck::<u8>(SDL_GL_CreateContext(window));
+
+    ctx.renderer = SDL_CreateRenderer(window, -1, 2); // 2 = SDL_RENDERER_ACCELERATED
     sdl_nullcheck::<SDL_Renderer>(ctx.renderer);
 
-    let surface: *SDL_Surface = SDL_GetWindowSurface(window);
-    sdl_nullcheck::<SDL_Surface>(surface);
+    let renderer_info: SDL_RendererInfo;
+    SDL_GetRendererInfo(ctx.renderer, &renderer_info);
+    puts("Renderer: ");
+    puts(renderer_info.name);
 
     let img: *SDL_Surface = IMG_Load("spritesheet.png");
     sdl_nullcheck::<SDL_Surface>(img);
@@ -540,9 +569,11 @@ fn main(argc: u32) -> u32 {
         ctx.enemy_spawn_cooldown = 80 - ctx.score / 10;
 
         // Render score
-        let buf: [u8; 16];
-        itoa(ctx.score, &buf);
-        let surface_text: *SDL_Surface = TTF_RenderText_Solid(ctx.font, &buf, 0xFFFFFFFF);
+        let score_buf: [u8; 16];
+        itoa(ctx.score, &score_buf);
+        // FIXME something here got fucked possibly after the LLVM IR emit refactor
+        // if you substitute a string literal in place of &score_buf, it works
+        let surface_text: *SDL_Surface = TTF_RenderText_Solid(ctx.font, &score_buf, 0xFFFFFFFF);
         let tex_score: *SDL_Texture = SDL_CreateTextureFromSurface(ctx.renderer, surface_text);
         let w: u32;
         let h: u32;
