@@ -591,9 +591,9 @@ fn main(argc: u32) -> u32 {
         gettimeofday(&frame_end_time, nullptr);
         let frame_time_ms: u32 = (frame_end_time.tv_usec - frame_start_time.tv_usec) as u32 / 1000;
         // TODO saturating sub
-        if frame_time_ms < 16 {
-            SDL_Delay(16 - frame_time_ms);
-        }
+        // if frame_time_ms < 16 {
+        //     SDL_Delay(16 - frame_time_ms);
+        // }
     }
 
     return 0;
