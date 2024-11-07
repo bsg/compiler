@@ -1,4 +1,4 @@
 game
-main.o
-out.ll
+*.o
+*.ll
 *.s

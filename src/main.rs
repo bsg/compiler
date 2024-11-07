@@ -15,6 +15,7 @@ mod type_env;
 
 use llvm_sys::core::*;
 use llvm_sys::target_machine::*;
+use llvm_sys::transforms::pass_builder::{LLVMCreatePassBuilderOptions, LLVMRunPasses};
 
 #[derive(Parser)]
 #[command()]
@@ -82,9 +83,20 @@ fn main() {
             triple,
             cpu,
             LLVMGetHostCPUFeatures(),
-            LLVMCodeGenOptLevel::LLVMCodeGenLevelAggressive,
+            LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault,
             LLVMRelocMode::LLVMRelocDefault,
             LLVMCodeModel::LLVMCodeModelDefault,
+        )
+    };
+
+    unsafe {
+        LLVMRunPasses(
+            module.get_llvm_module_ref(),
+            core::ffi::CStr::from_bytes_with_nul(b"default<O3>\0")
+                .unwrap()
+                .as_ptr() as *mut i8,
+            machine,
+            LLVMCreatePassBuilderOptions(),
         )
     };
 
@@ -107,6 +119,14 @@ fn main() {
         if res == 1 {
             panic!("{:?}", core::ffi::CStr::from_ptr(err));
         }
+
+        LLVMPrintModuleToFile(
+            module.get_llvm_module_ref(),
+            core::ffi::CStr::from_bytes_with_nul(b"out.opt.ll\0")
+                .unwrap()
+                .as_ptr(),
+            core::ptr::null_mut(),
+        )
     };
 
     unsafe { LLVMDisposeMessage(triple) };

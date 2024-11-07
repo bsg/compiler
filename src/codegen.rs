@@ -2104,24 +2104,7 @@ impl ModuleBuilder {
         if let (Some(bb_entry), Some(bb_body)) = (func.bb_entry, func.bb_body) {
             self.current_func_ident = Some(ident.clone());
             unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_entry) };
-
-            let nonlazybind = "nonlazybind".to_cstring();
-            let attr_nonlazybind = unsafe { LLVMCreateEnumAttribute(
-                LLVMGetModuleContext(self.llvm_module),
-                LLVMGetEnumAttributeKindForName(nonlazybind.as_ptr(), nonlazybind.count_bytes()),
-                0,
-            ) };
-
-            let nounwind = "nounwind".to_cstring();
-            let attr_nounwind = unsafe { LLVMCreateEnumAttribute(
-                LLVMGetModuleContext(self.llvm_module),
-                LLVMGetEnumAttributeKindForName(nounwind.as_ptr(), nounwind.count_bytes()),
-                0,
-            ) };
-
-            unsafe { LLVMAddAttributeAtIndex(func.val, u32::MAX, attr_nonlazybind) };
-            unsafe { LLVMAddAttributeAtIndex(func.val, u32::MAX, attr_nounwind) };
-
+            
             for (i, param) in params.iter().enumerate() {
                 func.env.insert_const(
                     &param.ident(),
