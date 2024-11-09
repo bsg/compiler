@@ -1405,7 +1405,7 @@ impl ModuleBuilder {
                 let concrete_params: Vec<FnParam> = params
                     .iter()
                     .map(|param| {
-                        if let FnParam::Pair { ident, ty } = param {
+                        if let FnParam::Pair { ident, ty, mutable } = param {
                             let new_ty = if path.generics.len() > 0 {
                                 ty.substitute(&substitutions)
                             } else {
@@ -1415,6 +1415,7 @@ impl ModuleBuilder {
                             FnParam::Pair {
                                 ident: ident.clone(),
                                 ty: new_ty,
+                                mutable: *mutable,
                             }
                         } else {
                             param.clone()
@@ -1755,6 +1756,7 @@ impl ModuleBuilder {
                 ty: type_name,
                 lhs,
                 rhs,
+                ..
             } => unsafe {
                 // TODO alloca the var and let assign do the rest?
                 if let NodeKind::Ident { name } = &lhs.kind {
@@ -2104,7 +2106,7 @@ impl ModuleBuilder {
         if let (Some(bb_entry), Some(bb_body)) = (func.bb_entry, func.bb_body) {
             self.current_func_ident = Some(ident.clone());
             unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_entry) };
-            
+
             for (i, param) in params.iter().enumerate() {
                 func.env.insert_const(
                     &param.ident(),

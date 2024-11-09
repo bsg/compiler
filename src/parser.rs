@@ -287,11 +287,22 @@ impl Parser {
             self.next_token();
 
             loop {
+                let mut mutable = false;
+                if let TokenKind::Ident(param_ident) = &self.curr_token.clone().kind {
+                    if &**param_ident == "mut" {
+                        mutable = true;
+                        self.next_token();
+                    }
+                }
+
                 match &self.curr_token.clone().kind {
                     TokenKind::Ident(param_ident) => {
                         if &**param_ident == "self" {
-                            params.push(FnParam::SelfByVal);
-
+                            if mutable {
+                                params.push(FnParam::SelfByValMut);
+                            } else {
+                                params.push(FnParam::SelfByVal);
+                            }
                             self.next_token();
                         } else {
                             self.next_token();
@@ -302,6 +313,7 @@ impl Parser {
                                 params.push(FnParam::Pair {
                                     ident: param_ident.clone(),
                                     ty,
+                                    mutable,
                                 });
                             } else {
                                 todo!()
@@ -311,7 +323,11 @@ impl Parser {
                     TokenKind::Amp => {
                         if let TokenKind::Ident(ident) = &self.peek_token.kind {
                             if &**ident == "self" {
-                                params.push(FnParam::SelfByRef);
+                                if mutable {
+                                    params.push(FnParam::SelfByRefMut);
+                                } else {
+                                    params.push(FnParam::SelfByRef);
+                                }
                             } else {
                                 todo!()
                             }
@@ -571,13 +587,38 @@ impl Parser {
     }
 
     fn parse_let_or_const(&mut self, is_const: bool) -> Option<NodeRef> {
+        let mut mutable = false;
         let start_span = self.curr_token.span.clone();
         self.next_token(); // eat 'let' / 'const'
 
-        let lhs = if let Some(ident) = self.parse_ident() {
+        let mut lhs = if let Some(ident) = self.parse_ident() {
             ident
         } else {
             todo!()
+        };
+
+        if let ident @ Node {
+            kind: NodeKind::Ident { name },
+            ..
+        } = &*lhs
+        {
+            if **name == *"mut" {
+                mutable = true;
+                self.next_token();
+            }
+            ident
+        } else {
+            todo!()
+        };
+
+        lhs = if mutable {
+            if let Some(ident) = self.parse_ident() {
+                ident
+            } else {
+                todo!()
+            }
+        } else {
+            lhs
         };
 
         self.next_token();
@@ -606,7 +647,12 @@ impl Parser {
         let kind = if is_const {
             NodeKind::Const { ty, lhs, rhs }
         } else {
-            NodeKind::Let { ty, lhs, rhs }
+            NodeKind::Let {
+                ty,
+                lhs,
+                rhs,
+                mutable,
+            }
         };
 
         Some(

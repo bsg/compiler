@@ -136,7 +136,9 @@ pub type NodeRef = Rc<Node>;
 pub enum FnParam {
     SelfByVal,
     SelfByRef,
-    Pair { ident: Rc<str>, ty: Rc<TypeName> },
+    SelfByValMut,
+    SelfByRefMut,
+    Pair { ident: Rc<str>, ty: Rc<TypeName>, mutable: bool },
 }
 
 impl FnParam {
@@ -144,6 +146,8 @@ impl FnParam {
         match self {
             FnParam::SelfByVal => "self".into(),
             FnParam::SelfByRef => "self".into(),
+            FnParam::SelfByValMut => "self".into(),
+            FnParam::SelfByRefMut => "self".into(),
             FnParam::Pair { ident, .. } => ident.clone(),
         }
     }
@@ -152,6 +156,8 @@ impl FnParam {
         match self {
             FnParam::SelfByVal => TypeName::SelfByVal.into(),
             FnParam::SelfByRef => TypeName::SelfByRef.into(),
+            FnParam::SelfByValMut => TypeName::SelfByVal.into(),
+            FnParam::SelfByRefMut => TypeName::SelfByRef.into(),
             FnParam::Pair { ty, .. } => ty.clone(),
         }
     }
@@ -185,7 +191,7 @@ pub enum TypeName {
     Fn {
         params: Rc<[Rc<TypeName>]>,
         return_type: Rc<TypeName>,
-    },
+    }, 
     Ptr {
         pointee_type: Rc<TypeName>,
     },
@@ -442,6 +448,7 @@ pub enum NodeKind {
         ty: Rc<TypeName>,
         lhs: NodeRef,
         rhs: Option<NodeRef>,
+        mutable: bool,
     },
     // TODO could be merged with let as 'binding'
     Const {
@@ -548,7 +555,7 @@ impl fmt::Debug for Node {
                         fmt_with_indent(rhs, indent_level + 1, true)
                     )
                 }
-                NodeKind::Let { ty, lhs, rhs } => {
+                NodeKind::Let { ty, lhs, rhs, .. } => {
                     format!(
                         "let {}{}{}",
                         ty,
