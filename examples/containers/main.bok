@@ -1,0 +1,115 @@
+extern "C" {
+    fn malloc(size: u32) -> *u8;
+    fn realloc(ptr: *u8, new_size: u32) -> *u8;
+    fn memcpy(dest: *u8, src: *u8, n: u32) -> *u8;
+    fn free(ptr: *u8);
+    fn puts(s: *i8) -> i32;
+}
+
+fn itoa(n: u32, buf: *u8) {
+    let buf: *u8 = buf;
+
+    if n == 0 {
+        *buf = '0';
+        buf += 1;
+        *buf = 0 as u8;
+    } else {
+        let divisor: u32 = 1000000000;
+
+        while n / divisor == 0 {
+            divisor /= 10;
+        }
+
+        divisor *= 10;
+
+        while divisor != 1 {
+            *buf = ((n % divisor) / divisor / 10 + 48);
+            divisor /= 10;
+            buf += 1;
+        }
+
+        *buf = 0;
+    }
+}
+
+fn puti<u32>(n: u32) {
+    let buf: [u8; 16];
+    itoa(n, &buf);
+    puts(&buf);
+}
+
+struct Vector<T> {
+    ptr: *T;
+    cap: u32;
+    len: u32;
+}
+
+impl<T> Vector<T> {
+    fn new() -> Vector<T> {
+        return Vector::<T> {
+            ptr: malloc(size_of::<T>()),
+            cap: 1,
+            len: 0
+        };
+    }
+
+    fn push(&self, item: T) {
+        if self.len < self.cap {
+            memcpy(self.ptr + self.len, &item, size_of::<T>());
+            self.len += 1;
+        } else {
+            self.cap *= 2;
+            realloc(self.ptr, size_of::<T>() * self.cap);
+            self.push(item);
+        }
+    }
+
+    fn get(&self, idx: u32) -> &T {
+        return self.ptr + idx;
+    }
+
+    fn pop(&self) -> T {
+        self.len -= 1;
+        return *(self.ptr + self.len);
+    }
+
+    fn print_all(&self) {
+        let i: u32 = 0;
+        while(i < self.len) {
+            puti::<u32>(*(self.ptr + i));
+            i += 1;
+        }
+    }
+
+    fn iter(&self) -> VectorIter<T> {
+        return VectorIter::<T> {
+            vector: self,
+            cursor: 0
+        };
+    }
+}
+
+struct VectorIter<T> {
+    vector: &Vector<T>;
+    cursor: u32;
+}
+
+impl<T> VectorIter<T> {
+    fn next(&self) -> &T {
+        let ref: &T = self.vector.get(self.cursor);
+        self.cursor += 1;
+        return ref;
+    }
+}
+
+fn main() {
+    let mut v: Vector<u32> = Vector::new::<u32>();
+    v.push(11);
+    v.push(222);
+    v.push(3333);
+    v.print_all();
+    
+    let iter: VectorIter<u32> = v.iter();
+    puti(*iter.next());
+    puti(*iter.next());
+}

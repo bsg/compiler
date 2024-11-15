@@ -27,7 +27,7 @@
 			},
             {
 				"name": "keyword.other.bok",
-				"match": "\\b(fn|let|struct|enum|impl|self|Self|as|extern|const|sizeof)\\b"
+				"match": "\\b(fn|let|struct|enum|impl|self|Self|as|extern|const|sizeof|mut)\\b"
 			},
             {
 				"name": "support.type.bok",

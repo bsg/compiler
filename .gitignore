@@ -4,6 +4,6 @@ flamegraph.svg
 .DS_Store
 .VSCodeCounter
 out
-out.ll
+*.ll
 ast.txt
 *.o
