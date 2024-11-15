@@ -995,7 +995,7 @@ impl Parser {
                             if let TokenKind::Ident(field_name) = self.curr_token.clone().kind {
                                 field_name
                             } else {
-                                println!("{:?}", lhs);
+                                println!("{:?} {}", lhs, span_start);
                                 todo!();
                             };
 

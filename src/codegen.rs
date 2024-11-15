@@ -10,6 +10,7 @@
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
+use llvm_sys::LLVMTypeKind;
 use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::collections::LinkedList;
@@ -390,7 +391,7 @@ impl ModuleBuilder {
         { unsafe { &mut *self.fn_specs.get() } }.push_back((path_segment, node));
     }
 
-    fn get_fn_specializations(&mut self) -> &mut LinkedList<(PathSegment, NodeRef)> {
+    fn get_fn_specs(&mut self) -> &mut LinkedList<(PathSegment, NodeRef)> {
         unsafe { &mut *self.fn_specs.get() }
     }
 
@@ -436,10 +437,24 @@ impl ModuleBuilder {
             match op {
                 Op::Ref => {
                     let val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true);
+                    let ty = type_env.get(&val.ty).unwrap();
+                    let llvm_ty = llvm_type(ty, type_env.clone());
+
+                    let ptr = if unsafe { LLVMGetTypeKind(LLVMTypeOf(val.llvm_val)) } == LLVMTypeKind::LLVMPointerTypeKind
+                    {
+                        val.llvm_val
+                    } else {
+                        // TODO this is potentially wasteful
+                        let ptr = unsafe {
+                            LLVMBuildAlloca(self.builder, llvm_ty, "".to_cstring().as_ptr())
+                        };
+                        unsafe { LLVMBuildStore(self.builder, val.llvm_val, ptr) };
+                        ptr
+                    };
 
                     Val {
                         ty: val.ty.to_ref_type(),
-                        llvm_val: val.llvm_val,
+                        llvm_val: ptr,
                     }
                 }
                 Op::Deref => self.build_deref(env, type_env, rhs.clone(), as_lvalue),
@@ -1070,7 +1085,7 @@ impl ModuleBuilder {
                             NodeKind::Ident { name } => {
                                 let field_idx = match field_indices.get(&**name) {
                                     Some(idx) => idx,
-                                    None => panic!("{}\nno member {}", op_span, name),
+                                    None => panic!("no member '{}' on type {}\n{}", name, struct_name, op_span),
                                 };
                                 let llvm_val = if as_lvalue {
                                     LLVMBuildStructGEP2(
@@ -2252,7 +2267,8 @@ impl ModuleBuilder {
     }
 
     fn set_up_fns(&mut self) {
-        while let Some((spec, node)) = self.get_fn_specializations().pop_front() {
+        // TODO only "main" ends up here. push it into fns_to_build instead
+        while let Some((spec, node)) = self.get_fn_specs().pop_front() {
             if let NodeKind::Fn { params, ret_ty, .. } = &node.kind {
                 println!("setting up fn {}\nspecs:", spec.ident);
                 println!("{}", spec);
