@@ -416,7 +416,7 @@ impl ModuleBuilder {
             } else {
                 LLVMBuildLoad2(
                     self.builder,
-                    llvm_type(type_env.get(&ty).unwrap(), type_env.clone()),
+                    LLVMInt32Type(),
                     val.llvm_val,
                     "".to_cstring().as_ptr(),
                 )
@@ -440,7 +440,8 @@ impl ModuleBuilder {
                     let ty = type_env.get(&val.ty).unwrap();
                     let llvm_ty = llvm_type(ty, type_env.clone());
 
-                    let ptr = if unsafe { LLVMGetTypeKind(LLVMTypeOf(val.llvm_val)) } == LLVMTypeKind::LLVMPointerTypeKind
+                    let ptr = if unsafe { LLVMGetTypeKind(LLVMTypeOf(val.llvm_val)) }
+                        == LLVMTypeKind::LLVMPointerTypeKind
                     {
                         val.llvm_val
                     } else {
@@ -1046,8 +1047,7 @@ impl ModuleBuilder {
                     (null_mut(), TypeName::simple_from_name("void"))
                 },
                 Op::Dot => unsafe {
-                    let lhs_val =
-                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), as_lvalue);
+                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
                     let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
 
                     match &lhs_ty.clone() {
@@ -1085,29 +1085,47 @@ impl ModuleBuilder {
                             NodeKind::Ident { name } => {
                                 let field_idx = match field_indices.get(&**name) {
                                     Some(idx) => idx,
-                                    None => panic!("no member '{}' on type {}\n{}", name, struct_name, op_span),
-                                };
-                                let llvm_val = if as_lvalue {
-                                    LLVMBuildStructGEP2(
-                                        self.builder,
-                                        llvm_type(
-                                            type_env.get(&lhs_val.ty).unwrap(),
-                                            type_env.clone(),
-                                        ),
-                                        lhs_val.llvm_val,
-                                        *field_idx as u32,
-                                        "".to_cstring().as_ptr(),
-                                    )
-                                } else {
-                                    LLVMBuildExtractValue(
-                                        self.builder,
-                                        lhs_val.llvm_val,
-                                        *field_idx as u32,
-                                        "".to_cstring().as_ptr(),
-                                    )
+                                    None => panic!(
+                                        "no member '{}' on type {}\n{}",
+                                        name, struct_name, op_span
+                                    ),
                                 };
 
-                                (llvm_val, field_types[*field_idx].clone())
+                                let field_ty =
+                                    if let Some(ty) = type_env.get(&field_types[*field_idx]) {
+                                        ty
+                                    } else {
+                                        panic!(
+                                            "unresolved type {} accessing {} in struct {}\n{}",
+                                            &field_types[*field_idx], name, struct_name, op_span
+                                        );
+                                    };
+                                let ptr = LLVMBuildStructGEP2(
+                                    self.builder,
+                                    llvm_type(lhs_ty, type_env.clone()),
+                                    lhs_val.llvm_val,
+                                    *field_idx as u32,
+                                    "".to_cstring().as_ptr(),
+                                );
+
+                                if as_lvalue {
+                                    (ptr, field_types[*field_idx].clone())
+                                } else {
+                                    let llvm_ty = if let Type::Fn { .. } = field_ty {
+                                        LLVMPointerType(llvm_type(field_ty, type_env.clone()), 0)
+                                    } else {
+                                        llvm_type(field_ty, type_env.clone())
+                                    };
+                                    (
+                                        LLVMBuildLoad2(
+                                            self.builder,
+                                            llvm_ty,
+                                            ptr,
+                                            "".to_cstring().as_ptr(),
+                                        ),
+                                        field_types[*field_idx].clone(),
+                                    )
+                                }
                             }
                             NodeKind::Call {
                                 path: PathSegment { ident, generics },
@@ -1255,8 +1273,7 @@ impl ModuleBuilder {
                     _ => todo!(),
                 },
                 Op::Cast => {
-                    let lhs_val =
-                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), as_lvalue);
+                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
                     let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
                     let rhs_ty_name = if let NodeKind::Type { ty } = &rhs.kind {
                         ty
@@ -1283,6 +1300,9 @@ impl ModuleBuilder {
                             } else {
                                 todo!()
                             }
+                        }
+                        (Type::Struct { .. }, Type::Struct { name, .. }) => {
+                            (lhs_val.llvm_val, name.clone())
                         }
                         (
                             Type::Int { .. },
@@ -1397,7 +1417,15 @@ impl ModuleBuilder {
             (func.llvm_type, func.val, func.ret_type.clone())
         } else if let Some(var) = env.get_var(&path.to_string()) {
             if let ty @ Type::Fn { ret_type, .. } = type_env.get(&var.ty).unwrap() {
-                (llvm_type(ty, type_env.clone()), var.val, ret_type.clone())
+                let llvm_val = unsafe {
+                    LLVMBuildLoad2(
+                        self.builder,
+                        LLVMPointerType(llvm_type(ty, type_env.clone()), 0),
+                        var.val,
+                        "".to_cstring().as_ptr(),
+                    )
+                };
+                (llvm_type(ty, type_env.clone()), llvm_val, ret_type.clone())
             } else {
                 todo!()
             }
@@ -2123,11 +2151,25 @@ impl ModuleBuilder {
             unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_entry) };
 
             for (i, param) in params.iter().enumerate() {
-                func.env.insert_const(
-                    &param.ident(),
-                    unsafe { LLVMGetParam(func.val, i.try_into().unwrap()) },
-                    param.ty(),
-                );
+                let ty = match type_env.get(&param.ty()) {
+                    Some(ty) => ty,
+                    None => panic!("unresolved type {}", param.ty()),
+                };
+                let llvm_ty = if let Type::Fn { .. } = ty {
+                    unsafe { LLVMPointerType(llvm_type(ty, type_env.clone()), 0) }
+                } else {
+                    llvm_type(ty, type_env.clone())
+                };
+                let param_ptr =
+                    unsafe { LLVMBuildAlloca(self.builder, llvm_ty, "".to_cstring().as_ptr()) };
+                unsafe {
+                    LLVMBuildStore(
+                        self.builder,
+                        LLVMGetParam(func.val, i.try_into().unwrap()),
+                        param_ptr,
+                    )
+                };
+                func.env.insert_var(&param.ident(), param_ptr, param.ty());
             }
 
             unsafe { LLVMPositionBuilderAtEnd(self.builder, bb_body) };

@@ -59,6 +59,10 @@ impl<T> A<T> {
 //     }
 // }
 
+fn poop(i: &u32) {
+    i += 1; // FIXME
+}
+
 fn main(argc: u32) -> u32 {
     let b: B<u32> = B::<u32>{inner: make_a(42)};
     let a: A<u32> = b_inner::<u32>(&b);
@@ -69,8 +73,11 @@ fn main(argc: u32) -> u32 {
     // TODO do we wanna transform the ast such that this becomes C::foo::<u32>(&c, 42); ?
     c.foo::<u32>(42);
     c.get_inner();
+
+    let n: u32 = 1;
+    poop(&n);
     
-    return a.inner();
+    return n;
 
     // FIXME this one codegens garbage
     // return b_inner::<u32>(b).inner;
