@@ -60,7 +60,7 @@ impl<T> A<T> {
 // }
 
 fn poop(i: &u32) {
-    i += 1; // FIXME
+    i += i + 1; // FIXME
 }
 
 fn main(argc: u32) -> u32 {

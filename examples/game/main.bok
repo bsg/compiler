@@ -644,7 +644,7 @@ fn update_and_render_enemy(idx: u32, ctx: &GameContext, enemy: &Enemy) {
 fn update_and_render_bullet(idx: u32, ctx: &GameContext, bullet: &Bullet) {
     let sprite: Sprite = Sprite {tile_x: 2, tile_y: 0, tile_w: 1, tile_h: 1};
 
-    (*ctx).spritesheet.draw_tile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
+    ctx.spritesheet.draw_tile(ctx.renderer, &sprite, &SDL_Rect {x: bullet.pos.x, y: bullet.pos.y, w: 32, h: 32});
 
     bullet.pos.y -= BULLET_SPEED;
     if bullet.pos.y < 0 as i32 {
