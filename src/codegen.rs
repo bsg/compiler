@@ -416,7 +416,7 @@ impl ModuleBuilder {
             } else {
                 LLVMBuildLoad2(
                     self.builder,
-                    LLVMInt32Type(),
+                    llvm_type(type_env.get(&ty).unwrap(), type_env.clone()),
                     val.llvm_val,
                     "".to_cstring().as_ptr(),
                 )
