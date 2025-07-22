@@ -5,8 +5,8 @@
 // FIXME top level consts will not resolve aggregate types on account of type not being available when the const is being generated
 // TODO llvm type aliases for aggregate types
 // TODO Scope!
-// FIXME pointer arithmetic and deref are fucked
 // TODO generic param bindings should be aliases, not newtypes
+// TODO confirm pointer arithmetic works
 
 use llvm_sys::core::*;
 use llvm_sys::prelude::*;
@@ -436,9 +436,15 @@ impl ModuleBuilder {
         if let NodeKind::UnOp { op, rhs } = &node.kind {
             match op {
                 Op::Ref => {
-                    let val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true);
-                    let ty = type_env.get(&val.ty).unwrap();
+                    let mut val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true);
+                    let mut ty = type_env.get(&val.ty).unwrap();
                     let llvm_ty = llvm_type(ty, type_env.clone());
+
+                    // FIXME BAD
+                    if let Type::Ref { .. } = ty {
+                        val = self.build_deref(env.clone(), type_env.clone(), rhs.clone(), false);
+                        ty = type_env.get(&val.ty).unwrap();
+                    }
 
                     let ptr = if unsafe { LLVMGetTypeKind(LLVMTypeOf(val.llvm_val)) }
                         == LLVMTypeKind::LLVMPointerTypeKind
@@ -499,13 +505,20 @@ impl ModuleBuilder {
             let op_span = node.span.clone();
             let (llvm_val, ty) = match op {
                 Op::Add => unsafe {
-                    let lhs_val =
+                    let mut lhs_val =
                         self.build_expr(env.clone(), type_env.clone(), lhs.clone(), false);
                     let rhs_val =
                         self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
 
-                    let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    let mut lhs_ty = type_env.get(&lhs_val.ty).unwrap();
                     let rhs_ty = type_env.get(&rhs_val.ty).unwrap();
+
+                    // FIXME BAD
+                    if let Type::Ref { .. } = lhs_ty {
+                        lhs_val =
+                            self.build_deref(env.clone(), type_env.clone(), lhs.clone(), false);
+                        lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    }
 
                     match (lhs_ty, rhs_ty) {
                         (Type::Int { .. }, Type::Int { .. }) => (
@@ -997,14 +1010,22 @@ impl ModuleBuilder {
                             )
                         };
                     }
-                    let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
+                    let mut lhs_val =
+                        self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
                     let rhs_val = match op.as_deref() {
                         Some(op) => make_binop!(op.clone(), lhs.clone(), rhs.clone(), op_span),
                         None => self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false),
                     };
 
-                    let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    let mut lhs_ty = type_env.get(&lhs_val.ty).unwrap();
                     let rhs_ty = type_env.get(&rhs_val.ty).unwrap();
+
+                    // FIXME BAD
+                    if let Type::Ref { .. } = lhs_ty {
+                        lhs_val =
+                            self.build_deref(env.clone(), type_env.clone(), lhs.clone(), true);
+                        lhs_ty = type_env.get(&lhs_val.ty).unwrap();
+                    }
 
                     if let (rhs_ty @ Type::Struct { .. }, _lhs_ty @ Type::Struct { .. }) =
                         (lhs_ty, rhs_ty)
@@ -1074,7 +1095,7 @@ impl ModuleBuilder {
                                 }
                                 .into(),
                                 as_lvalue,
-                            )
+                            );
                         }
                         Type::Struct {
                             field_indices,
@@ -1783,17 +1804,20 @@ impl ModuleBuilder {
     fn build_stmt(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, node: NodeRef) -> Val {
         match &node.kind {
             NodeKind::Return { expr: stmt } => {
-                let llvm_val = if let Some(rhs) = &stmt {
+                let (llvm_val, ty) = if let Some(rhs) = &stmt {
                     let v = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
-                    unsafe { LLVMBuildRet(self.builder, v.llvm_val) }
+                    (
+                        unsafe { LLVMBuildRet(self.builder, v.llvm_val) },
+                        v.ty.clone(),
+                    )
                 } else {
-                    unsafe { LLVMBuildRetVoid(self.builder) }
+                    (
+                        unsafe { LLVMBuildRetVoid(self.builder) },
+                        TypeName::simple_from_name("void"),
+                    )
                 };
 
-                Val {
-                    ty: TypeName::simple_from_name("void"),
-                    llvm_val,
-                }
+                Val { ty, llvm_val }
             }
             NodeKind::Let {
                 ty: type_name,

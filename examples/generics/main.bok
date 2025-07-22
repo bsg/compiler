@@ -53,19 +53,22 @@ impl<T> A<T> {
     }
 }
 
+// TODO do we want this?
 // impl A<u32> {
-//     fn get_inner(&self) -> u32 {
+//     fn inner(&self) -> u32 {
 //         return 32;
 //     }
 // }
 
 fn poop(i: &u32) {
-    i += i + 1; // FIXME
+    i = 12;
+    i = i + 1;
+    i += 1;
 }
 
 fn main(argc: u32) -> u32 {
     let b: B<u32> = B::<u32>{inner: make_a(42)};
-    let a: A<u32> = b_inner::<u32>(&b);
+    let a: A<u32> = b_inner::<A<u32>>(&b);
 
     C::bar::<u32>(11);
 
@@ -77,8 +80,8 @@ fn main(argc: u32) -> u32 {
     let n: u32 = 1;
     poop(&n);
     
-    return n;
+    // return n;
 
     // FIXME this one codegens garbage
-    // return b_inner::<u32>(b).inner;
+    return b_inner::<A<u32>>(&b).inner;
 }
