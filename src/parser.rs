@@ -180,7 +180,7 @@ impl<'a> Parser<'a> {
                         statements: Rc::from(statements.as_slice()),
                     },
                     span: start_span.merge(&end_span),
-                    ty: None,
+                    ty: NodeType::None,
                 }))
             }
             _ => todo!(),
@@ -216,7 +216,7 @@ impl<'a> Parser<'a> {
                             else_block,
                         },
                         span: start_span.merge(&end_span),
-                        ty: None,
+                        ty: NodeType::None,
                     })),
                     None => todo!(),
                 }
@@ -245,7 +245,7 @@ impl<'a> Parser<'a> {
                             body: while_body,
                         },
                         span: start_span.merge(&end_span),
-                        ty: None,
+                        ty: NodeType::None,
                     })),
                     None => todo!(),
                 }
@@ -374,7 +374,7 @@ impl<'a> Parser<'a> {
                     body,
                 },
                 span: start_span.merge(&end_span),
-                ty: None,
+                ty: NodeType::None,
             }))
         } else {
             todo!()
@@ -426,7 +426,7 @@ impl<'a> Parser<'a> {
                 args: Rc::from(args.as_slice()),
             },
             span: start_span.merge(&end_span),
-            ty: None,
+            ty: NodeType::None,
         }))
     }
 
@@ -450,7 +450,7 @@ impl<'a> Parser<'a> {
                 rhs,
             },
             span: start_span.merge(&end_span),
-            ty: None,
+            ty: NodeType::None,
         }))
     }
 
@@ -532,7 +532,7 @@ impl<'a> Parser<'a> {
                     attributes: None,
                 },
                 span: start_span.merge(&end_span),
-                ty: None,
+                ty: NodeType::None,
             }))
         } else {
             todo!()
@@ -568,7 +568,7 @@ impl<'a> Parser<'a> {
                 elems: elems.as_slice().into(),
             },
             span: start_span.merge(&end_span),
-            ty: None,
+            ty: NodeType::None,
         }))
     }
 
@@ -644,7 +644,7 @@ impl<'a> Parser<'a> {
         Some(self.ctx.push_node(Node {
             kind,
             span: start_span.merge(&end_span),
-            ty: None,
+            ty: NodeType::None,
         }))
     }
 
@@ -706,7 +706,7 @@ impl<'a> Parser<'a> {
                 generics: generics.into(),
             },
             span: start_span.merge(&end_span),
-            ty: None,
+            ty: NodeType::None,
         }))
     }
 
@@ -715,7 +715,7 @@ impl<'a> Parser<'a> {
             TokenKind::Ident(name) => Some(self.ctx.push_node(Node {
                 kind: NodeKind::Ident { name: name.clone() },
                 span: self.curr_token.span.clone(),
-                ty: None,
+                ty: NodeType::None,
             })),
             _ => todo!(),
         }
@@ -728,7 +728,7 @@ impl<'a> Parser<'a> {
             TokenKind::NullPtr => self.ctx.push_node(Node {
                 kind: NodeKind::NullPtr,
                 span: self.curr_token.span.clone(),
-                ty: None,
+                ty: NodeType::None,
             }),
             TokenKind::Int(s) => {
                 let mut radix = 10;
@@ -748,7 +748,7 @@ impl<'a> Parser<'a> {
                 self.ctx.push_node(Node {
                     kind: NodeKind::Int { value },
                     span: self.curr_token.span.clone(),
-                    ty: None,
+                    ty: NodeType::None,
                 })
             }
             TokenKind::Float(s) => {
@@ -760,29 +760,29 @@ impl<'a> Parser<'a> {
                 self.ctx.push_node(Node {
                     kind: NodeKind::Float { value },
                     span: self.curr_token.span.clone(),
-                    ty: None,
+                    ty: NodeType::None,
                 })
             }
             TokenKind::Str(s) => self.ctx.push_node(Node {
                 kind: NodeKind::Str { value: s.clone() },
                 span: self.curr_token.span.clone(),
-                ty: None,
+                ty: NodeType::None,
             }),
             TokenKind::Char(c) => self.ctx.push_node(Node {
                 kind: NodeKind::Char { value: c.clone() },
                 span: self.curr_token.span.clone(),
-                ty: None,
+                ty: NodeType::None,
             }),
             TokenKind::Ident(_) => self.parse_ident()?, // TODO return Path?
             TokenKind::True => self.ctx.push_node(Node {
                 kind: NodeKind::Bool { value: true },
                 span: self.curr_token.span.clone(),
-                ty: None,
+                ty: NodeType::None,
             }),
             TokenKind::False => self.ctx.push_node(Node {
                 kind: NodeKind::Bool { value: false },
                 span: self.curr_token.span.clone(),
-                ty: None,
+                ty: NodeType::None,
             }),
             TokenKind::Minus => {
                 let start_span = self.curr_token.span.clone();
@@ -793,7 +793,7 @@ impl<'a> Parser<'a> {
                         rhs: self.parse_expression(Op::precedence(&Op::Neg))?,
                     },
                     span: start_span.merge(&self.curr_token.span),
-                    ty: None,
+                    ty: NodeType::None,
                 })
             }
             TokenKind::Bang => {
@@ -805,7 +805,7 @@ impl<'a> Parser<'a> {
                         rhs: self.parse_expression(Op::precedence(&Op::Not))?,
                     },
                     span: start_span.merge(&self.curr_token.span),
-                    ty: None,
+                    ty: NodeType::None,
                 })
             }
             TokenKind::LParen => {
@@ -826,7 +826,7 @@ impl<'a> Parser<'a> {
                         rhs: self.parse_expression(Op::precedence(&Op::Ref))?,
                     },
                     span: start_span.merge(&self.curr_token.span),
-                    ty: None,
+                    ty: NodeType::None,
                 })
             }
             TokenKind::Star => {
@@ -838,7 +838,7 @@ impl<'a> Parser<'a> {
                         rhs: self.parse_expression(Op::precedence(&Op::Deref))?,
                     },
                     span: start_span.merge(&self.curr_token.span),
-                    ty: None,
+                    ty: NodeType::None,
                 })
             }
             TokenKind::LBracket => self.parse_array()?,
@@ -913,11 +913,11 @@ impl<'a> Parser<'a> {
                             rhs: self.ctx.push_node(Node {
                                 kind: NodeKind::Type { ty },
                                 span: ty_span_start.merge(&ty_span_end),
-                                ty: None,
+                                ty: NodeType::None,
                             }),
                         },
                         span,
-                        ty: None,
+                        ty: NodeType::None,
                     })
                 }
                 Op::Turbofish => {
@@ -944,7 +944,7 @@ impl<'a> Parser<'a> {
                                 },
                             },
                             span: lhs.span.clone(),
-                            ty: None,
+                            ty: NodeType::None,
                         }),
                         _ => todo!(),
                     }
@@ -1005,7 +1005,7 @@ impl<'a> Parser<'a> {
                             fields: fields.as_slice().into(),
                         },
                         span: span_start.merge(&self.curr_token.span),
-                        ty: None,
+                        ty: NodeType::None,
                     }));
                 }
                 op => {
@@ -1020,7 +1020,7 @@ impl<'a> Parser<'a> {
                     self.ctx.push_node(Node {
                         kind: NodeKind::BinOp { op, lhs, rhs },
                         span,
-                        ty: None,
+                        ty: NodeType::None,
                     })
                 }
             };
@@ -1046,7 +1046,7 @@ impl<'a> Parser<'a> {
                 let r = Some(self.ctx.push_node(Node {
                     kind: NodeKind::Return { expr },
                     span,
-                    ty: None,
+                    ty: NodeType::None,
                 }));
                 self.next_token();
                 r
@@ -1085,7 +1085,7 @@ impl<'a> Parser<'a> {
                             block: self.parse_block()?,
                         },
                         span,
-                        ty: None,
+                        ty: NodeType::None,
                     })),
                     TokenKind::Fn => {
                         expect_semicolon = true;
@@ -1130,7 +1130,7 @@ impl<'a> Parser<'a> {
                                 attributes: Some(attributes.as_slice().into()),
                             },
                             span: span.clone(),
-                            ty: None,
+                            ty: NodeType::None,
                         }))
                     } else {
                         panic!("attributes not supported here")
@@ -1201,7 +1201,7 @@ impl<'a> Parser<'a> {
                         num_cases,
                     },
                     span,
-                    ty: None,
+                    ty: NodeType::None,
                 }))
             }
             TokenKind::Continue => {
@@ -1210,7 +1210,7 @@ impl<'a> Parser<'a> {
                 Some(self.ctx.push_node(Node {
                     kind: NodeKind::Continue,
                     span: self.curr_token.span.clone(),
-                    ty: None,
+                    ty: NodeType::None,
                 }))
             }
             TokenKind::Break => {
@@ -1219,7 +1219,7 @@ impl<'a> Parser<'a> {
                 Some(self.ctx.push_node(Node {
                     kind: NodeKind::Break,
                     span: self.curr_token.span.clone(),
-                    ty: None,
+                    ty: NodeType::None,
                 }))
             }
             _ => {

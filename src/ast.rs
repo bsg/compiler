@@ -6,7 +6,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::CompilationCtx;
+use crate::{type_env::Type, CompilationCtx};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct NodeId {
@@ -543,10 +543,17 @@ pub enum NodeKind {
 }
 
 #[derive(Clone, PartialEq)]
+pub enum NodeType {
+    None,
+    Name(TypeName),
+    Type(Type),
+}
+
+#[derive(Clone, PartialEq)]
 pub struct Node {
     pub kind: NodeKind,
     pub span: Span,
-    pub ty: Option<TypeName>,
+    pub ty: NodeType,
 }
 
 impl Node {

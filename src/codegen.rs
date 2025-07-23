@@ -1007,7 +1007,7 @@ impl<'a> ModuleBuilder<'a> {
                                         rhs: $rhs,
                                     },
                                     span: $span,
-                                    ty: None,
+                                    ty: NodeType::None,
                                 }),
                                 false,
                             )
@@ -1090,12 +1090,12 @@ impl<'a> ModuleBuilder<'a> {
                                                 rhs: lhs.clone(),
                                             },
                                             span: op_span.clone(),
-                                            ty: None,
+                                            ty: NodeType::None,
                                         }),
                                         rhs: rhs.clone(),
                                     },
                                     span: op_span.clone(),
-                                    ty: None,
+                                    ty: NodeType::None,
                                 }),
                                 as_lvalue,
                             );
@@ -1184,7 +1184,7 @@ impl<'a> ModuleBuilder<'a> {
                                                 rhs: lhs.clone(),
                                             },
                                             span: op_span.clone(),
-                                            ty: None,
+                                            ty: NodeType::None,
                                         }),
                                     )
                                 } else {
