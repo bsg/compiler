@@ -21,6 +21,7 @@ use std::rc::Rc;
 use crate::ast::*;
 use crate::type_env::Type;
 use crate::type_env::TypeEnv;
+use crate::CompilationCtx;
 
 trait ToCStr {
     fn to_cstring(self) -> CString;
@@ -145,7 +146,7 @@ pub struct Func {
     // TODO group these two together -- (wtf did I mean here?)
     bb_entry: Option<LLVMBasicBlockRef>,
     bb_body: Option<LLVMBasicBlockRef>,
-    node: Option<NodeRef>,
+    node: Option<NodeId>,
 }
 
 #[derive(Debug)]
@@ -229,8 +230,9 @@ struct Val {
     llvm_val: LLVMValueRef,
 }
 
-pub struct ModuleBuilder {
-    ast: Rc<Vec<NodeRef>>,
+pub struct ModuleBuilder<'a> {
+    ctx: &'a CompilationCtx,
+    ast: Rc<Vec<NodeId>>,
     llvm_module: LLVMModuleRef,
     builder: LLVMBuilderRef,
     type_env: Rc<TypeEnv>,
@@ -238,13 +240,13 @@ pub struct ModuleBuilder {
     current_func_ident: Option<Rc<str>>,
     continue_block: Option<LLVMBasicBlockRef>,
     break_block: Option<LLVMBasicBlockRef>,
-    fn_decls: UnsafeCell<HashMap<String, (PathSegment, NodeRef)>>,
-    fn_specs: UnsafeCell<LinkedList<(PathSegment, NodeRef)>>,
+    fn_decls: UnsafeCell<HashMap<String, (PathSegment, NodeId)>>,
+    fn_specs: UnsafeCell<LinkedList<(PathSegment, NodeId)>>,
     fns_to_build: Vec<String>,
 }
 
-impl ModuleBuilder {
-    pub fn new(name: &str, ast: Vec<NodeRef>) -> Self {
+impl<'a> ModuleBuilder<'a> {
+    pub fn new(ctx: &'a CompilationCtx, name: &str, ast: Vec<NodeId>) -> Self {
         let mod_name = name.to_cstring().as_ptr();
         let llvm_module = unsafe { LLVMModuleCreateWithName(mod_name) };
         let builder = unsafe { LLVMCreateBuilder() };
@@ -364,6 +366,7 @@ impl ModuleBuilder {
         );
 
         Self {
+            ctx,
             ast: Rc::from(ast),
             llvm_module,
             builder,
@@ -378,20 +381,20 @@ impl ModuleBuilder {
         }
     }
 
-    fn push_fn_decl(&self, ident: String, path_segment: PathSegment, node: NodeRef) {
+    fn push_fn_decl(&self, ident: String, path_segment: PathSegment, node: NodeId) {
         unsafe { &mut *self.fn_decls.get() }.insert(ident, (path_segment, node));
     }
 
     // TODO why the fuck does this not take ident by ref? similar shit elsewhere
-    fn get_fn_decl(&self, ident: String) -> Option<&(PathSegment, NodeRef)> {
+    fn get_fn_decl(&self, ident: String) -> Option<&(PathSegment, NodeId)> {
         unsafe { &mut *self.fn_decls.get() }.get(&ident)
     }
 
-    fn push_fn_spec(&self, path_segment: PathSegment, node: NodeRef) {
+    fn push_fn_spec(&self, path_segment: PathSegment, node: NodeId) {
         { unsafe { &mut *self.fn_specs.get() } }.push_back((path_segment, node));
     }
 
-    fn get_fn_specs(&mut self) -> &mut LinkedList<(PathSegment, NodeRef)> {
+    fn get_fn_specs(&mut self) -> &mut LinkedList<(PathSegment, NodeId)> {
         unsafe { &mut *self.fn_specs.get() }
     }
 
@@ -399,7 +402,7 @@ impl ModuleBuilder {
         &mut self,
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
-        node: NodeRef,
+        node: NodeId,
         as_lvalue: bool,
     ) -> Val {
         unsafe {
@@ -430,10 +433,10 @@ impl ModuleBuilder {
         &mut self,
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
-        node: NodeRef,
+        node: NodeId,
         as_lvalue: bool,
     ) -> Val {
-        if let NodeKind::UnOp { op, rhs } = &node.kind {
+        if let NodeKind::UnOp { ref op, rhs } = self.ctx.get_node(node).kind {
             match op {
                 Op::Ref => {
                     let mut val = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true);
@@ -498,11 +501,11 @@ impl ModuleBuilder {
         &mut self,
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
-        node: NodeRef,
+        node: NodeId,
         as_lvalue: bool,
     ) -> Val {
-        if let NodeKind::BinOp { op, lhs, rhs } = &node.kind {
-            let op_span = node.span.clone();
+        if let NodeKind::BinOp { ref op, lhs, rhs } = self.ctx.get_node(node).kind {
+            let op_span = self.ctx.get_node(node).span.clone();
             let (llvm_val, ty) = match op {
                 Op::Add => unsafe {
                     let mut lhs_val =
@@ -997,15 +1000,15 @@ impl ModuleBuilder {
                             self.build_binop(
                                 env.clone(),
                                 type_env.clone(),
-                                Node {
+                                self.ctx.push_node(Node {
                                     kind: NodeKind::BinOp {
                                         op: $op,
                                         lhs: $lhs,
                                         rhs: $rhs,
                                     },
                                     span: $span,
-                                }
-                                .into(),
+                                    ty: None,
+                                }),
                                 false,
                             )
                         };
@@ -1033,7 +1036,7 @@ impl ModuleBuilder {
                         // TODO this is to check whether rhs is a struct literal or not, find a better way
                         // for instance, this will not work if rhs is a struct member
                         // TODO use platform alignment
-                        if let NodeKind::Ident { .. } = rhs.kind {
+                        if let NodeKind::Ident { .. } = self.ctx.get_node(rhs).kind {
                             // FIXME redundant
                             let rhs_val =
                                 self.build_expr(env.clone(), type_env.clone(), rhs.clone(), true);
@@ -1078,22 +1081,22 @@ impl ModuleBuilder {
                             return self.build_binop(
                                 env,
                                 type_env,
-                                Node {
+                                self.ctx.push_node(Node {
                                     kind: NodeKind::BinOp {
                                         op: Op::Dot,
-                                        lhs: Node {
+                                        lhs: self.ctx.push_node(Node {
                                             kind: NodeKind::UnOp {
                                                 op: Op::Deref,
                                                 rhs: lhs.clone(),
                                             },
                                             span: op_span.clone(),
-                                        }
-                                        .into(),
+                                            ty: None,
+                                        }),
                                         rhs: rhs.clone(),
                                     },
                                     span: op_span.clone(),
-                                }
-                                .into(),
+                                    ty: None,
+                                }),
                                 as_lvalue,
                             );
                         }
@@ -1102,8 +1105,8 @@ impl ModuleBuilder {
                             field_types,
                             name: struct_name,
                             ..
-                        } => match &rhs.kind {
-                            NodeKind::Ident { name } => {
+                        } => match self.ctx.get_node(rhs).kind {
+                            NodeKind::Ident { ref name } => {
                                 let field_idx = match field_indices.get(&**name) {
                                     Some(idx) => idx,
                                     None => panic!(
@@ -1149,8 +1152,12 @@ impl ModuleBuilder {
                                 }
                             }
                             NodeKind::Call {
-                                path: PathSegment { ident, generics },
-                                args,
+                                path:
+                                    PathSegment {
+                                        ref ident,
+                                        ref generics,
+                                    },
+                                ref args,
                             } => {
                                 let func_ident =
                                     format!("{}::{}", struct_name.strip_generics(), ident);
@@ -1159,8 +1166,8 @@ impl ModuleBuilder {
                                     None => todo!(),
                                 };
 
-                                let self_by_ref = match &fn_decl.1.kind {
-                                    NodeKind::Fn { params, .. } => {
+                                let self_by_ref = match self.ctx.get_node(fn_decl.1).kind {
+                                    NodeKind::Fn { ref params, .. } => {
                                         matches!(*params[0].ty(), TypeName::SelfByRef)
                                     }
                                     _ => todo!(),
@@ -1171,14 +1178,14 @@ impl ModuleBuilder {
                                     // hacky but works, dunno?
                                     args.insert(
                                         0,
-                                        Node {
+                                        self.ctx.push_node(Node {
                                             kind: NodeKind::UnOp {
                                                 op: Op::Ref,
                                                 rhs: lhs.clone(),
                                             },
                                             span: op_span.clone(),
-                                        }
-                                        .into(),
+                                            ty: None,
+                                        }),
                                     )
                                 } else {
                                     args.insert(0, lhs.clone());
@@ -1263,46 +1270,49 @@ impl ModuleBuilder {
                         _ => todo!(),
                     }
                 }
-                Op::ScopeRes => match (&lhs.kind, &rhs.kind) {
-                    // TODO probably not the correct way to do this
-                    (
-                        NodeKind::Ident { name },
-                        NodeKind::Call {
-                            path,
-                            args: fn_args,
-                        },
-                    ) => {
-                        type_env.insert(
-                            TypeName::simple_from_name("Self"),
-                            type_env
-                                .get(&TypeName::simple_from_name(name))
-                                .unwrap()
-                                .clone(),
-                        );
-
-                        let mangled_name = format!("{}::{}", name, path.ident);
-                        return self.build_call(
-                            env,
-                            type_env.clone(),
-                            PathSegment {
-                                ident: mangled_name.as_str().into(),
-                                generics: path.generics.clone(),
+                Op::ScopeRes => {
+                    match (&self.ctx.get_node(lhs).kind, &self.ctx.get_node(rhs).kind) {
+                        // TODO probably not the correct way to do this
+                        (
+                            NodeKind::Ident { name },
+                            NodeKind::Call {
+                                path,
+                                args: fn_args,
                             },
-                            fn_args,
-                        );
+                        ) => {
+                            type_env.insert(
+                                TypeName::simple_from_name("Self"),
+                                type_env
+                                    .get(&TypeName::simple_from_name(&name))
+                                    .unwrap()
+                                    .clone(),
+                            );
+
+                            let mangled_name = format!("{}::{}", name, path.ident);
+                            return self.build_call(
+                                env,
+                                type_env.clone(),
+                                PathSegment {
+                                    ident: mangled_name.as_str().into(),
+                                    generics: path.generics.clone(),
+                                },
+                                &fn_args,
+                            );
+                        }
+                        _ => todo!(),
                     }
-                    _ => todo!(),
-                },
+                }
                 Op::Cast => {
                     let lhs_val = self.build_expr(env.clone(), type_env.clone(), lhs.clone(), true);
                     let lhs_ty = type_env.get(&lhs_val.ty).unwrap();
-                    let rhs_ty_name = if let NodeKind::Type { ty } = &rhs.kind {
+                    let rhs_ty_name = if let NodeKind::Type { ref ty } = self.ctx.get_node(rhs).kind
+                    {
                         ty
                     } else {
                         todo!()
                     };
 
-                    let rhs_ty = type_env.get(rhs_ty_name).unwrap();
+                    let rhs_ty = type_env.get(&rhs_ty_name).unwrap();
 
                     match (lhs_ty, rhs_ty) {
                         (Type::Ptr { .. }, Type::Ptr { .. }) => {
@@ -1431,7 +1441,7 @@ impl ModuleBuilder {
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
         path: PathSegment,
-        arg_exprs: &[NodeRef],
+        arg_exprs: &[NodeId],
     ) -> Val {
         // TODO funcs could be vars instead? or everything that can be resolved by a path could be an Item?
         let (llvm_ty, llvm_val, ret_ty) = if let Some(func) = env.get_func(&path.to_string()) {
@@ -1451,7 +1461,12 @@ impl ModuleBuilder {
                 todo!()
             }
         } else if let Some(fn_decl) = self.get_fn_decl(path.ident.to_string()) {
-            if let NodeKind::Fn { params, ret_ty, .. } = &fn_decl.1.kind {
+            if let NodeKind::Fn {
+                ref params,
+                ref ret_ty,
+                ..
+            } = self.ctx.get_node(fn_decl.1).kind
+            {
                 let substitutions: Vec<(Rc<TypeName>, Rc<TypeName>)> = fn_decl
                     .0
                     .generics
@@ -1537,7 +1552,7 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_array(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, elems: &[NodeRef]) -> Val {
+    fn build_array(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, elems: &[NodeId]) -> Val {
         let elem_vals: Vec<Val> = elems
             .iter()
             .map(|elem| self.build_expr(env.clone(), type_env.clone(), elem.clone(), false))
@@ -1585,10 +1600,10 @@ impl ModuleBuilder {
         &mut self,
         env: Rc<Env>,
         type_env: Rc<TypeEnv>,
-        node: NodeRef,
+        node: NodeId,
         as_lvalue: bool,
     ) -> Val {
-        match &node.kind {
+        match &self.ctx.get_node(node).kind {
             NodeKind::NullPtr => {
                 Val {
                     // TODO type
@@ -1634,7 +1649,7 @@ impl ModuleBuilder {
                 }
             },
             NodeKind::Ident { name } => unsafe {
-                if let Some(var) = env.get_var(name) {
+                if let Some(var) = env.get_var(&name) {
                     let llvm_val = if as_lvalue || var.is_const {
                         var.val
                     } else {
@@ -1652,19 +1667,24 @@ impl ModuleBuilder {
                         ty: var.ty.clone(),
                         llvm_val,
                     }
-                } else if let Some(f) = env.get_func(name) {
+                } else if let Some(f) = env.get_func(&name) {
                     Val {
                         ty: f.ty.clone(),
                         llvm_val: f.val,
                     }
                 } else if let Some(fn_decl) = self.get_fn_decl(name.to_string()) {
-                    if let NodeKind::Fn { params, ret_ty, .. } = &fn_decl.1.kind {
+                    if let NodeKind::Fn {
+                        ref params,
+                        ref ret_ty,
+                        ..
+                    } = self.ctx.get_node(fn_decl.1).kind
+                    {
                         let local_type_env = TypeEnv::make_child(type_env.clone());
 
                         self.setup_function(
                             env.clone(),
                             local_type_env.into(),
-                            name,
+                            &name,
                             params.clone(),
                             ret_ty.clone(),
                             false,
@@ -1703,10 +1723,10 @@ impl ModuleBuilder {
                         },
                     }
                 } else {
-                    self.build_call(env, type_env, path.clone(), args)
+                    self.build_call(env, type_env, path.clone(), &args)
                 }
             }
-            NodeKind::Array { elems } => self.build_array(env, type_env, elems),
+            NodeKind::Array { elems } => self.build_array(env, type_env, &elems),
             NodeKind::Str { value } => self.build_string(value.clone()),
             NodeKind::StructLiteral {
                 path: path @ PathSegment { .. },
@@ -1794,15 +1814,18 @@ impl ModuleBuilder {
                         llvm_val,
                     }
                 } else {
-                    panic!("{}\nunresolved type {}", node.span, path);
+                    panic!("{}\nunresolved type {}", self.ctx.get_node(node).span, path);
                 }
             }
-            _ => panic!("unimplemented!\n {:?}", node),
+            _ => panic!(
+                "unimplemented!\n {:?}",
+                self.ctx.get_node(node).debug_view(self.ctx)
+            ),
         }
     }
 
-    fn build_stmt(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, node: NodeRef) -> Val {
-        match &node.kind {
+    fn build_stmt(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, node: NodeId) -> Val {
+        match &self.ctx.get_node(node).kind {
             NodeKind::Return { expr: stmt } => {
                 let (llvm_val, ty) = if let Some(rhs) = &stmt {
                     let v = self.build_expr(env.clone(), type_env.clone(), rhs.clone(), false);
@@ -1826,8 +1849,8 @@ impl ModuleBuilder {
                 ..
             } => unsafe {
                 // TODO alloca the var and let assign do the rest?
-                if let NodeKind::Ident { name } = &lhs.kind {
-                    let var_ty = match type_env.get(type_name) {
+                if let NodeKind::Ident { ref name } = self.ctx.get_node(*lhs).kind {
+                    let var_ty = match type_env.get(&type_name) {
                         t @ Some(_) => t,
                         None => panic!("unknown type {}", type_name),
                     };
@@ -1862,7 +1885,7 @@ impl ModuleBuilder {
                     let reg = LLVMBuildAlloca(self.builder, llvm_ty, "".to_cstring().as_ptr());
                     LLVMPositionBuilderAtEnd(self.builder, bb_current);
 
-                    env.insert_var(name, reg, type_name.clone());
+                    env.insert_var(&name, reg, type_name.clone());
 
                     if let Some(val) = rhs_val {
                         LLVMBuildStore(self.builder, val.llvm_val, reg);
@@ -1994,7 +2017,7 @@ impl ModuleBuilder {
                             LLVMAppendBasicBlock(current_func.val, "".to_cstring().as_ptr())
                         };
                         unsafe { LLVMPositionBuilderAtEnd(self.builder, bb) };
-                        if let NodeKind::Block { .. } = &arm.stmt.kind {
+                        if let NodeKind::Block { .. } = self.ctx.get_node(arm.stmt).kind {
                             self.build_block(env.clone(), type_env.clone(), arm.stmt.clone());
                         } else {
                             self.build_expr(env.clone(), type_env.clone(), arm.stmt.clone(), false);
@@ -2020,7 +2043,10 @@ impl ModuleBuilder {
                 if let Some(bb) = self.continue_block {
                     unsafe { LLVMBuildBr(self.builder, bb) };
                 } else {
-                    panic!("{}\ncontinue outside loop body", node.span);
+                    panic!(
+                        "{}\ncontinue outside loop body",
+                        self.ctx.get_node(node).span
+                    );
                 }
 
                 Val {
@@ -2032,7 +2058,7 @@ impl ModuleBuilder {
                 if let Some(bb) = self.break_block {
                     unsafe { LLVMBuildBr(self.builder, bb) };
                 } else {
-                    panic!("{}\nbreak outside loop body", node.span);
+                    panic!("{}\nbreak outside loop body", self.ctx.get_node(node).span);
                 }
 
                 Val {
@@ -2044,18 +2070,21 @@ impl ModuleBuilder {
         }
     }
 
-    fn build_block(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, node: NodeRef) -> bool {
+    fn build_block(&mut self, env: Rc<Env>, type_env: Rc<TypeEnv>, node: NodeId) -> bool {
         let mut returns = false;
         let local_env = Rc::new(Env::make_child(env));
-        if let NodeKind::Block { statements } = &node.kind {
+        if let NodeKind::Block { ref statements } = self.ctx.get_node(node).kind {
             for (i, stmt) in statements.iter().enumerate() {
                 // TODO this is a quick hack. build_stmt should return info, including whether the stmt returns
-                match &stmt.kind {
-                    NodeKind::Return { .. } | &NodeKind::Break | &NodeKind::Continue => {
+                match self.ctx.get_node(*stmt).kind {
+                    NodeKind::Return { .. } | NodeKind::Break | NodeKind::Continue => {
                         if i == statements.len() - 1 {
                             returns = true;
                         } else {
-                            panic!("{}\nunreachable code following statement", stmt.span);
+                            panic!(
+                                "{}\nunreachable code following statement",
+                                self.ctx.get_node(*stmt).span
+                            );
                         }
                     }
                     _ => (),
@@ -2077,7 +2106,7 @@ impl ModuleBuilder {
         ret_ty: Rc<TypeName>,
         is_extern: bool,
         _linkage: Option<Rc<str>>,
-        node: Option<NodeRef>,
+        node: Option<NodeId>,
     ) -> Val {
         println!("setting up fn {}", ident);
         let ret_type = match type_env.get(&ret_ty) {
@@ -2166,7 +2195,7 @@ impl ModuleBuilder {
         type_env: Rc<TypeEnv>,
         ident: Rc<str>,
         params: Rc<[FnParam]>,
-        body: NodeRef,
+        body: NodeId,
     ) {
         println!("building {}", ident);
         let func = env.get_func(&ident).unwrap();
@@ -2214,14 +2243,14 @@ impl ModuleBuilder {
 
     fn pass1(&mut self) {
         for node in &*self.ast {
-            match &node.kind {
+            match self.ctx.get_node(*node).kind {
                 NodeKind::Const {
-                    ty: type_name,
+                    ty: ref type_name,
                     lhs,
                     rhs,
                 } => {
-                    if let NodeKind::Ident { name } = &lhs.kind {
-                        let ty = match self.type_env.get(type_name) {
+                    if let NodeKind::Ident { ref name } = self.ctx.get_node(lhs).kind {
+                        let ty = match self.type_env.get(&type_name) {
                             Some(t) => t,
                             None => panic!("unknown type {}", type_name),
                         };
@@ -2230,10 +2259,10 @@ impl ModuleBuilder {
                         if let Some(Node {
                             kind: NodeKind::Int { value },
                             ..
-                        }) = rhs.as_deref()
+                        }) = rhs.map(|id| self.ctx.get_node(id))
                         {
                             self.env.insert_const(
-                                name,
+                                &name,
                                 unsafe {
                                     LLVMConstInt(llvm_type(ty, self.type_env.clone()), *value, 0)
                                 },
@@ -2247,10 +2276,10 @@ impl ModuleBuilder {
                     }
                 }
                 NodeKind::Struct {
-                    ident,
-                    generics,
-                    attributes,
-                    fields,
+                    ref ident,
+                    ref generics,
+                    ref attributes,
+                    ref fields,
                     ..
                 } => {
                     let mut field_indices: HashMap<String, usize> = HashMap::new();
@@ -2277,7 +2306,9 @@ impl ModuleBuilder {
                     );
                 }
                 NodeKind::Fn {
-                    ident, generics, ..
+                    ref ident,
+                    ref generics,
+                    ..
                 } => {
                     println!("registering fn decl {}", ident);
                     self.push_fn_decl(
@@ -2300,16 +2331,16 @@ impl ModuleBuilder {
                     }
                 }
                 NodeKind::Impl {
-                    ty,
-                    methods,
-                    generics: impl_generics,
+                    ref ty,
+                    ref methods,
+                    generics: ref impl_generics,
                 } => {
                     for node in methods.iter() {
                         if let NodeKind::Fn {
-                            ident,
-                            generics: fn_generics,
+                            ref ident,
+                            generics: ref fn_generics,
                             ..
-                        } = &node.kind
+                        } = self.ctx.get_node(*node).kind
                         {
                             let fn_ident = ty.strip_generics().to_string() + "::" + ident.as_ref();
                             let mut generics: Vec<Rc<TypeName>> = impl_generics.to_vec();
@@ -2335,7 +2366,12 @@ impl ModuleBuilder {
     fn set_up_fns(&mut self) {
         // TODO only "main" ends up here. push it into fns_to_build instead
         while let Some((spec, node)) = self.get_fn_specs().pop_front() {
-            if let NodeKind::Fn { params, ret_ty, .. } = &node.kind {
+            if let NodeKind::Fn {
+                ref params,
+                ref ret_ty,
+                ..
+            } = self.ctx.get_node(node).kind
+            {
                 println!("setting up fn {}\nspecs:", spec.ident);
                 println!("{}", spec);
                 let type_env = TypeEnv::make_child(self.type_env.clone());
@@ -2361,20 +2397,20 @@ impl ModuleBuilder {
 
         // TODO collect this in pass1, don't walk the ast again
         for node in &*self.ast.clone() {
-            if let NodeKind::ExternBlock { linkage, block } = &node.kind {
-                if let NodeKind::Block { statements } = &block.kind {
+            if let NodeKind::ExternBlock { ref linkage, block } = self.ctx.get_node(*node).kind {
+                if let NodeKind::Block { ref statements } = self.ctx.get_node(block).kind {
                     for stmt in statements.iter() {
                         if let NodeKind::Fn {
-                            ident,
-                            params,
-                            ret_ty,
+                            ref ident,
+                            ref params,
+                            ref ret_ty,
                             ..
-                        } = &stmt.kind
+                        } = self.ctx.get_node(*stmt).kind
                         {
                             self.setup_function(
                                 self.env.clone(),
                                 self.type_env.clone(),
-                                ident,
+                                &ident,
                                 params.clone(),
                                 ret_ty.clone(),
                                 true,
@@ -2401,7 +2437,7 @@ impl ModuleBuilder {
                         ..
                     },
                 ..
-            }) = func.node.as_deref()
+            }) = func.node.map(|id| self.ctx.get_node(id))
             {
                 self.build_function(
                     self.env.clone(),
@@ -2425,7 +2461,7 @@ impl ModuleBuilder {
     }
 }
 
-impl Drop for ModuleBuilder {
+impl<'a> Drop for ModuleBuilder<'a> {
     fn drop(&mut self) {
         unsafe { LLVMDisposeBuilder(self.builder) };
     }

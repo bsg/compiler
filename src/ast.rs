@@ -2,8 +2,30 @@
 
 use std::{
     fmt::{self},
+    ops::Deref,
     rc::Rc,
 };
+
+use crate::CompilationCtx;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct NodeId {
+    inner: u32,
+}
+
+impl Deref for NodeId {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl From<u32> for NodeId {
+    fn from(value: u32) -> Self {
+        Self { inner: value }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Span {
@@ -130,7 +152,6 @@ impl Op {
         }
     }
 }
-pub type NodeRef = Rc<Node>;
 
 #[derive(PartialEq, Clone)]
 pub enum FnParam {
@@ -138,7 +159,11 @@ pub enum FnParam {
     SelfByRef,
     SelfByValMut,
     SelfByRefMut,
-    Pair { ident: Rc<str>, ty: Rc<TypeName>, mutable: bool },
+    Pair {
+        ident: Rc<str>,
+        ty: Rc<TypeName>,
+        mutable: bool,
+    },
 }
 
 impl FnParam {
@@ -172,17 +197,18 @@ pub struct StructField {
 #[derive(PartialEq, Clone)]
 pub struct StructLiteralField {
     pub ident: Rc<str>,
-    pub val: NodeRef,
+    pub val: NodeId,
 }
 
 #[derive(PartialEq, Clone)]
 pub struct MatchArm {
-    pub pattern: Rc<[NodeRef]>,
-    pub stmt: NodeRef, // TODO rename to expr and treat this as such when we have block exprs
+    pub pattern: Rc<[NodeId]>,
+    pub stmt: NodeId, // TODO rename to expr and treat this as such when we have block exprs
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum TypeName {
+    Infer,
     Simple {
         // TODO rename
         ident: Rc<str>,
@@ -191,7 +217,7 @@ pub enum TypeName {
     Fn {
         params: Rc<[Rc<TypeName>]>,
         return_type: Rc<TypeName>,
-    }, 
+    },
     Ptr {
         pointee_type: Rc<TypeName>,
     },
@@ -331,6 +357,7 @@ impl TypeName {
 impl fmt::Display for TypeName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            TypeName::Infer => Ok(()), // XXX
             TypeName::Simple {
                 ident,
                 type_args: generics,
@@ -437,39 +464,39 @@ pub enum NodeKind {
     },
     UnOp {
         op: Op,
-        rhs: NodeRef,
+        rhs: NodeId,
     },
     BinOp {
         op: Op,
-        lhs: NodeRef,
-        rhs: NodeRef,
+        lhs: NodeId,
+        rhs: NodeId,
     },
     Let {
         ty: Rc<TypeName>,
-        lhs: NodeRef,
-        rhs: Option<NodeRef>,
+        lhs: NodeId,
+        rhs: Option<NodeId>,
         mutable: bool,
     },
     // TODO could be merged with let as 'binding'
     Const {
         ty: Rc<TypeName>,
-        lhs: NodeRef,
-        rhs: Option<NodeRef>,
+        lhs: NodeId,
+        rhs: Option<NodeId>,
     },
     Return {
-        expr: Option<NodeRef>,
+        expr: Option<NodeId>,
     },
     If {
-        condition: NodeRef,
-        then_block: NodeRef,
-        else_block: Option<NodeRef>,
+        condition: NodeId,
+        then_block: NodeId,
+        else_block: Option<NodeId>,
     },
     While {
-        condition: NodeRef,
-        body: NodeRef,
+        condition: NodeId,
+        body: NodeId,
     },
     Block {
-        statements: Rc<[NodeRef]>,
+        statements: Rc<[NodeId]>,
     },
     Fn {
         ident: Rc<str>,
@@ -478,11 +505,11 @@ pub enum NodeKind {
         generics: Rc<[Rc<TypeName>]>,
         is_extern: bool,
         linkage: Option<Rc<str>>,
-        body: Option<NodeRef>,
+        body: Option<NodeId>,
     },
     Call {
         path: PathSegment, // TODO use Path
-        args: Rc<[NodeRef]>,
+        args: Rc<[NodeId]>,
     },
     Struct {
         ident: Rc<str>,
@@ -492,11 +519,11 @@ pub enum NodeKind {
     },
     Impl {
         ty: Rc<TypeName>,
-        methods: Rc<[NodeRef]>,
+        methods: Rc<[NodeId]>,
         generics: Rc<[Rc<TypeName>]>,
     },
     Array {
-        elems: Rc<[NodeRef]>,
+        elems: Rc<[NodeId]>,
     },
     StructLiteral {
         path: PathSegment,
@@ -504,10 +531,10 @@ pub enum NodeKind {
     },
     ExternBlock {
         linkage: Option<Rc<str>>,
-        block: NodeRef,
+        block: NodeId,
     },
     Match {
-        scrutinee: NodeRef,
+        scrutinee: NodeId,
         arms: Rc<[MatchArm]>,
         num_cases: usize,
     },
@@ -519,20 +546,37 @@ pub enum NodeKind {
 pub struct Node {
     pub kind: NodeKind,
     pub span: Span,
+    pub ty: Option<TypeName>,
 }
 
-impl fmt::Debug for Node {
+impl Node {
+    pub fn debug_view<'a>(&self, ctx: &'a CompilationCtx) -> NodeDebugView<'a> {
+        NodeDebugView {
+            ctx,
+            node: self.clone(),
+        }
+    }
+}
+
+// XXX game sux
+pub struct NodeDebugView<'a> {
+    ctx: &'a CompilationCtx,
+    node: Node,
+}
+
+impl<'a> fmt::Debug for NodeDebugView<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO append to a single string instance instead of creating so many new strings
         // or find a way to recurse with &mut f
-        fn fmt_with_indent(node: &Node, indent_level: usize, on_new_line: bool) -> String {
+        fn fmt_with_indent(view: &NodeDebugView, indent_level: usize, on_new_line: bool) -> String {
+            let ctx = view.ctx;
             let mut s = String::new();
             if on_new_line {
                 s += "\n";
             }
             s += "    ".repeat(indent_level).as_str();
 
-            s += match &node.kind {
+            s += match &view.node.kind {
                 NodeKind::NullPtr => "nullptr".to_string(),
                 NodeKind::Ident { name } => format!("ident {}", name),
                 NodeKind::Type { ty } => ty.to_string(),
@@ -545,23 +589,47 @@ impl fmt::Debug for Node {
                     format!("'{}'", unsafe { char::from_u32_unchecked(**value as u32) })
                 }
                 NodeKind::UnOp { op, rhs } => {
-                    format!("{:?}{}", op, fmt_with_indent(rhs, indent_level + 1, true))
+                    format!(
+                        "{:?}{}",
+                        op,
+                        fmt_with_indent(
+                            &ctx.get_node(*rhs).debug_view(ctx),
+                            indent_level + 1,
+                            true
+                        )
+                    )
                 }
                 NodeKind::BinOp { op, lhs, rhs } => {
                     format!(
                         "{:?}{}{}",
                         op,
-                        fmt_with_indent(lhs, indent_level + 1, true),
-                        fmt_with_indent(rhs, indent_level + 1, true)
+                        fmt_with_indent(
+                            &ctx.get_node(*lhs).debug_view(ctx),
+                            indent_level + 1,
+                            true
+                        ),
+                        fmt_with_indent(
+                            &ctx.get_node(*rhs).debug_view(ctx),
+                            indent_level + 1,
+                            true
+                        )
                     )
                 }
                 NodeKind::Let { ty, lhs, rhs, .. } => {
                     format!(
                         "let {}{}{}",
                         ty,
-                        fmt_with_indent(lhs, indent_level + 1, true),
+                        fmt_with_indent(
+                            &ctx.get_node(*lhs).debug_view(ctx),
+                            indent_level + 1,
+                            true
+                        ),
                         if rhs.is_some() {
-                            fmt_with_indent(rhs.as_ref().unwrap(), indent_level + 1, true)
+                            fmt_with_indent(
+                                &ctx.get_node(*rhs.as_ref().unwrap()).debug_view(ctx),
+                                indent_level + 1,
+                                true,
+                            )
                         } else {
                             "".to_string()
                         }
@@ -571,9 +639,17 @@ impl fmt::Debug for Node {
                     format!(
                         "const {}{}{}",
                         ty,
-                        fmt_with_indent(lhs, indent_level + 1, true),
+                        fmt_with_indent(
+                            &ctx.get_node(*lhs).debug_view(ctx),
+                            indent_level + 1,
+                            true
+                        ),
                         if rhs.is_some() {
-                            fmt_with_indent(rhs.as_ref().unwrap(), indent_level + 1, true)
+                            fmt_with_indent(
+                                &ctx.get_node(*rhs.as_ref().unwrap()).debug_view(ctx),
+                                indent_level + 1,
+                                true,
+                            )
                         } else {
                             "".to_string()
                         }
@@ -581,7 +657,14 @@ impl fmt::Debug for Node {
                 }
                 NodeKind::Return { expr } => match expr {
                     Some(expr) => {
-                        format!("return{}", fmt_with_indent(expr, indent_level + 1, true))
+                        format!(
+                            "return{}",
+                            fmt_with_indent(
+                                &ctx.get_node(*expr).debug_view(ctx),
+                                indent_level + 1,
+                                true
+                            )
+                        )
                     }
                     None => "return".to_string(),
                 },
@@ -593,32 +676,65 @@ impl fmt::Debug for Node {
                     if let Some(else_block) = else_block {
                         format!(
                             "if{}\n{}then{}\n{}else{}",
-                            fmt_with_indent(condition, indent_level + 1, true),
+                            fmt_with_indent(
+                                &ctx.get_node(*condition).debug_view(ctx),
+                                indent_level + 1,
+                                true
+                            ),
                             "    ".repeat(indent_level),
-                            fmt_with_indent(then_block, indent_level + 1, true),
+                            fmt_with_indent(
+                                &ctx.get_node(*then_block).debug_view(ctx),
+                                indent_level + 1,
+                                true
+                            ),
                             "    ".repeat(indent_level),
-                            fmt_with_indent(else_block, indent_level + 1, true)
+                            fmt_with_indent(
+                                &ctx.get_node(*else_block).debug_view(ctx),
+                                indent_level + 1,
+                                true
+                            )
                         )
                     } else {
                         format!(
                             "if{}\n{}then{}",
-                            fmt_with_indent(condition, indent_level + 1, true),
+                            fmt_with_indent(
+                                &ctx.get_node(*condition).debug_view(ctx),
+                                indent_level + 1,
+                                true
+                            ),
                             "    ".repeat(indent_level),
-                            fmt_with_indent(then_block, indent_level + 1, true),
+                            fmt_with_indent(
+                                &ctx.get_node(*then_block).debug_view(ctx),
+                                indent_level + 1,
+                                true
+                            ),
                         )
                     }
                 }
                 NodeKind::While { condition, body } => {
                     format!(
                         "while{}{}",
-                        fmt_with_indent(condition, indent_level + 1, true),
-                        fmt_with_indent(body, indent_level + 1, true)
+                        fmt_with_indent(
+                            &ctx.get_node(*condition).debug_view(ctx),
+                            indent_level + 1,
+                            true
+                        ),
+                        fmt_with_indent(
+                            &ctx.get_node(*body).debug_view(ctx),
+                            indent_level + 1,
+                            true
+                        )
                     )
                 }
                 NodeKind::Block { statements } => {
                     let mut b = "block".to_string();
                     for stmt in statements.iter() {
-                        b += fmt_with_indent(stmt, indent_level + 1, true).as_str();
+                        b += fmt_with_indent(
+                            &ctx.get_node(*stmt).debug_view(ctx),
+                            indent_level + 1,
+                            true,
+                        )
+                        .as_str();
                     }
                     b
                 }
@@ -660,7 +776,11 @@ impl fmt::Debug for Node {
                             params_str,
                             ret_ty,
                             if let Some(body) = body {
-                                fmt_with_indent(body, indent_level + 1, true)
+                                fmt_with_indent(
+                                    &ctx.get_node(*body).debug_view(ctx),
+                                    indent_level + 1,
+                                    true,
+                                )
                             } else {
                                 "".to_string()
                             }
@@ -673,7 +793,11 @@ impl fmt::Debug for Node {
                             params_str,
                             ret_ty,
                             if let Some(body) = body {
-                                fmt_with_indent(body, indent_level + 1, true)
+                                fmt_with_indent(
+                                    &ctx.get_node(*body).debug_view(ctx),
+                                    indent_level + 1,
+                                    true,
+                                )
                             } else {
                                 "".to_string()
                             }
@@ -683,7 +807,12 @@ impl fmt::Debug for Node {
                 NodeKind::Call { path, args } => {
                     let mut c = format!("call {}", path);
                     for arg in args.iter() {
-                        c += fmt_with_indent(arg, indent_level + 1, true).as_str();
+                        c += fmt_with_indent(
+                            &ctx.get_node(*arg).debug_view(ctx),
+                            indent_level + 1,
+                            true,
+                        )
+                        .as_str();
                     }
                     c
                 }
@@ -724,7 +853,12 @@ impl fmt::Debug for Node {
                 } => {
                     let methods_str = methods.iter().fold(String::new(), |mut acc, method| {
                         acc += "\n";
-                        acc += fmt_with_indent(method, indent_level + 1, false).as_str();
+                        acc += fmt_with_indent(
+                            &ctx.get_node(*method).debug_view(ctx),
+                            indent_level + 1,
+                            false,
+                        )
+                        .as_str();
                         acc
                     });
 
@@ -747,7 +881,12 @@ impl fmt::Debug for Node {
                 NodeKind::Array { elems } => {
                     let elems_str = elems.iter().fold(String::new(), |mut acc, method| {
                         acc += "\n";
-                        acc += fmt_with_indent(method, indent_level + 1, false).as_str();
+                        acc += fmt_with_indent(
+                            &ctx.get_node(*method).debug_view(ctx),
+                            indent_level + 1,
+                            false,
+                        )
+                        .as_str();
                         acc
                     });
 
@@ -759,7 +898,11 @@ impl fmt::Debug for Node {
                         acc += &"    ".repeat(indent_level + 1);
                         acc += &field.ident;
                         acc += "\n";
-                        acc += &fmt_with_indent(&field.val, indent_level + 2, false);
+                        acc += &fmt_with_indent(
+                            &ctx.get_node(field.val).debug_view(ctx),
+                            indent_level + 2,
+                            false,
+                        );
                         acc
                     });
                     format!("struct_literal {}{}", path, fields_str)
@@ -769,10 +912,21 @@ impl fmt::Debug for Node {
                         format!(
                             "extern \"{}\"{}",
                             linkage,
-                            fmt_with_indent(block, indent_level + 1, true)
+                            fmt_with_indent(
+                                &ctx.get_node(*block).debug_view(ctx),
+                                indent_level + 1,
+                                true
+                            )
                         )
                     } else {
-                        format!("extern {}", fmt_with_indent(block, indent_level + 1, true))
+                        format!(
+                            "extern {}",
+                            fmt_with_indent(
+                                &ctx.get_node(*block).debug_view(ctx),
+                                indent_level + 1,
+                                true
+                            )
+                        )
                     }
                 }
                 NodeKind::Match {
@@ -789,7 +943,11 @@ impl fmt::Debug for Node {
                                     format!(
                                         "\n{}case {}",
                                         "    ".repeat(indent_level + 1),
-                                        fmt_with_indent(pattern, 0, false)
+                                        fmt_with_indent(
+                                            &ctx.get_node(*pattern).debug_view(ctx),
+                                            0,
+                                            false
+                                        )
                                     )
                                 })
                                 .collect::<Vec<String>>()
@@ -797,14 +955,18 @@ impl fmt::Debug for Node {
                             format!(
                                 "{}{}",
                                 pattern_formatted,
-                                fmt_with_indent(&arm.stmt, indent_level + 2, true)
+                                fmt_with_indent(
+                                    &ctx.get_node(arm.stmt).debug_view(ctx),
+                                    indent_level + 2,
+                                    true
+                                )
                             )
                         })
                         .collect::<Vec<String>>()
                         .join("");
                     format!(
                         "match {}{}",
-                        fmt_with_indent(scrutinee, 0, false),
+                        fmt_with_indent(&ctx.get_node(*scrutinee).debug_view(ctx), 0, false),
                         arms_formatted
                     )
                 }

@@ -170,6 +170,8 @@ fn abort(msg: &u8) {
     exit(1);
 }
 
+// TODO this codegens identical code for each variant. not only this but different types can have the same data layout.
+// something to be done about this?
 // TODO fn sdl_nullcheck(ptr: *Any) ?
 fn sdl_nullcheck<T>(ptr: *T) {
     if ptr == nullptr {

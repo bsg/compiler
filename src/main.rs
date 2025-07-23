@@ -1,6 +1,8 @@
+use std::cell::UnsafeCell;
 use std::fs;
 use std::ptr::null_mut;
 
+use ast::{Node, NodeId};
 use clap::Parser;
 use llvm_sys::analysis::LLVMVerifyModule;
 use llvm_sys::target_machine::{
@@ -27,7 +29,50 @@ struct Args {
     asm: bool,
 }
 
+pub struct CompilationCtx {
+    nodes: UnsafeCell<Vec<Node>>,
+}
+
+impl CompilationCtx {
+    pub fn push_node(&self, node: Node) -> NodeId {
+        let nodes = unsafe { self.nodes.get().as_mut().unwrap() };
+        nodes.push(node);
+        (nodes.len() as u32 - 1).into()
+    }
+    pub fn get_node(&self, id: NodeId) -> &Node {
+        unsafe {
+            self.nodes
+                .get()
+                .as_ref()
+                .unwrap()
+                .get(*id as usize)
+                .unwrap()
+        }
+    }
+
+    pub fn get_node_mut(&self, id: NodeId) -> &mut Node {
+        unsafe {
+            self.nodes
+                .get()
+                .as_mut()
+                .unwrap()
+                .get_mut(*id as usize)
+                .unwrap()
+        }
+    }
+}
+
+impl Default for CompilationCtx {
+    fn default() -> Self {
+        Self {
+            nodes: UnsafeCell::new(Vec::new()),
+        }
+    }
+}
+
 fn main() {
+    let ctx = CompilationCtx::default();
+
     let args = Args::parse();
     if args.path.is_none() {
         return;
@@ -44,17 +89,17 @@ fn main() {
     };
 
     let code = fs::read_to_string(args.path.unwrap()).unwrap();
-    let ast = crate::parser::Parser::new(&code).parse();
+    let ast = crate::parser::Parser::new(&ctx, &code).parse();
 
     if args.ast {
         let mut s = String::new();
         for node in ast.iter() {
-            s += format!("{:?}\n", node).as_str();
+            s += format!("{:?}\n", ctx.get_node(*node).debug_view(&ctx)).as_str();
         }
         fs::write("ast.txt", s).unwrap();
     }
 
-    let mut module = codegen::ModuleBuilder::new("main", ast);
+    let mut module = codegen::ModuleBuilder::new(&ctx, "main", ast);
     module.build();
 
     unsafe {

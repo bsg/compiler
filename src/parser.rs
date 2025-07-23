@@ -8,10 +8,11 @@ use std::rc::Rc;
 
 use peekmore::{PeekMore, PeekMoreIterator};
 
-use crate::ast::*;
 use crate::lexer::{Lexer, Token, TokenKind, Tokens};
+use crate::{ast::*, CompilationCtx};
 
-pub struct Parser {
+pub struct Parser<'a> {
+    ctx: &'a CompilationCtx,
     tokens: PeekMoreIterator<Tokens>,
     curr_token: Token,
     peek_token: Token,
@@ -20,9 +21,10 @@ pub struct Parser {
     peek_token3: Token,
 }
 
-impl Parser {
-    pub fn new(input: &str) -> Parser {
+impl<'a> Parser<'a> {
+    pub fn new(ctx: &'a CompilationCtx, input: &str) -> Parser<'a> {
         Parser {
+            ctx,
             tokens: Lexer::new(input).tokens().peekmore(),
             curr_token: Token::none(),
             peek_token: Token::none(),
@@ -157,8 +159,8 @@ impl Parser {
     }
 
     /// curr_token after return is RBrace
-    fn parse_block(&mut self) -> Option<NodeRef> {
-        let mut statements: Vec<NodeRef> = Vec::new();
+    fn parse_block(&mut self) -> Option<NodeId> {
+        let mut statements: Vec<NodeId> = Vec::new();
 
         match self.curr_token.kind {
             TokenKind::LBrace => {
@@ -173,22 +175,20 @@ impl Parser {
                 let end_span = self.curr_token.span.clone();
                 self.next_token();
 
-                Some(
-                    Node {
-                        kind: NodeKind::Block {
-                            statements: Rc::from(statements.as_slice()),
-                        },
-                        span: start_span.merge(&end_span),
-                    }
-                    .into(),
-                )
+                Some(self.ctx.push_node(Node {
+                    kind: NodeKind::Block {
+                        statements: Rc::from(statements.as_slice()),
+                    },
+                    span: start_span.merge(&end_span),
+                    ty: None,
+                }))
             }
             _ => todo!(),
         }
     }
 
     /// caller must ensure current token is If
-    fn parse_if(&mut self) -> Option<NodeRef> {
+    fn parse_if(&mut self) -> Option<NodeId> {
         assert_eq!(TokenKind::If, self.curr_token.kind);
         let start_span = self.curr_token.span.clone();
         self.next_token();
@@ -209,17 +209,15 @@ impl Parser {
                 let end_span = self.curr_token.span.clone();
 
                 match then_block {
-                    Some(then_blk) => Some(
-                        Node {
-                            kind: NodeKind::If {
-                                condition: cond,
-                                then_block: then_blk,
-                                else_block,
-                            },
-                            span: start_span.merge(&end_span),
-                        }
-                        .into(),
-                    ),
+                    Some(then_blk) => Some(self.ctx.push_node(Node {
+                        kind: NodeKind::If {
+                            condition: cond,
+                            then_block: then_blk,
+                            else_block,
+                        },
+                        span: start_span.merge(&end_span),
+                        ty: None,
+                    })),
                     None => todo!(),
                 }
             }
@@ -228,7 +226,7 @@ impl Parser {
     }
 
     /// caller must ensure current token is While
-    fn parse_while(&mut self) -> Option<NodeRef> {
+    fn parse_while(&mut self) -> Option<NodeId> {
         assert_eq!(TokenKind::While, self.curr_token.kind);
         let start_span = self.curr_token.span.clone();
 
@@ -241,16 +239,14 @@ impl Parser {
                 let end_span = self.curr_token.span.clone();
 
                 match body {
-                    Some(while_body) => Some(
-                        Node {
-                            kind: NodeKind::While {
-                                condition: cond,
-                                body: while_body,
-                            },
-                            span: start_span.merge(&end_span),
-                        }
-                        .into(),
-                    ),
+                    Some(while_body) => Some(self.ctx.push_node(Node {
+                        kind: NodeKind::While {
+                            condition: cond,
+                            body: while_body,
+                        },
+                        span: start_span.merge(&end_span),
+                        ty: None,
+                    })),
                     None => todo!(),
                 }
             }
@@ -260,7 +256,7 @@ impl Parser {
 
     // TODO linkage should be an enum
     /// caller must ensure current token is Fn
-    fn parse_fn(&mut self, is_extern: bool, linkage: Option<Rc<str>>) -> Option<NodeRef> {
+    fn parse_fn(&mut self, is_extern: bool, linkage: Option<Rc<str>>) -> Option<NodeId> {
         let mut params: Vec<FnParam> = Vec::new();
         let mut generics: Vec<Rc<TypeName>> = Vec::new();
 
@@ -367,39 +363,37 @@ impl Parser {
 
             let end_span = self.curr_token.span.clone();
 
-            Some(
-                Node {
-                    kind: NodeKind::Fn {
-                        ident: ident.clone(),
-                        params: Rc::from(params.as_slice()),
-                        ret_ty: return_type.clone(),
-                        generics: generics.into(),
-                        is_extern,
-                        linkage,
-                        body,
-                    },
-                    span: start_span.merge(&end_span),
-                }
-                .into(),
-            )
+            Some(self.ctx.push_node(Node {
+                kind: NodeKind::Fn {
+                    ident: ident.clone(),
+                    params: Rc::from(params.as_slice()),
+                    ret_ty: return_type.clone(),
+                    generics: generics.into(),
+                    is_extern,
+                    linkage,
+                    body,
+                },
+                span: start_span.merge(&end_span),
+                ty: None,
+            }))
         } else {
             todo!()
         }
     }
 
-    fn parse_call(&mut self, lhs: NodeRef) -> Option<NodeRef> {
+    fn parse_call(&mut self, lhs: NodeId) -> Option<NodeId> {
         assert_eq!(TokenKind::LParen, self.curr_token.kind);
         let start_span = self.curr_token.span.clone();
         self.next_token();
 
-        let mut args: Vec<NodeRef> = Vec::new();
+        let mut args: Vec<NodeId> = Vec::new();
 
-        let path = match &lhs.kind {
-            NodeKind::Ident { name } => PathSegment {
+        let path = match self.ctx.get_node(lhs).kind {
+            NodeKind::Ident { ref name } => PathSegment {
                 ident: name.clone(),
                 generics: [].into(),
             },
-            NodeKind::Path { segment } => segment.clone(),
+            NodeKind::Path { ref segment } => segment.clone(),
             NodeKind::BinOp {
                 op: Op::Turbofish,
                 lhs,
@@ -426,24 +420,22 @@ impl Parser {
         assert_eq!(TokenKind::RParen, self.curr_token.kind);
         let end_span = self.curr_token.span.clone();
 
-        Some(
-            Node {
-                kind: NodeKind::Call {
-                    path,
-                    args: Rc::from(args.as_slice()),
-                },
-                span: start_span.merge(&end_span),
-            }
-            .into(),
-        )
+        Some(self.ctx.push_node(Node {
+            kind: NodeKind::Call {
+                path,
+                args: Rc::from(args.as_slice()),
+            },
+            span: start_span.merge(&end_span),
+            ty: None,
+        }))
     }
 
-    fn parse_index(&mut self, lhs: NodeRef) -> Option<NodeRef> {
+    fn parse_index(&mut self, lhs: NodeId) -> Option<NodeId> {
         assert_eq!(self.curr_token.kind, TokenKind::LBracket);
         self.next_token();
 
         // TODO lhs could be on a previous line, maybe have separate spans for the token and the containing stmt?
-        let start_span = lhs.span.clone();
+        let start_span = self.ctx.get_node(lhs).span.clone();
 
         let rhs = self.parse_expression(0)?;
 
@@ -451,20 +443,18 @@ impl Parser {
         assert_eq!(self.curr_token.kind, TokenKind::RBracket);
         let end_span = self.curr_token.span.clone();
 
-        Some(
-            Node {
-                kind: NodeKind::BinOp {
-                    op: Op::Index,
-                    lhs,
-                    rhs,
-                },
-                span: start_span.merge(&end_span),
-            }
-            .into(),
-        )
+        Some(self.ctx.push_node(Node {
+            kind: NodeKind::BinOp {
+                op: Op::Index,
+                lhs,
+                rhs,
+            },
+            span: start_span.merge(&end_span),
+            ty: None,
+        }))
     }
 
-    fn parse_struct(&mut self) -> Option<NodeRef> {
+    fn parse_struct(&mut self) -> Option<NodeId> {
         let mut fields: Vec<StructField> = Vec::new();
         let mut generics: Vec<Rc<TypeName>> = Vec::new();
 
@@ -482,7 +472,7 @@ impl Parser {
                         if let Some(Node {
                             kind: NodeKind::Ident { name },
                             ..
-                        }) = self.parse_ident().as_deref()
+                        }) = self.parse_ident().map(|id| self.ctx.get_node(id))
                         {
                             generics.push(
                                 TypeName::Simple {
@@ -534,25 +524,23 @@ impl Parser {
             let end_span = self.curr_token.span.clone();
             self.next_token();
 
-            Some(
-                Node {
-                    kind: NodeKind::Struct {
-                        ident: ident.clone(),
-                        fields: Rc::from(fields.as_slice()),
-                        generics: Rc::from(generics.as_slice()),
-                        attributes: None,
-                    },
-                    span: start_span.merge(&end_span),
-                }
-                .into(),
-            )
+            Some(self.ctx.push_node(Node {
+                kind: NodeKind::Struct {
+                    ident: ident.clone(),
+                    fields: Rc::from(fields.as_slice()),
+                    generics: Rc::from(generics.as_slice()),
+                    attributes: None,
+                },
+                span: start_span.merge(&end_span),
+                ty: None,
+            }))
         } else {
             todo!()
         }
     }
 
-    fn parse_array(&mut self) -> Option<NodeRef> {
-        let mut elems: Vec<NodeRef> = Vec::new();
+    fn parse_array(&mut self) -> Option<NodeId> {
+        let mut elems: Vec<NodeId> = Vec::new();
 
         assert_eq!(TokenKind::LBracket, self.curr_token.kind);
         let start_span = self.curr_token.span.clone();
@@ -575,18 +563,16 @@ impl Parser {
 
         let end_span = self.curr_token.span.clone();
 
-        Some(
-            Node {
-                kind: NodeKind::Array {
-                    elems: elems.as_slice().into(),
-                },
-                span: start_span.merge(&end_span),
-            }
-            .into(),
-        )
+        Some(self.ctx.push_node(Node {
+            kind: NodeKind::Array {
+                elems: elems.as_slice().into(),
+            },
+            span: start_span.merge(&end_span),
+            ty: None,
+        }))
     }
 
-    fn parse_let_or_const(&mut self, is_const: bool) -> Option<NodeRef> {
+    fn parse_let_or_const(&mut self, is_const: bool) -> Option<NodeId> {
         let mut mutable = false;
         let start_span = self.curr_token.span.clone();
         self.next_token(); // eat 'let' / 'const'
@@ -600,7 +586,7 @@ impl Parser {
         if let ident @ Node {
             kind: NodeKind::Ident { name },
             ..
-        } = &*lhs
+        } = self.ctx.get_node(lhs)
         {
             if **name == *"mut" {
                 mutable = true;
@@ -655,18 +641,16 @@ impl Parser {
             }
         };
 
-        Some(
-            Node {
-                kind,
-                span: start_span.merge(&end_span),
-            }
-            .into(),
-        )
+        Some(self.ctx.push_node(Node {
+            kind,
+            span: start_span.merge(&end_span),
+            ty: None,
+        }))
     }
 
-    fn parse_impl(&mut self) -> Option<NodeRef> {
+    fn parse_impl(&mut self) -> Option<NodeId> {
         let mut generics: Vec<Rc<TypeName>> = Vec::new();
-        let mut methods: Vec<NodeRef> = Vec::new();
+        let mut methods: Vec<NodeId> = Vec::new();
 
         assert_eq!(TokenKind::Impl, self.curr_token.kind);
         let start_span = self.curr_token.span.clone();
@@ -678,7 +662,7 @@ impl Parser {
                 if let Some(Node {
                     kind: NodeKind::Ident { name },
                     ..
-                }) = self.parse_ident().as_deref()
+                }) = self.parse_ident().map(|id| self.ctx.get_node(id))
                 {
                     generics.push(
                         TypeName::Simple {
@@ -715,41 +699,37 @@ impl Parser {
         let end_span = self.curr_token.span.clone();
         self.next_token();
 
-        Some(
-            Node {
-                kind: NodeKind::Impl {
-                    ty: ty.clone(),
-                    methods: Rc::from(methods.as_slice()),
-                    generics: generics.into(),
-                },
-                span: start_span.merge(&end_span),
-            }
-            .into(),
-        )
+        Some(self.ctx.push_node(Node {
+            kind: NodeKind::Impl {
+                ty: ty.clone(),
+                methods: Rc::from(methods.as_slice()),
+                generics: generics.into(),
+            },
+            span: start_span.merge(&end_span),
+            ty: None,
+        }))
     }
 
-    fn parse_ident(&self) -> Option<NodeRef> {
+    fn parse_ident(&self) -> Option<NodeId> {
         match &self.curr_token.kind {
-            TokenKind::Ident(name) => Some(
-                Node {
-                    kind: NodeKind::Ident { name: name.clone() },
-                    span: self.curr_token.span.clone(),
-                }
-                .into(),
-            ),
+            TokenKind::Ident(name) => Some(self.ctx.push_node(Node {
+                kind: NodeKind::Ident { name: name.clone() },
+                span: self.curr_token.span.clone(),
+                ty: None,
+            })),
             _ => todo!(),
         }
     }
 
     // TODO maybe factor this into parse_binop/parse_unop?
     /// On return, current token is the last token of the expr.
-    fn parse_expression(&mut self, precedence: i32) -> Option<NodeRef> {
-        let mut lhs: NodeRef = match &self.curr_token.kind {
-            TokenKind::NullPtr => Node {
+    fn parse_expression(&mut self, precedence: i32) -> Option<NodeId> {
+        let mut lhs: NodeId = match &self.curr_token.kind {
+            TokenKind::NullPtr => self.ctx.push_node(Node {
                 kind: NodeKind::NullPtr,
                 span: self.curr_token.span.clone(),
-            }
-            .into(),
+                ty: None,
+            }),
             TokenKind::Int(s) => {
                 let mut radix = 10;
 
@@ -765,11 +745,11 @@ impl Parser {
                     Err(_) => todo!(),
                 };
 
-                Node {
+                self.ctx.push_node(Node {
                     kind: NodeKind::Int { value },
                     span: self.curr_token.span.clone(),
-                }
-                .into()
+                    ty: None,
+                })
             }
             TokenKind::Float(s) => {
                 let value = match s.parse::<f64>() {
@@ -777,56 +757,56 @@ impl Parser {
                     Err(_) => todo!(),
                 };
 
-                Node {
+                self.ctx.push_node(Node {
                     kind: NodeKind::Float { value },
                     span: self.curr_token.span.clone(),
-                }
-                .into()
+                    ty: None,
+                })
             }
-            TokenKind::Str(s) => Node {
+            TokenKind::Str(s) => self.ctx.push_node(Node {
                 kind: NodeKind::Str { value: s.clone() },
                 span: self.curr_token.span.clone(),
-            }
-            .into(),
-            TokenKind::Char(c) => Node {
+                ty: None,
+            }),
+            TokenKind::Char(c) => self.ctx.push_node(Node {
                 kind: NodeKind::Char { value: c.clone() },
                 span: self.curr_token.span.clone(),
-            }
-            .into(),
+                ty: None,
+            }),
             TokenKind::Ident(_) => self.parse_ident()?, // TODO return Path?
-            TokenKind::True => Node {
+            TokenKind::True => self.ctx.push_node(Node {
                 kind: NodeKind::Bool { value: true },
                 span: self.curr_token.span.clone(),
-            }
-            .into(),
-            TokenKind::False => Node {
+                ty: None,
+            }),
+            TokenKind::False => self.ctx.push_node(Node {
                 kind: NodeKind::Bool { value: false },
                 span: self.curr_token.span.clone(),
-            }
-            .into(),
+                ty: None,
+            }),
             TokenKind::Minus => {
                 let start_span = self.curr_token.span.clone();
                 self.next_token();
-                Node {
+                self.ctx.push_node(Node {
                     kind: NodeKind::UnOp {
                         op: Op::Neg,
                         rhs: self.parse_expression(Op::precedence(&Op::Neg))?,
                     },
                     span: start_span.merge(&self.curr_token.span),
-                }
-                .into()
+                    ty: None,
+                })
             }
             TokenKind::Bang => {
                 let start_span = self.curr_token.span.clone();
                 self.next_token();
-                Node {
+                self.ctx.push_node(Node {
                     kind: NodeKind::UnOp {
                         op: Op::Not,
                         rhs: self.parse_expression(Op::precedence(&Op::Not))?,
                     },
                     span: start_span.merge(&self.curr_token.span),
-                }
-                .into()
+                    ty: None,
+                })
             }
             TokenKind::LParen => {
                 self.next_token();
@@ -840,26 +820,26 @@ impl Parser {
             TokenKind::Amp => {
                 let start_span = self.curr_token.span.clone();
                 self.next_token();
-                Node {
+                self.ctx.push_node(Node {
                     kind: NodeKind::UnOp {
                         op: Op::Ref,
                         rhs: self.parse_expression(Op::precedence(&Op::Ref))?,
                     },
                     span: start_span.merge(&self.curr_token.span),
-                }
-                .into()
+                    ty: None,
+                })
             }
             TokenKind::Star => {
                 let start_span = self.curr_token.span.clone();
                 self.next_token();
-                Node {
+                self.ctx.push_node(Node {
                     kind: NodeKind::UnOp {
                         op: Op::Deref,
                         rhs: self.parse_expression(Op::precedence(&Op::Deref))?,
                     },
                     span: start_span.merge(&self.curr_token.span),
-                }
-                .into()
+                    ty: None,
+                })
             }
             TokenKind::LBracket => self.parse_array()?,
             TokenKind::None => return None,
@@ -926,19 +906,19 @@ impl Parser {
                     let ty = self.parse_type()?;
                     let ty_span_end = self.curr_token.span.clone();
 
-                    Node {
+                    self.ctx.push_node(Node {
                         kind: NodeKind::BinOp {
                             op: Op::Cast,
                             lhs,
-                            rhs: Node {
+                            rhs: self.ctx.push_node(Node {
                                 kind: NodeKind::Type { ty },
                                 span: ty_span_start.merge(&ty_span_end),
-                            }
-                            .into(),
+                                ty: None,
+                            }),
                         },
                         span,
-                    }
-                    .into()
+                        ty: None,
+                    })
                 }
                 Op::Turbofish => {
                     self.next_token();
@@ -954,8 +934,9 @@ impl Parser {
                         self.next_token();
                     }
 
-                    match &lhs.kind {
-                        NodeKind::Ident { name } => Node {
+                    let lhs = self.ctx.get_node(lhs);
+                    match lhs.kind {
+                        NodeKind::Ident { ref name } => self.ctx.push_node(Node {
                             kind: NodeKind::Path {
                                 segment: PathSegment {
                                     ident: name.clone(),
@@ -963,12 +944,13 @@ impl Parser {
                                 },
                             },
                             span: lhs.span.clone(),
-                        }
-                        .into(),
+                            ty: None,
+                        }),
                         _ => todo!(),
                     }
                 }
                 Op::StructLiteral => {
+                    let lhs = self.ctx.get_node(lhs);
                     let path: Rc<PathSegment> = match &lhs.kind {
                         NodeKind::Ident { name } => PathSegment {
                             ident: name.clone(),
@@ -995,7 +977,7 @@ impl Parser {
                             if let TokenKind::Ident(field_name) = self.curr_token.clone().kind {
                                 field_name
                             } else {
-                                println!("{:?} {}", lhs, span_start);
+                                println!("{:?} {}", lhs.debug_view(self.ctx), span_start);
                                 todo!();
                             };
 
@@ -1017,16 +999,14 @@ impl Parser {
                         self.next_token();
                     }
 
-                    return Some(
-                        Node {
-                            kind: NodeKind::StructLiteral {
-                                path: (*path).clone(),
-                                fields: fields.as_slice().into(),
-                            },
-                            span: span_start.merge(&self.curr_token.span),
-                        }
-                        .into(),
-                    );
+                    return Some(self.ctx.push_node(Node {
+                        kind: NodeKind::StructLiteral {
+                            path: (*path).clone(),
+                            fields: fields.as_slice().into(),
+                        },
+                        span: span_start.merge(&self.curr_token.span),
+                        ty: None,
+                    }));
                 }
                 op => {
                     if op == Op::Dot {
@@ -1037,19 +1017,19 @@ impl Parser {
                     let span = self.curr_token.span.clone();
                     self.next_token(); // curr_token is now rhs
                     let rhs = self.parse_expression(op_precedence)?;
-                    Node {
+                    self.ctx.push_node(Node {
                         kind: NodeKind::BinOp { op, lhs, rhs },
                         span,
-                    }
-                    .into()
+                        ty: None,
+                    })
                 }
             };
         }
         Some(lhs)
     }
 
-    fn parse_statement(&mut self, mut expect_semicolon: bool) -> Option<NodeRef> {
-        let node: Option<NodeRef> = match self.curr_token.kind {
+    fn parse_statement(&mut self, mut expect_semicolon: bool) -> Option<NodeId> {
+        let node: Option<NodeId> = match self.curr_token.kind {
             TokenKind::Let => {
                 expect_semicolon = true;
                 self.parse_let_or_const(false)
@@ -1063,13 +1043,11 @@ impl Parser {
                     self.parse_expression(0)
                 };
 
-                let r = Some(
-                    Node {
-                        kind: NodeKind::Return { expr },
-                        span,
-                    }
-                    .into(),
-                );
+                let r = Some(self.ctx.push_node(Node {
+                    kind: NodeKind::Return { expr },
+                    span,
+                    ty: None,
+                }));
                 self.next_token();
                 r
             }
@@ -1101,16 +1079,14 @@ impl Parser {
                 };
                 self.next_token();
                 match self.curr_token.kind {
-                    TokenKind::LBrace => Some(
-                        Node {
-                            kind: NodeKind::ExternBlock {
-                                linkage,
-                                block: self.parse_block()?,
-                            },
-                            span,
-                        }
-                        .into(),
-                    ),
+                    TokenKind::LBrace => Some(self.ctx.push_node(Node {
+                        kind: NodeKind::ExternBlock {
+                            linkage,
+                            block: self.parse_block()?,
+                        },
+                        span,
+                        ty: None,
+                    })),
                     TokenKind::Fn => {
                         expect_semicolon = true;
                         self.parse_fn(true, linkage)
@@ -1143,20 +1119,19 @@ impl Parser {
                                 ..
                             },
                         span,
-                    }) = self.parse_statement(false).as_deref()
+                        ..
+                    }) = self.parse_statement(false).map(|id| self.ctx.get_node(id))
                     {
-                        Some(
-                            Node {
-                                kind: NodeKind::Struct {
-                                    ident: ident.clone(),
-                                    fields: fields.clone(),
-                                    generics: generics.clone(),
-                                    attributes: Some(attributes.as_slice().into()),
-                                },
-                                span: span.clone(),
-                            }
-                            .into(),
-                        )
+                        Some(self.ctx.push_node(Node {
+                            kind: NodeKind::Struct {
+                                ident: ident.clone(),
+                                fields: fields.clone(),
+                                generics: generics.clone(),
+                                attributes: Some(attributes.as_slice().into()),
+                            },
+                            span: span.clone(),
+                            ty: None,
+                        }))
                     } else {
                         panic!("attributes not supported here")
                     }
@@ -1179,7 +1154,7 @@ impl Parser {
                     match self.curr_token.kind {
                         TokenKind::Comma => self.next_token(),
                         _ => {
-                            let mut patterns: Vec<NodeRef> = Vec::new();
+                            let mut patterns: Vec<NodeId> = Vec::new();
 
                             let mut pattern_node = self.parse_statement(false)?;
                             loop {
@@ -1191,7 +1166,7 @@ impl Parser {
                                             rhs,
                                         },
                                     ..
-                                } = &*pattern_node
+                                } = self.ctx.get_node(pattern_node)
                                 {
                                     patterns.push(lhs.clone());
                                     num_cases += 1;
@@ -1219,39 +1194,33 @@ impl Parser {
                 }
                 self.next_token(); // eat RBrace
 
-                Some(
-                    Node {
-                        kind: NodeKind::Match {
-                            scrutinee,
-                            arms: arms.as_slice().into(),
-                            num_cases,
-                        },
-                        span,
-                    }
-                    .into(),
-                )
+                Some(self.ctx.push_node(Node {
+                    kind: NodeKind::Match {
+                        scrutinee,
+                        arms: arms.as_slice().into(),
+                        num_cases,
+                    },
+                    span,
+                    ty: None,
+                }))
             }
             TokenKind::Continue => {
                 expect_semicolon = true;
                 self.next_token();
-                Some(
-                    Node {
-                        kind: NodeKind::Continue,
-                        span: self.curr_token.span.clone(),
-                    }
-                    .into(),
-                )
+                Some(self.ctx.push_node(Node {
+                    kind: NodeKind::Continue,
+                    span: self.curr_token.span.clone(),
+                    ty: None,
+                }))
             }
             TokenKind::Break => {
                 expect_semicolon = true;
                 self.next_token();
-                Some(
-                    Node {
-                        kind: NodeKind::Break,
-                        span: self.curr_token.span.clone(),
-                    }
-                    .into(),
-                )
+                Some(self.ctx.push_node(Node {
+                    kind: NodeKind::Break,
+                    span: self.curr_token.span.clone(),
+                    ty: None,
+                }))
             }
             _ => {
                 let expr = self.parse_expression(0);
@@ -1268,7 +1237,7 @@ impl Parser {
         node
     }
 
-    pub fn parse(&mut self) -> Vec<NodeRef> {
+    pub fn parse(&mut self) -> Vec<NodeId> {
         let mut ast = Vec::new();
         self.next_token(); // load first token
         while let Some(node) = self.parse_statement(false) {
@@ -1285,10 +1254,14 @@ mod tests {
     // TODO maybe use "pretty_assertions" crate here
     macro_rules! assert_parse {
         ($input:expr, $expected:expr) => {
-            let mut parser = Parser::new($input);
+            let ctx = CompilationCtx::default();
+            let mut parser = Parser::new(&ctx, $input);
             parser.next_token();
             match parser.parse_statement(false) {
-                Some(ast) => assert_eq!($expected, format!("{:?}", ast)),
+                Some(ast) => assert_eq!(
+                    $expected,
+                    format!("{:?}", ctx.get_node(ast).debug_view(&ctx))
+                ),
                 None => panic!("parser returned None"),
             }
         };
